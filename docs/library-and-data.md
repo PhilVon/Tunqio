@@ -8,6 +8,7 @@ The library subsystem turns folders of audio files into a browsable, searchable 
 %LocalAppData%\Tunqio\
   library.db              SQLite, WAL mode. Catalogue, playlists, history, settings.
   library.db-wal / -shm   SQLite journal files.
+  settings.json           Settings until E3-S1 moves them into the setting table (E0-S6 JsonSettingsStore; atomic replace).
   art\
     ab\abcdef0123...\      Album art keyed by SHA-256 of the source image bytes.
       original.jpg|png     Untouched source (only kept if < 4 MB).
