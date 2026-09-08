@@ -1,0 +1,95 @@
+# PR gate (docs/build-test-release.md, "Continuous integration"). Target: under 15 minutes.
+# Runner: windows-2025-vs2026 carries VS 2026 (MSVC v145), Windows SDK 10.0.26100 and LLVM, matching the pins
+# in Directory.Build.props. Steps that belong to later stories (fetch-native, dxc preset validation, gated
+# benchmarks, coverage upload) are added by those stories.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Native format check (clang-format)
+        shell: pwsh
+        run: ./tools/check-format.ps1
+
+      - name: Build (Release x64, warnings as errors)
+        run: msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 -warnaserror -m -nologo -v:minimal
+
+      - name: Managed format check (dotnet format, after restore)
+        shell: pwsh
+        run: |
+          $failed = 0
+          Get-ChildItem -Recurse -Filter *.csproj | Where-Object { $_.FullName -notmatch '[\\/]artifacts[\\/]' } | ForEach-Object {
+            dotnet format $_.FullName --verify-no-changes --no-restore
+            if ($LASTEXITCODE -ne 0) { $failed = 1 }
+          }
+          exit $failed
+
+      - name: Build native tests (ASan)
+        run: msbuild native/mpcore.tests/mpcore.tests.vcxproj -p:Configuration=ASan -p:Platform=x64 -m -nologo -v:minimal
+
+      - name: Native tests (Release)
+        run: artifacts/native/Release/x64/mpcore.tests.exe --reporter console::out=- --reporter JUnit::out=artifacts/test-results/mpcore.release.xml
+
+      - name: Native tests (ASan)
+        run: artifacts/native/ASan/x64/mpcore.tests.exe --reporter console::out=- --reporter JUnit::out=artifacts/test-results/mpcore.asan.xml
+
+      - name: ASan catches a deliberate use-after-free
+        shell: pwsh
+        run: ./tools/check-asan.ps1
+
+      - name: Managed tests
+        shell: pwsh
+        run: |
+          $failed = 0
+          foreach ($proj in Get-ChildItem tests -Recurse -Filter *.Tests.csproj) {
+            dotnet test $proj.FullName -c Release -p:Platform=x64 --no-build --logger "trx;LogFilePrefix=$($proj.BaseName)" --results-directory artifacts/test-results --collect:"XPlat Code Coverage"
+            if ($LASTEXITCODE -ne 0) { $failed = 1 }
+          }
+          exit $failed
+
+      - name: Package MSIX (unsigned; signing lands with E8-S1)
+        run: msbuild src/Tunqio.App/Tunqio.App.csproj -p:Configuration=Release -p:Platform=x64 -p:TunqioPackaged=true -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -m -nologo -v:minimal
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/test-results/**
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tunqio-msix-unsigned
+          path: |
+            artifacts/msix/**/*.msix
+            artifacts/native/Release/x64/mpcore.pdb
+          if-no-files-found: error

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    Catch2 v3 tests for mpcore. The tests compile the mpcore sources directly (MP_STATIC) rather than
+    linking the DLL, so internals (mp::spsc_ring, mp::abi::*) are testable and the ASan configuration
+    instruments the whole core, not just the test bodies.
+  -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ASan|x64">
+      <Configuration>ASan</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{6D0B0F2E-3B7A-4E2C-9C1D-5A1F0C2B7E02}</ProjectGuid>
+    <RootNamespace>mpcoretests</RootNamespace>
+    <ProjectName>mpcore.tests</ProjectName>
+    <TargetName>mpcore.tests</TargetName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'!='Debug'">false</UseDebugLibraries>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <EnableASAN Condition="'$(Configuration)'=='ASan'">true</EnableASAN>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="..\tunqio.native.props" />
+  </ImportGroup>
+  <PropertyGroup>
+    <LinkIncremental Condition="'$(Configuration)'=='Debug'">true</LinkIncremental>
+    <LinkIncremental Condition="'$(Configuration)'!='Debug'">false</LinkIncremental>
+    <MpCoreDir>$(TunqioNativeRoot)mpcore\</MpCoreDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MpCoreDir)include;$(MpCoreDir)src;$(TunqioNativeRoot)third_party;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- CATCH_AMALGAMATED_CUSTOM_MAIN: src/main.cpp supplies main(); without it the amalgamated Catch2 defines a second one. -->
+      <PreprocessorDefinitions>MP_STATIC;CATCH_AMALGAMATED_CUSTOM_MAIN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <!-- Core under test, compiled in. -->
+    <ClCompile Include="$(MpCoreDir)src\abi\exports.cpp" />
+    <ClCompile Include="$(MpCoreDir)src\abi\last_error.cpp" />
+    <!-- Tests -->
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\test_abi.cpp" />
+    <ClCompile Include="src\test_architecture.cpp" />
+    <ClCompile Include="src\test_asan_scratch.cpp" />
+    <ClCompile Include="src\test_spsc_ring.cpp" />
+    <!-- Catch2 amalgamated: third-party, compiled at a lower warning level. -->
+    <ClCompile Include="$(TunqioNativeRoot)third_party\catch2\catch_amalgamated.cpp">
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\source_root.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- MSVC's ASan always loads its dynamic runtime; put it next to the test binary so no vcvars environment is needed. -->
+  <Target Name="TunqioCopyAsanRuntime" AfterTargets="Build" Condition="'$(Configuration)'=='ASan'">
+    <ItemGroup>
+      <_AsanRuntime Include="$(VCToolsInstallDir)bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll" />
+      <_AsanRuntime Include="$(VCToolsInstallDir)bin\Hostx64\x64\clang_rt.asan_dbg_dynamic-x86_64.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_AsanRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('%(FullPath)')" />
+  </Target>
+</Project>

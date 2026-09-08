@@ -1,0 +1,26 @@
+# Build output (every project writes under artifacts/)
+artifacts/
+bin/
+obj/
+x64/
+Win32/
+.vs/
+*.user
+*.suo
+*.vcxproj.user
+TestResults/
+BenchmarkDotNet.Artifacts/
+*.log
+
+# Native binaries fetched by tools/fetch-native.ps1 (not committed; see THIRD-PARTY-NOTICES.md)
+native/bass/
+
+# Packaging output and local certificates
+AppPackages/
+*.msix
+*.appinstaller
+*.pfx
+*.cer
+
+# Kanban board runtime state (server pid/port/token and the local SQLite board)
+.kanban/

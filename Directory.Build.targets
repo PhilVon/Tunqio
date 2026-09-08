@@ -1,0 +1,21 @@
+<Project InitialTargets="TunqioLayeringGuard">
+  <!--
+    Layering guard (docs/solution-structure.md, "Dependency rules"). Fails the build, not just a test,
+    when a project references something it must not. Runs as an initial target so it fires before restore's
+    project walk (a Core -> Interop reference would otherwise surface only as a restore cycle):
+      Core    -> no project in this repo
+      Interop -> Core (and the mpcore.vcxproj for build ordering)
+      Library -> Core only
+      App     -> Interop, Library, Core
+    NetArchTest in Tunqio.Core.Tests enforces the same rules at the assembly level (namespaces, packages).
+  -->
+  <Target Name="TunqioLayeringGuard" BeforeTargets="ResolveProjectReferences;BeforeBuild" Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <ItemGroup>
+      <_TunqioForbidden Include="@(ProjectReference)" Condition="'$(MSBuildProjectName)' == 'Tunqio.Core'" />
+      <_TunqioForbidden Include="@(ProjectReference)" Condition="'$(MSBuildProjectName)' == 'Tunqio.Interop' and '%(Filename)' != 'Tunqio.Core' and '%(Filename)' != 'mpcore'" />
+      <_TunqioForbidden Include="@(ProjectReference)" Condition="'$(MSBuildProjectName)' == 'Tunqio.Library' and '%(Filename)' != 'Tunqio.Core'" />
+    </ItemGroup>
+    <Error Condition="'@(_TunqioForbidden)' != ''"
+           Text="Layering violation: $(MSBuildProjectName) must not reference @(_TunqioForbidden->'%(Filename)'). See docs/solution-structure.md (Dependency rules)." />
+  </Target>
+</Project>

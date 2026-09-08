@@ -1,0 +1,28 @@
+# clang-format for native/ (docs/solution-structure.md, "Coding conventions").
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+AccessModifierOffset: -4
+PointerAlignment: Left
+DerivePointerAlignment: false
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+NamespaceIndentation: None
+FixNamespaceComments: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"mpcore\.h"'
+    Priority: 0
+  - Regex: '^"'
+    Priority: 1
+  - Regex: '^<(windows|winerror|combaseapi)'
+    Priority: 3
+  - Regex: '^<'
+    Priority: 2
+SortIncludes: CaseSensitive

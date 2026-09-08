@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tunqio.Library: SQLite repositories, scanner, TagLibSharp reader/writer, art cache, playlists, history (E3).
+       References Core only; it never touches the engine. -->
+  <PropertyGroup>
+    <RootNamespace>Tunqio.Library</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="TagLibSharp" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tunqio.Core\Tunqio.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tunqio.Library.Tests" />
+  </ItemGroup>
+
+</Project>

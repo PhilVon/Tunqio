@@ -1,0 +1,79 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tunqio.App: the WinUI 3 shell. Two build shapes (docs/build-test-release.md, "Build configurations"):
+      unpackaged  - WindowsPackageType=None, Windows App SDK self-contained, fast F5 with mixed-mode debugging.
+                    Default for Debug.
+      packaged    - single-project MSIX, self-contained .NET. Default for Release.
+    Override with -p:TunqioPackaged=true|false. CI adds -p:GenerateAppxPackageOnBuild=true to produce the .msix.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Tunqio.App</RootNamespace>
+    <AssemblyName>Tunqio</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <PublishProfile>win-x64.pubxml</PublishProfile>
+    <TunqioPackaged Condition="'$(TunqioPackaged)' == '' and '$(Configuration)' == 'Release'">true</TunqioPackaged>
+    <TunqioPackaged Condition="'$(TunqioPackaged)' == ''">false</TunqioPackaged>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TunqioPackaged)' != 'true'">
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TunqioPackaged)' == 'true'">
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <SelfContained>true</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AppxBundle>Never</AppxBundle>
+    <UapAppxPackageBuildMode>SideloadOnly</UapAppxPackageBuildMode>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppxPackageOnBuild Condition="'$(GenerateAppxPackageOnBuild)' == ''">false</GenerateAppxPackageOnBuild>
+    <AppxPackageDir>$(TunqioRepoRoot)artifacts\msix\</AppxPackageDir>
+    <!-- Package file name Tunqio_<version>_x64.msix (docs/identity.md) rather than the project name. -->
+    <AppxPackageName>Tunqio</AppxPackageName>
+    <GenerateTestArtifacts>false</GenerateTestArtifacts>
+    <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tunqio.Core\Tunqio.Core.csproj" />
+    <ProjectReference Include="..\Tunqio.Interop\Tunqio.Interop.csproj" />
+    <ProjectReference Include="..\Tunqio.Library\Tunqio.Library.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+    <!-- The packaging targets reject an AppxManifest item when WindowsPackageType is None. -->
+    <AppxManifest Include="Package.appxmanifest" Condition="'$(TunqioPackaged)' == 'true'">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+    <None Include="Package.appxmanifest" Condition="'$(TunqioPackaged)' != 'true'" />
+    <Content Include="Assets\**\*.png" />
+  </ItemGroup>
+
+  <!-- mpcore.dll is built by native/mpcore/mpcore.vcxproj (solution build order); copy it next to the exe. -->
+  <PropertyGroup>
+    <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+  </PropertyGroup>
+  <Target Name="TunqioCopyNativeCore" AfterTargets="Build" Condition="Exists('$(TunqioNativeOut)mpcore.dll')">
+    <ItemGroup>
+      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

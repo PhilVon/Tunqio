@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Identity values come from docs/identity.md and are checked against Tunqio.Core.Identity by Tunqio.Core.Tests.
+  Identity Name, Publisher (once replaced at E8-S1) and Application Id are frozen at 1.0.
+  File type associations, the tunqio:// protocol and the execution alias are added by E7-S1.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap rescap desktop6">
+
+  <Identity
+    Name="Tunqio"
+    Publisher="CN=Tunqio"
+    Version="0.1.0.0" />
+
+  <Properties>
+    <DisplayName>Tunqio</DisplayName>
+    <PublisherDisplayName>Tunqio</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Tunqio music player</Description>
+    <!-- Keep %LocalAppData%\Tunqio literal and outside the package's LocalCache so user data survives uninstall (docs/identity.md). -->
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="x-generate"/>
+  </Resources>
+
+  <Applications>
+    <Application Id="Tunqio"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="$targetentrypoint$">
+      <uap:VisualElements
+        DisplayName="Tunqio"
+        Description="Tunqio music player"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <!-- Required by desktop6:FileSystemWriteVirtualization=disabled (restricted capability; fine for sideload, needs Store approval in 1.1). -->
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+</Package>

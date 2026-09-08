@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Runs against the real mpcore.dll built by native/mpcore/mpcore.vcxproj (solution build order puts mpcore first). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tunqio.Interop\Tunqio.Interop.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+  </PropertyGroup>
+  <Target Name="TunqioCopyNativeCore" AfterTargets="Build">
+    <Error Condition="!Exists('$(TunqioNativeOut)mpcore.dll')"
+           Text="mpcore.dll not found at $(TunqioNativeOut). Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
+    <ItemGroup>
+      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

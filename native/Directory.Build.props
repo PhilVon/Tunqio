@@ -1,0 +1,12 @@
+<Project>
+  <!-- Imports the repository-wide props (the Directory.Build.props search stops at the first hit), then pins the C++ toolchain. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <PlatformToolset>$(TunqioPlatformToolset)</PlatformToolset>
+    <WindowsTargetPlatformVersion>$(TunqioWindowsSdkVersion)</WindowsTargetPlatformVersion>
+    <CharacterSet>Unicode</CharacterSet>
+    <TunqioNativeRoot>$(MSBuildThisFileDirectory)</TunqioNativeRoot>
+    <OutDir>$(TunqioRepoRoot)artifacts\native\$(Configuration)\$(Platform)\</OutDir>
+    <IntDir>$(TunqioRepoRoot)artifacts\obj\native\$(MSBuildProjectName)\$(Configuration)\$(Platform)\</IntDir>
+  </PropertyGroup>
+</Project>

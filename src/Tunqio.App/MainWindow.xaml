@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Tunqio.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid RowDefinitions="*,Auto" Padding="24">
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+      <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
+      <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.7" />
+    </StackPanel>
+    <TextBlock x:Name="EngineText" Grid.Row="1" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" TextWrapping="Wrap" />
+  </Grid>
+</Window>

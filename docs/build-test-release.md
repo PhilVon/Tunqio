@@ -1,0 +1,122 @@
+# Build, Test and Release
+
+How the code is built, what "tested" means for each layer, how performance claims are verified, and how a release is produced. Decisions: ADR-004 (native core), ADR-011 (MSIX).
+
+## Toolchain
+
+| Item | Version / choice |
+|------|------------------|
+| .NET SDK | 8.0.416 (`rollForward: latestFeature`), pinned in `global.json` |
+| C++ | MSVC v145 (Visual Studio 2026; 14.51 at scaffold time), C++20, Windows SDK 10.0.26100. Pins: `TunqioPlatformToolset` and `TunqioWindowsSdkVersion` in `Directory.Build.props`. Workloads: "Desktop development with C++", ".NET desktop development", "WinUI application development" (the last two give MSBuild.exe its .NET SDK resolver) |
+| Build driver | `msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64` (mixed `.vcxproj` + `.csproj`; what CI runs). Without the .NET workloads in Visual Studio, `tools/build.ps1` drives the C++ projects through MSBuild.exe and the C# projects through `dotnet build Tunqio.Managed.slnf` (a solution filter of the `.csproj`s). `dotnet build` never builds the C++ projects |
+| Windows App SDK | 1.8.260804001, pinned once in `Directory.Packages.props` (central package management) |
+| Native deps | BASS 2.4.17+, bassmix, basswasapi, format add-ons: fetched by `tools/fetch-native.ps1` into `native/bass/` (headers, `.lib`, `.dll`), SHA-256 pinned, not committed. pffft, nlohmann/json, Catch2: **vendored** under `native/third_party/` (decided in E0-S1 over a vcpkg manifest: three small stable files, no bootstrap step; versions and hashes in `THIRD-PARTY-NOTICES.md`) |
+| Shaders | HLSL compiled at runtime with `D3DCompile`; CI also compiles every preset with `dxc` as validation |
+| Formatting | `dotnet format` and `clang-format --dry-run --Werror` enforced in CI |
+
+## Build configurations
+
+- **Debug (unpackaged):** `WindowsPackageType=None`; `mpcore.dll` and BASS copied next to the exe; fast F5 with mixed-mode debugging enabled (native + managed) in the App project.
+- **Debug (packaged):** MSIX deploy for activation, SMTC, toasts and file associations.
+- **Release:** packaged, self-contained, `ReadyToRun` on, trimming off; `mpcore` at `/O2 /GL /LTCG` with PDBs archived per release.
+- **ASan:** a fourth configuration for `mpcore.tests` only (`/fsanitize=address`, unoptimised, release static CRT: the debug CRT's heap fills hide use-after-free from ASan), run in CI. The tests compile the `mpcore` sources in directly (`MP_STATIC`) so internals are testable and fully instrumented. `tools/check-asan.ps1` proves detection with a tagged use-after-free test.
+
+## Test strategy
+
+| Layer | Kind | Tooling | What is asserted |
+|-------|------|---------|------------------|
+| mpcore/common | Unit + stress | Catch2 v3 | Ring buffer never loses, duplicates or tears frames under a producer/consumer stress test; SPSC triple buffer front is always the newest complete frame |
+| mpcore/audio | Integration | Catch2 against the BASS "no sound" device with decode-to-buffer | Gapless join is sample-continuous (continuous-sine fixtures, discontinuity < 1e-4); seek within one frame; guard fade click-free; crossfade equal-power; ReplayGain within 0.1 dB; every fixture format opens with correct duration; device enumeration; handle counts stable over 1000 open/close cycles |
+| mpcore/analysis | Unit + property | Catch2 | Synthetic signals: 1 kHz sine centroid within 2%; noise vs. sine harmonic ratio separated by > 0.4; click-train onsets within 10 ms, no false positives on sustained tones; pffft output matches a naive DFT reference to 1e-4 |
+| mpcore/render | Golden image | Catch2 on WARP, readback compare | Each built-in preset renders a fixed frame to within tolerance of a checked-in PNG; every preset compiles; luminance-flash test (< 3 Hz full-field change) |
+| mpcore/abi | Contract | Catch2 | Every export rejects null and wrong `struct_size`; `mp_last_error` populated; no callback after destroy (stress with 1000 create/destroy cycles) |
+| Interop | Integration | xUnit against the real `mpcore` | Every binding round-trips; callbacks arrive on the channel; `SafeHandle` finalisation frees native handles; ABI version mismatch is refused |
+| Core | Unit | xUnit, FluentAssertions | `PlayQueue` semantics; `PlaybackSession` state machine via a fake engine; settings serialisation |
+| Library | Integration | xUnit, `:memory:` SQLite, fixture library | Scanner add/update/missing; incremental rescan touches only changed files; artist splitting; compilation detection; FTS; keyset paging completeness; migrations from every prior version |
+| App | View-model unit | xUnit with fakes | Command enablement; search debounce and cancellation; mode switching |
+| App | UI smoke (tagged `[UI]`, nightly) | WinAppDriver | Launch, add fixture folder, play first album, mode switch, quit |
+| Architecture | Unit | NetArchTest + a Catch2 include-grep test | Dependency rules from solution-structure.md |
+| Accessibility | Nightly | Axe.Windows CLI | No critical violations per screen in light/dark/high-contrast |
+
+Coverage target: 80% line coverage on `mpcore` (via `OpenCppCoverage`), Core, Interop and Library; none on XAML.
+
+### Performance verification
+
+| Claim | Harness | Runs |
+|-------|---------|------|
+| No allocation on audio/analysis path | Debug `RT_ASSERT_NO_ALLOC` hook in Catch2 tests; Release `mp_engine_stats.callback_max_us` | PR gate |
+| Feature extraction < 4 ms per hop | Catch2 benchmark (`BENCHMARK`) with threshold | PR gate (20% slack on CI hardware) |
+| Interop call overhead < 5 µs for clock and frame reads | BenchmarkDotNet | PR gate |
+| Search < 50 ms p95 on 100k | BenchmarkDotNet against `library-100k.db` | PR gate |
+| Library open < 500 ms | Stopwatch in `Library.Tests` | PR gate |
+| Scan 10k files < 90 s | `FixtureGen` + timed scan | Nightly |
+| 60 fps at 1080p on iGPU | `mp_render_stats` during UI smoke; `LatencyHarness` frame-time distribution | Nightly on reference machine |
+| Visual latency p95 ≤ 1 refresh | `tools/LatencyHarness` (ADR-012) | Nightly on reference machine |
+| 24 h no dropouts | `tools/SoakRunner` logs `mp_engine_stats.underruns` | Weekly on reference machine |
+| Cold start < 1.5 s | WPA trace, `OnLaunched → first Present` | Nightly |
+| Memory 200 MB / 500 MB | `dotnet-counters` + native heap via `mp_engine_stats` | Nightly |
+
+The reference machine is a self-hosted GitHub runner; results are posted as a check with trends kept in the wiki.
+
+## Continuous integration
+
+GitHub Actions, `windows-2025-vs2026` runners (Visual Studio 2026 with MSVC v145, Windows SDK 10.0.26100 and LLVM, matching the local pins).
+
+**On pull request** (`ci.yml`, target < 15 minutes):
+1. Checkout; cache NuGet and `native/bass` (by hash).
+2. `tools/fetch-native.ps1`.
+3. `dotnet format --verify-no-changes`; `clang-format --dry-run --Werror` on `native/`.
+4. `msbuild Tunqio.sln -p:Configuration=Release -p:Platform=x64 -warnaserror` (also builds `mpcore.tests`).
+5. Run `mpcore.tests` (Release) and `mpcore.tests` (ASan); upload Catch2 JUnit output.
+6. `dotnet test` for Core, Interop, Library, App view-model tests with Coverlet; `OpenCppCoverage` for native.
+7. Benchmarks tagged `Gate` (Catch2 and BenchmarkDotNet) with threshold assertions.
+8. `dxc` validation of every preset shader.
+9. Build unpackaged Debug and packaged Release MSIX (self-signed CI cert) as artifacts, with `mpcore.pdb`.
+
+**Nightly** (`nightly.yml`): everything above plus UI smoke, accessibility scan, perf harnesses on the self-hosted runner, and a native-version check that opens an issue when un4seen publishes a new BASS build.
+
+**Release** (`release.yml`, on tag `v*`): build, test, sign, produce `Tunqio_<ver>_x64.msix`, `.appinstaller` manifest, SBOM (CycloneDX for NuGet plus a hand-maintained native list), release notes from conventional commits, GitHub Release with assets and symbol archive.
+
+## Packaging and distribution
+
+- Single-project MSIX. `Package.appxmanifest` declares file type associations for every supported extension, the protocol, `runFullTrust`, and an `appExecutionAlias`. `mpcore.dll`, BASS and add-ons are package content.
+- Auto-update via App Installer (`.appinstaller` on a static HTTPS host, check every 8 hours). Store submission is 1.1.
+- **Signing (Q-5):** self-signed certificate until 1.0-rc. CI generates and stores it as a secret; the README tells testers how to trust it. Before 1.0-rc a real identity (Azure Trusted Signing preferred) is chosen; the publisher string in the manifest is set for Tunqio and is then frozen.
+- Version scheme: SemVer in `Directory.Build.props`; MSIX version `major.minor.patch.0` from the tag; `mpcore` reports the same version through `mp_version()`.
+
+## Third-party components and licences
+
+| Component | Licence | Notes |
+|-----------|---------|-------|
+| BASS, bassmix, basswasapi, bassflac, bass_aac, bassopus, basswv, bass_ape | Proprietary; **free for non-commercial use** (Q-1: product is non-commercial) | Attribution in About; DLLs fetched by script, not committed; revisit ADR-003 if distribution ever becomes commercial |
+| bassasio | Separate licence | Post-1.0 |
+| pffft | BSD-style (FFTPACK licence) | Vendored |
+| nlohmann/json | MIT | Vendored, header-only |
+| Catch2 v3 | Boost Software License 1.0 | Test only |
+| TagLibSharp | LGPL 2.1 | Dynamically linked NuGet; keep as separate assembly; include licence text |
+| Microsoft.Data.Sqlite + SQLitePCLRaw | MIT / Apache 2 / Public domain | |
+| CommunityToolkit.Mvvm, CommunityToolkit.WinUI | MIT | |
+| Microsoft.Windows.CsWin32 | MIT | Source generator in App only |
+| H.NotifyIcon.WinUI | MIT | |
+| System.Reactive | MIT | |
+| Serilog + sinks | Apache 2 | |
+| Microsoft.Extensions.* | MIT | |
+| Windows App SDK / WinUI 3 | MIT (SDK) + Microsoft binaries licence | |
+| SixLabors.ImageSharp | Six Labors Split | Test dependency only |
+| BenchmarkDotNet, xUnit, FluentAssertions, NetArchTest | MIT / Apache 2 | Test only |
+
+The About page lists these; a CI step regenerates `THIRD-PARTY-NOTICES.md` from the NuGet graph plus the native list and fails on an unknown or GPL licence.
+
+## Definition of Done (per card)
+
+1. Acceptance criteria on the card are checked, with promise-type criteria demonstrated in the app.
+2. Tests exist at the layer the table above prescribes; native changes have Catch2 coverage and pass under ASan.
+3. PR gate green, including benchmarks touching the changed layer.
+4. No new analyzer or `/analyze` warnings; no new strings outside `.resw`.
+5. `mpcore.h` changes bump the ABI minor (or major if breaking) and update `Interop` in the same PR.
+6. Docs updated when a contract, ABI, or schema changed (with a migration).
+7. UI cards: keyboard-only walkthrough done and Narrator names present.
+
+## Branching and commits
+
+Trunk-based: `main` always releasable; branches `T-<n>-<slug>` per kanban card; squash merge with `T-<n>` in the subject so `kanban git link` associates commits. Conventional commit prefixes feed release notes.

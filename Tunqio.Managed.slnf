@@ -1,0 +1,14 @@
+{
+  "solution": {
+    "path": "Tunqio.sln",
+    "projects": [
+      "src\\Tunqio.App\\Tunqio.App.csproj",
+      "src\\Tunqio.Core\\Tunqio.Core.csproj",
+      "src\\Tunqio.Interop\\Tunqio.Interop.csproj",
+      "src\\Tunqio.Library\\Tunqio.Library.csproj",
+      "tests\\Tunqio.Core.Tests\\Tunqio.Core.Tests.csproj",
+      "tests\\Tunqio.Interop.Tests\\Tunqio.Interop.Tests.csproj",
+      "tests\\Tunqio.Library.Tests\\Tunqio.Library.Tests.csproj"
+    ]
+  }
+}

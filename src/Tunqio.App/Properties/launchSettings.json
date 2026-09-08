@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Tunqio (Unpackaged)": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    },
+    "Tunqio (Package)": {
+      "commandName": "MsixPackage",
+      "nativeDebugging": true
+    }
+  }
+}

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tunqio.Interop: the only project that names mpcore.dll. LibraryImport bindings over mpcore.h,
+       SafeHandles, callback trampolines and the event pump (E0-S9). E0-S1 binds the version and error surface. -->
+  <PropertyGroup>
+    <RootNamespace>Tunqio.Interop</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tunqio.Core\Tunqio.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tunqio.Interop.Tests" />
+  </ItemGroup>
+
+</Project>

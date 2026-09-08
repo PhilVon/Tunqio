@@ -1,0 +1,20 @@
+# Normalise to LF in the repository; the toolchain handles LF everywhere (MSVC, .NET, clang-format).
+* text=auto eol=lf
+
+# Visual Studio solution files are historically CRLF and VS rewrites them that way.
+*.sln text eol=crlf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.jpg binary
+*.msix binary
+*.pfx binary
+*.dll binary
+*.lib binary
+*.pdb binary
+*.wav binary
+*.flac binary
+*.mp3 binary
+*.ogg binary
+*.m4a binary
