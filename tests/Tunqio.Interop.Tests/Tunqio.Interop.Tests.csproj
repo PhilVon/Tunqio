@@ -15,12 +15,17 @@
 
   <PropertyGroup>
     <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+    <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
   </PropertyGroup>
+  <!-- mpcore.dll links bass, bassmix and basswasapi, so the BASS runtime (tools/fetch-native.ps1) must sit next to it. -->
   <Target Name="TunqioCopyNativeCore" AfterTargets="Build">
     <Error Condition="!Exists('$(TunqioNativeOut)mpcore.dll')"
            Text="mpcore.dll not found at $(TunqioNativeOut). Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
+    <Error Condition="!Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
+           Text="native/bass is empty; run tools/fetch-native.ps1 first." />
     <ItemGroup>
       <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+      <_TunqioNativeFiles Include="$(TunqioBassRoot)bin\x64\*.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
