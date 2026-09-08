@@ -68,12 +68,25 @@
   <!-- mpcore.dll is built by native/mpcore/mpcore.vcxproj (solution build order); copy it next to the exe. -->
   <PropertyGroup>
     <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+    <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
   </PropertyGroup>
   <Target Name="TunqioCopyNativeCore" AfterTargets="Build" Condition="Exists('$(TunqioNativeOut)mpcore.dll')">
     <ItemGroup>
       <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
     </ItemGroup>
     <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Third-party notices and licence texts for the About page: THIRD-PARTY-NOTICES.md plus the BASS texts
+       extracted by tools/fetch-native.ps1 (when present). E0-S3. -->
+  <Target Name="TunqioCopyLicenses" AfterTargets="Build">
+    <ItemGroup>
+      <_TunqioLicenseFiles Include="$(TunqioRepoRoot)THIRD-PARTY-NOTICES.md" />
+      <_TunqioLicenseFiles Include="$(TunqioBassRoot)licenses\*.txt" />
+      <_TunqioBassDlls Include="$(TunqioBassRoot)bin\x64\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TunqioLicenseFiles)" DestinationFolder="$(OutDir)licenses\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_TunqioBassDlls)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="'@(_TunqioBassDlls)' != ''" />
   </Target>
 
 </Project>

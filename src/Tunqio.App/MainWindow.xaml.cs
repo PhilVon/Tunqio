@@ -18,7 +18,8 @@ public sealed partial class MainWindow : Window
         Title = Identity.WindowTitle(null, null);
         ProductText.Text = Identity.ProductName;
         VersionText.Text = string.Create(CultureInfo.InvariantCulture, $"Version {ProductVersion()}");
-        EngineText.Text = DescribeEngine();
+        // About-page placeholder (E0-S3): the BASS attribution is shown until E6-S5 builds the real page.
+        EngineText.Text = DescribeEngine() + Environment.NewLine + ThirdPartyAttribution.Bass;
     }
 
     private static string ProductVersion()

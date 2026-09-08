@@ -37,6 +37,15 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
+      - uses: actions/cache@v4
+        with:
+          path: native/bass/.cache
+          key: bass-${{ hashFiles('tools/native-deps.json') }}
+
+      - name: Fetch native packages (BASS, hash-verified)
+        shell: pwsh
+        run: ./tools/fetch-native.ps1
+
       - name: Native format check (clang-format)
         shell: pwsh
         run: ./tools/check-format.ps1

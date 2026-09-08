@@ -49,7 +49,7 @@ Win2D is **not** used for the main visualizer; it remains an option for small de
 
 **Context.** audio-engine.md layers PortAudio, libsamplerate, Intel IPP or FFTW, and hand-written WASAPI clients on top of BASS. BASS already provides every one of these. FFTW is GPL.
 
-**Decision.** Audio stack is BASS 2.4, bassmix, basswasapi, plus format add-ons (bassflac, bass_aac, bassopus, basswv, bass_ape) loaded lazily, called directly from the native core through the BASS C API (no ManagedBass; see ADR-004). Pipeline:
+**Decision.** Audio stack is BASS 2.4, bassmix, basswasapi, plus format add-ons (bassflac, bassopus, basswv, bass_ape; AAC/M4A/ALAC and WMA decode through BASS's Media Foundation support, because the BASS_AAC add-on is GPL and excluded by the licence policy) loaded lazily, called directly from the native core through the BASS C API (no ManagedBass; see ADR-004). Pipeline:
 
 1. Each track is a decoding stream: `BASS_STREAM_DECODE | BASS_SAMPLE_FLOAT | BASS_STREAM_PRESCAN`.
 2. Streams are added to one mixer (`BASS_Mixer_StreamCreate(48000, 2, BASS_SAMPLE_FLOAT | BASS_STREAM_DECODE | BASS_MIXER_NONSTOP)`) with `BASS_MIXER_CHAN_NORAMPIN` and `BASS_MIXER_CHAN_BUFFER`. Mixer rate follows the output device rate in exclusive mode.

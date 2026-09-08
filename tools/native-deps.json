@@ -1,0 +1,76 @@
+{
+  "_comment": "BASS packages fetched by tools/fetch-native.ps1 into native/bass/. Update a hash only together with the version it belongs to (tools/fetch-native.ps1 -PrintHashes). BASS_AAC is deliberately absent: it is GPL, and BASS decodes AAC/M4A/ALAC and WMA through Media Foundation on Windows.",
+  "root": "native/bass",
+  "packages": [
+    {
+      "name": "bass",
+      "description": "BASS core 2.4",
+      "url": "https://www.un4seen.com/files/bass24.zip",
+      "sha256": "3a03ec9a33d0f4f9d167660da51c8bb1432e8977496995455ab137277d69636e",
+      "header": "c/bass.h",
+      "lib": "c/x64/bass.lib",
+      "dll": "x64/bass.dll",
+      "licence": "bass.txt"
+    },
+    {
+      "name": "bassmix",
+      "description": "BASSmix 2.4 (mixer, resampling, gapless joins)",
+      "url": "https://www.un4seen.com/files/bassmix24.zip",
+      "sha256": "c22d3d6135b5d14af23ae1d54100be6c30fe500d9b0f253b5ebc7e9130dbad85",
+      "header": "c/bassmix.h",
+      "lib": "c/x64/bassmix.lib",
+      "dll": "x64/bassmix.dll",
+      "licence": "bassmix.txt"
+    },
+    {
+      "name": "basswasapi",
+      "description": "BASSWASAPI 2.4 (shared and exclusive output)",
+      "url": "https://www.un4seen.com/files/basswasapi24.zip",
+      "sha256": "4ba99200ebef8dca11cc99cba9b5dc3e51a1c467e570de2cbc0631a038f7ea2d",
+      "header": "c/basswasapi.h",
+      "lib": "c/x64/basswasapi.lib",
+      "dll": "x64/basswasapi.dll",
+      "licence": "basswasapi.txt"
+    },
+    {
+      "name": "bassflac",
+      "description": "BASSFLAC 2.4 (FLAC add-on)",
+      "url": "https://www.un4seen.com/files/bassflac24.zip",
+      "sha256": "147280210f62a80e52094e1822e73a16fd3b1a8c9c857c24dcca7dcfcb4ffa14",
+      "header": "c/bassflac.h",
+      "lib": "c/x64/bassflac.lib",
+      "dll": "x64/bassflac.dll",
+      "licence": "bassflac.txt"
+    },
+    {
+      "name": "bassopus",
+      "description": "BASSOPUS 2.4 (Opus add-on)",
+      "url": "https://www.un4seen.com/files/bassopus24.zip",
+      "sha256": "1fb6e033289ea968ca1fd02dea154a2e5d06bb9c2e33cdeda277e63084d9ad20",
+      "header": "c/bassopus.h",
+      "lib": "c/x64/bassopus.lib",
+      "dll": "x64/bassopus.dll",
+      "licence": "bassopus.txt"
+    },
+    {
+      "name": "basswv",
+      "description": "BASSWV 2.4 (WavPack add-on)",
+      "url": "https://www.un4seen.com/files/basswv24.zip",
+      "sha256": "813801639bb140fa8f6baa8aa03aeac47225e1e876fe943367f91c38f79c1eca",
+      "header": "c/basswv.h",
+      "lib": "c/x64/basswv.lib",
+      "dll": "x64/basswv.dll",
+      "licence": "basswv.txt"
+    },
+    {
+      "name": "bass_ape",
+      "description": "BASS_APE 2.4 (Monkey's Audio add-on, third party)",
+      "url": "https://www.un4seen.com/files/z/2/bass_ape24.zip",
+      "sha256": "de86f7e6ba5df0c757a75334f263aa543c0ed2eb9b935a4709cfd54a36e03ce0",
+      "header": "c/bass_ape.h",
+      "lib": "c/x64/bass_ape.lib",
+      "dll": "x64/bass_ape.dll",
+      "licence": "readme.txt"
+    }
+  ]
+}

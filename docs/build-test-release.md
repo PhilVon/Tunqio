@@ -19,7 +19,7 @@ How the code is built, what "tested" means for each layer, how performance claim
 - **Debug (unpackaged):** `WindowsPackageType=None`; `mpcore.dll` and BASS copied next to the exe; fast F5 with mixed-mode debugging enabled (native + managed) in the App project.
 - **Debug (packaged):** MSIX deploy for activation, SMTC, toasts and file associations.
 - **Release:** packaged, self-contained, `ReadyToRun` on, trimming off; `mpcore` at `/O2 /GL /LTCG` with PDBs archived per release.
-- **ASan:** a fourth configuration for `mpcore.tests` only (`/fsanitize=address`, unoptimised, release static CRT: the debug CRT's heap fills hide use-after-free from ASan), run in CI. The tests compile the `mpcore` sources in directly (`MP_STATIC`) so internals are testable and fully instrumented. `tools/check-asan.ps1` proves detection with a tagged use-after-free test.
+- **ASan:** a fourth configuration for `mpcore.tests` only (`/fsanitize=address`, unoptimised, release dynamic CRT `/MD` with the ASan runtime DLL copied next to the binary; the debug CRT's heap fills hide use-after-free from ASan, and `/sdl` rewrites a deleted pointer to `0x8123`, so the proof test reads through an alias), run in CI. The tests compile the `mpcore` sources in directly (`MP_STATIC`) so internals are testable and fully instrumented. `tools/check-asan.ps1` proves detection with a tagged use-after-free test.
 
 ## Test strategy
 
@@ -88,7 +88,8 @@ GitHub Actions, `windows-2025-vs2026` runners (Visual Studio 2026 with MSVC v145
 
 | Component | Licence | Notes |
 |-----------|---------|-------|
-| BASS, bassmix, basswasapi, bassflac, bass_aac, bassopus, basswv, bass_ape | Proprietary; **free for non-commercial use** (Q-1: product is non-commercial) | Attribution in About; DLLs fetched by script, not committed; revisit ADR-003 if distribution ever becomes commercial |
+| BASS, bassmix, basswasapi, bassflac, bassopus, basswv, bass_ape | Proprietary; **free for non-commercial use** (Q-1: product is non-commercial) | Attribution in About; DLLs fetched by `tools/fetch-native.ps1` (hash-pinned in `tools/native-deps.json`), not committed; licence texts shipped under `licenses/`; revisit ADR-003 if distribution ever becomes commercial |
+| BASS_AAC | **GPL** | **Not used.** AAC/M4A/ALAC/WMA decode through BASS's Media Foundation support on Windows |
 | bassasio | Separate licence | Post-1.0 |
 | pffft | BSD-style (FFTPACK licence) | Vendored |
 | nlohmann/json | MIT | Vendored, header-only |

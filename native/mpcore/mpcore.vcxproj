@@ -34,12 +34,14 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(TunqioNativeRoot)third_party;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- native/bass is populated by tools/fetch-native.ps1; only src/audio may include from it (Catch2 include-grep test). -->
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(TunqioNativeRoot)third_party;$(TunqioNativeRoot)bass\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>MP_BUILDING_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
+      <AdditionalLibraryDirectories>$(TunqioNativeRoot)bass\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
