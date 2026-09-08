@@ -42,6 +42,7 @@
       <SubSystem>Windows</SubSystem>
       <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
       <AdditionalLibraryDirectories>$(TunqioNativeRoot)bass\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -53,12 +54,17 @@
     <ClInclude Include="include\mpcore.h" />
     <ClInclude Include="src\abi\guard.h" />
     <ClInclude Include="src\abi\last_error.h" />
+    <ClInclude Include="src\audio\bass_engine.h" />
+    <ClInclude Include="src\common\log.h" />
     <ClInclude Include="src\common\spsc_ring.h" />
     <ClInclude Include="src\common\version.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\abi\exports.cpp" />
     <ClCompile Include="src\abi\last_error.cpp" />
+    <ClCompile Include="src\audio\bass_engine.cpp" />
+    <ClCompile Include="src\common\log.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="..\tunqio.native.targets" />
 </Project>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Imported after Microsoft.Cpp.targets by every native project that links BASS: puts the BASS runtime DLLs
+       (fetched by tools/fetch-native.ps1) next to the binary so it runs without a PATH change. -->
+  <Target Name="TunqioCopyBassRuntime" AfterTargets="Build">
+    <ItemGroup>
+      <_TunqioBassDll Include="$(TunqioNativeRoot)bass\bin\x64\*.dll" />
+    </ItemGroup>
+    <Warning Condition="'@(_TunqioBassDll)' == ''" Text="native/bass is empty; run tools/fetch-native.ps1 before running $(TargetName)." />
+    <Copy SourceFiles="@(_TunqioBassDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="'@(_TunqioBassDll)' != ''" />
+  </Target>
+</Project>

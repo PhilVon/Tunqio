@@ -3,11 +3,14 @@
 
 #include "abi/guard.h"
 #include "abi/last_error.h"
+#include "audio/bass_engine.h"
+#include "common/log.h"
 #include "common/version.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 
 namespace mp::abi::detail {
 
@@ -19,7 +22,40 @@ void record_seh(unsigned long code) noexcept {
 
 } // namespace mp::abi::detail
 
+namespace {
+
+using mp::audio::engine;
+using mp::audio::track;
+
+// The opaque handles are the C++ objects themselves.
+engine* as_engine(mp_engine* e) {
+    return reinterpret_cast<engine*>(e);
+}
+track* as_track(mp_track* t) {
+    return reinterpret_cast<track*>(t);
+}
+
+template <typename T> bool size_ok(const T* s) {
+    return s != nullptr && s->struct_size == sizeof(T);
+}
+
+mp_result invalid(const char* what) {
+    mp::abi::set_last_error(what);
+    return MP_E_INVALID_ARG;
+}
+
+mp_result not_implemented(const char* export_name, const char* story) {
+    char text[128];
+    std::snprintf(text, sizeof text, "%s is not implemented yet (lands with %s)", export_name, story);
+    mp::abi::set_last_error(text);
+    return MP_E_STATE;
+}
+
+} // namespace
+
 extern "C" {
+
+// ---- version and errors ----
 
 MP_API uint32_t MP_CALL mpcore_abi_version(void) {
     return (MP_ABI_MAJOR << 16) | MP_ABI_MINOR;
@@ -39,6 +75,237 @@ MP_API mp_result MP_CALL mp_last_error(char* buf, size_t len) {
     std::memcpy(buf, msg.data(), n);
     buf[n] = '\0';
     return MP_OK;
+}
+
+// ---- logging ----
+
+MP_API mp_result MP_CALL mp_log_set_sink(mp_log_cb sink, void* user, mp_log_level min_level) {
+    return mp::abi::guard([&]() -> mp_result {
+        mp::log_set_sink(sink, user, min_level);
+        return MP_OK;
+    });
+}
+
+// ---- engine ----
+
+MP_API mp_result MP_CALL mp_engine_create(const mp_engine_config* config, mp_engine** out_engine) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (!size_ok(config) || out_engine == nullptr) {
+            return invalid("mp_engine_create: bad config struct_size or NULL out_engine");
+        }
+        *out_engine = nullptr;
+        std::unique_ptr<engine> e;
+        const mp_result r = engine::create(*config, e);
+        if (r == MP_OK) {
+            *out_engine = reinterpret_cast<mp_engine*>(e.release());
+        }
+        return r;
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_destroy(mp_engine* e) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_destroy: NULL engine");
+        }
+        delete as_engine(e);
+        return MP_OK;
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_set_output(mp_engine* e, const mp_output_config* config) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr || !size_ok(config)) {
+            return invalid("mp_engine_set_output: NULL engine or bad config struct_size");
+        }
+        return as_engine(e)->set_output(*config);
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_enum_devices(mp_engine* e, mp_device_info* out, uint32_t* count) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr || count == nullptr) {
+            return invalid("mp_engine_enum_devices: NULL engine or count");
+        }
+        return as_engine(e)->enum_devices(out, count);
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_set_event_callback(mp_engine* e, mp_event_cb callback, void* user) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_set_event_callback: NULL engine");
+        }
+        as_engine(e)->set_event_callback(callback, user);
+        return MP_OK;
+    });
+}
+
+// ---- tracks ----
+
+MP_API mp_result MP_CALL mp_track_open(mp_engine* e, const char* utf8_path, mp_track** out_track) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr || utf8_path == nullptr || out_track == nullptr) {
+            return invalid("mp_track_open: NULL argument");
+        }
+        *out_track = nullptr;
+        track* t = nullptr;
+        const mp_result r = as_engine(e)->open_track(utf8_path, t);
+        if (r == MP_OK) {
+            *out_track = reinterpret_cast<mp_track*>(t);
+        }
+        return r;
+    });
+}
+
+MP_API mp_result MP_CALL mp_track_close(mp_track* t) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (t == nullptr || as_track(t)->owner == nullptr) {
+            return invalid("mp_track_close: NULL or orphaned track");
+        }
+        return as_track(t)->owner->close_track(as_track(t));
+    });
+}
+
+MP_API mp_result MP_CALL mp_track_get_info(mp_track* t, mp_track_info* out_info) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (t == nullptr || !size_ok(out_info)) {
+            return invalid("mp_track_get_info: NULL track or bad struct_size");
+        }
+        *out_info = as_track(t)->info;
+        return MP_OK;
+    });
+}
+
+// ---- transport ----
+
+MP_API mp_result MP_CALL mp_engine_play(mp_engine* e, mp_track* t, int64_t start_ms) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr || t == nullptr) {
+            return invalid("mp_engine_play: NULL engine or track");
+        }
+        if (!as_engine(e)->owns(as_track(t))) {
+            return invalid("mp_engine_play: track does not belong to this engine");
+        }
+        return as_engine(e)->play(as_track(t), start_ms < 0 ? 0 : start_ms);
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* e, mp_track* /*next*/) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_preload_next: NULL engine");
+        }
+        return not_implemented("mp_engine_preload_next", "E1-S3");
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_pause(mp_engine* e) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_pause: NULL engine");
+        }
+        return as_engine(e)->pause();
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_resume(mp_engine* e) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_resume: NULL engine");
+        }
+        return as_engine(e)->resume();
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_stop(mp_engine* e, mp_fade_mode /*fade: E1-S4 */) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_stop: NULL engine");
+        }
+        return as_engine(e)->stop();
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_seek(mp_engine* e, int64_t position_ms) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_seek: NULL engine");
+        }
+        return as_engine(e)->seek(position_ms < 0 ? 0 : position_ms);
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_set_volume(mp_engine* e, float linear) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_set_volume: NULL engine");
+        }
+        as_engine(e)->set_volume(linear);
+        return MP_OK;
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_set_replaygain(mp_engine* e, float /*gain_db*/, float /*peak*/) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_set_replaygain: NULL engine");
+        }
+        return not_implemented("mp_engine_set_replaygain", "E1-S5");
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* e, uint32_t /*ms*/) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_set_crossfade: NULL engine");
+        }
+        return not_implemented("mp_engine_set_crossfade", "E1-S4");
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_get_clock(mp_engine* e, mp_clock* out_clock) {
+    // Not guarded with SEH on purpose: this is polled at UI rate and must stay cheap. It only reads.
+    if (e == nullptr || !size_ok(out_clock)) {
+        return invalid("mp_engine_get_clock: NULL engine or bad struct_size");
+    }
+    return as_engine(e)->get_clock(*out_clock);
+}
+
+MP_API mp_result MP_CALL mp_engine_get_stats(mp_engine* e, mp_engine_stats* out_stats) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr || !size_ok(out_stats)) {
+            return invalid("mp_engine_get_stats: NULL engine or bad struct_size");
+        }
+        return as_engine(e)->get_stats(*out_stats);
+    });
+}
+
+MP_API mp_result MP_CALL mp_preview_start(mp_engine* e, mp_track* /*track*/, float /*gain_db*/) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_preview_start: NULL engine");
+        }
+        return not_implemented("mp_preview_start", "E5-S5");
+    });
+}
+
+MP_API mp_result MP_CALL mp_preview_stop(mp_engine* e) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_preview_stop: NULL engine");
+        }
+        return not_implemented("mp_preview_stop", "E5-S5");
+    });
+}
+
+// ---- analysis ----
+
+MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* e, mp_analysis_frame* out_frame) {
+    if (e == nullptr || !size_ok(out_frame)) {
+        return invalid("mp_analysis_try_get_latest: NULL engine or bad struct_size");
+    }
+    return not_implemented("mp_analysis_try_get_latest", "E1-S8");
 }
 
 } // extern "C"

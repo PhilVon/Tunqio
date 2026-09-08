@@ -44,9 +44,18 @@ std::vector<include_hit> collect_includes(const fs::path& root) {
     return hits;
 }
 
-bool is_bass_header(const std::string& header) {
+// A BASS SDK header: one of the known names, or anything that resolves inside native/bass/include (the
+// fetched SDK). mpcore's own audio/bass_engine.h is not one.
+bool is_bass_header(const std::string& header, const fs::path& native_root) {
+    static const char* const k_known[] = {"bass.h",     "bassmix.h", "basswasapi.h", "bassflac.h",
+                                          "bassopus.h", "basswv.h",  "bass_ape.h",   "bass_aac.h"};
     const auto name = fs::path{header}.filename().string();
-    return name.starts_with("bass") && name.ends_with(".h");
+    for (const char* known : k_known) {
+        if (name == known) {
+            return true;
+        }
+    }
+    return name.starts_with("bass") && name.ends_with(".h") && fs::exists(native_root / "bass" / "include" / name);
 }
 
 bool under(const fs::path& file, const fs::path& dir) {
@@ -66,7 +75,7 @@ TEST_CASE("only mpcore/src/audio includes BASS headers", "[architecture]") {
 
     std::vector<std::string> violations;
     for (const auto& hit : collect_includes(src)) {
-        if (is_bass_header(hit.header) && !under(hit.file, audio)) {
+        if (is_bass_header(hit.header, *native) && !under(hit.file, audio)) {
             violations.push_back(fs::relative(hit.file, src).generic_string() + " includes " + hit.header);
         }
     }
