@@ -255,6 +255,21 @@ public sealed class SqliteTrackRepository : ITrackRepository
         await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default)
+    {
+        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using SqliteCommand command = Sql.Command(connection, "SELECT id, path, file_size, file_mtime, missing FROM track WHERE folder_id = $folder");
+        command.Add("$folder", folderId);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        var stamps = new List<TrackFileStamp>();
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            stamps.Add(new TrackFileStamp(reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4) != 0));
+        }
+
+        return stamps;
+    }
+
     public async Task MarkMissingAsync(IReadOnlyList<long> ids, bool missing, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(ids);

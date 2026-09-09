@@ -29,6 +29,9 @@ public interface ITrackRepository
     /// <summary>Flags files absent at the last scan (hidden but retained) or clears the flag when they return.</summary>
     Task MarkMissingAsync(IReadOnlyList<long> ids, bool missing, CancellationToken ct = default);
 
+    /// <summary>Scanner only: the stamp of every track under a folder, loaded once at scan start for the Diff stage.</summary>
+    Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default);
+
     /// <summary>Applies a partial edit to the row (not the file), re-resolving album, artists and genres as needed.</summary>
     Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default);
 }
@@ -81,7 +84,7 @@ public interface ILibraryFolderRepository
     Task RecordScanAsync(long id, long scannedAt, string status, CancellationToken ct = default);
 }
 
-/// <summary>The library layer's front door (docs/solution-structure.md). The scanner joins in E3-S5.</summary>
+/// <summary>The library layer's front door (docs/solution-structure.md).</summary>
 public interface ILibraryService
 {
     ITrackRepository Tracks { get; }
@@ -93,4 +96,6 @@ public interface ILibraryService
     IGenreRepository Genres { get; }
 
     ILibraryFolderRepository Folders { get; }
+
+    ILibraryScanner Scanner { get; }
 }

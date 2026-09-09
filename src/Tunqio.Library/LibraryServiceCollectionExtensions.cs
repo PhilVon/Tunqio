@@ -13,9 +13,10 @@ namespace Tunqio.Library;
 public static class LibraryServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers <see cref="IAppPaths"/>, <see cref="ISettingsStore"/>, <see cref="LibraryDatabase"/>, <see cref="ILibraryService"/>, its repositories and <see cref="ITagReader"/> as singletons.
+    /// Registers <see cref="IAppPaths"/>, <see cref="ISettingsStore"/>, <see cref="LibraryDatabase"/>, <see cref="ILibraryService"/>, its repositories, <see cref="ITagReader"/> and <see cref="ILibraryScanner"/> as singletons.
     /// The database opens (and migrates) on first resolution; the host resolves it during start-up so a recovery
-    /// notice can be shown as the window appears.
+    /// notice can be shown as the window appears. The scanner picks up an <see cref="IArtCache"/> (E3-S7) and an
+    /// <see cref="IDurationProbe"/> (the engine's slow path) when the host has registered them.
     /// </summary>
     public static IServiceCollection AddLibrary(this IServiceCollection services)
     {
@@ -25,12 +26,19 @@ public static class LibraryServiceCollectionExtensions
             provider.GetRequiredService<IAppPaths>(),
             provider.GetService<TimeProvider>(),
             provider.GetService<ILogger<LibraryDatabase>>()));
-        services.TryAddSingleton<ILibraryService>(provider => new LibraryService(provider.GetRequiredService<LibraryDatabase>(), provider.GetService<TimeProvider>()));
+        services.TryAddSingleton<ILibraryService>(provider => new LibraryService(
+            provider.GetRequiredService<LibraryDatabase>(),
+            provider.GetService<TimeProvider>(),
+            provider.GetRequiredService<ITagReader>(),
+            provider.GetService<IArtCache>(),
+            provider.GetService<IDurationProbe>(),
+            provider.GetService<ILoggerFactory>()));
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Tracks);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Albums);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Artists);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Genres);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Folders);
+        services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Scanner);
         services.TryAddSingleton<ITagReader>(provider => new TagLibTagReader(provider.GetRequiredService<ISettingsStore>(), provider.GetService<ILogger<TagLibTagReader>>()));
         return services;
     }

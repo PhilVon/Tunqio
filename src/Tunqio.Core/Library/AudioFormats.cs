@@ -37,6 +37,13 @@ public static class AudioFormats
     /// <summary>True when the path's extension is in <see cref="Extensions"/>.</summary>
     public static bool IsSupported(string path) => CodecByExtension.ContainsKey(Path.GetExtension(path));
 
+    /// <summary>Span form for the scanner's directory walk, which sees file names without allocating them.</summary>
+    public static bool IsSupported(ReadOnlySpan<char> path)
+    {
+        ReadOnlySpan<char> extension = Path.GetExtension(path);
+        return extension.Length > 1 && CodecByExtension.ContainsKey(extension.ToString());
+    }
+
     /// <summary>The codec an extension implies, or <c>null</c> for an unsupported extension.</summary>
     public static string? CodecForExtension(string pathOrExtension) =>
         CodecByExtension.TryGetValue(Path.GetExtension(pathOrExtension), out string? codec) ? codec : null; // GetExtension(".mp3") is ".mp3"
