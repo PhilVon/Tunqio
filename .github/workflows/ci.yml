@@ -66,6 +66,10 @@ jobs:
       - name: Build native tests (ASan)
         run: msbuild native/mpcore.tests/mpcore.tests.vcxproj -p:Configuration=ASan -p:Platform=x64 -m -nologo -v:minimal
 
+      - name: Prepare test-results folder
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force artifacts/test-results | Out-Null
+
       - name: Native tests (Release)
         run: artifacts/native/Release/x64/mpcore.tests.exe --reporter console::out=- --reporter JUnit::out=artifacts/test-results/mpcore.release.xml
 
