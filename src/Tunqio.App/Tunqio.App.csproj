@@ -4,8 +4,13 @@
     Tunqio.App: the WinUI 3 shell. Two build shapes (docs/build-test-release.md, "Build configurations"):
       unpackaged  - WindowsPackageType=None, Windows App SDK self-contained, fast F5 with mixed-mode debugging.
                     Default for Debug.
-      packaged    - single-project MSIX, self-contained .NET. Default for Release.
-    Override with -p:TunqioPackaged=true|false. CI adds -p:GenerateAppxPackageOnBuild=true to produce the .msix.
+      packaged    - single-project MSIX, self-contained .NET. Default when a package is being generated
+                    (GenerateAppxPackageOnBuild=true), which is how CI's package step and the release build ask
+                    for it. A plain Release build stays unpackaged (T-101): the packaged assembly carries the
+                    Windows App SDK deployment auto-initializer, which cannot run inside the unpackaged xunit
+                    host that Tunqio.App.Tests is, so the solution build the tests run against must be the
+                    unpackaged shape.
+    Override with -p:TunqioPackaged=true|false.
   -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -17,7 +22,7 @@
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <PublishProfile>win-x64.pubxml</PublishProfile>
-    <TunqioPackaged Condition="'$(TunqioPackaged)' == '' and '$(Configuration)' == 'Release'">true</TunqioPackaged>
+    <TunqioPackaged Condition="'$(TunqioPackaged)' == '' and '$(GenerateAppxPackageOnBuild)' == 'true'">true</TunqioPackaged>
     <TunqioPackaged Condition="'$(TunqioPackaged)' == ''">false</TunqioPackaged>
   </PropertyGroup>
 

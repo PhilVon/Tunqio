@@ -18,7 +18,7 @@ How the code is built, what "tested" means for each layer, how performance claim
 
 - **Debug (unpackaged):** `WindowsPackageType=None`; `mpcore.dll` and BASS copied next to the exe; fast F5 with mixed-mode debugging enabled (native + managed) in the App project.
 - **Debug (packaged):** MSIX deploy for activation, SMTC, toasts and file associations.
-- **Release:** packaged, self-contained, `ReadyToRun` on, trimming off; `mpcore` at `/O2 /GL /LTCG` with PDBs archived per release.
+- **Release:** unpackaged by default, so the solution build CI runs the managed tests against carries no Windows App SDK deployment auto-initializer (the packaged assembly's one throws `Class not registered` inside the unpackaged xunit host; T-101). Packaged, self-contained, `ReadyToRun` on, trimming off when a package is generated (`GenerateAppxPackageOnBuild=true`, or `-p:TunqioPackaged=true`), which is what the CI package step and the release build pass; `mpcore` at `/O2 /GL /LTCG` with PDBs archived per release.
 - **ASan:** a fourth configuration for `mpcore.tests` only (`/fsanitize=address`, unoptimised, release dynamic CRT `/MD` with the ASan runtime DLL copied next to the binary; the debug CRT's heap fills hide use-after-free from ASan, and `/sdl` rewrites a deleted pointer to `0x8123`, so the proof test reads through an alias), run in CI. The tests compile the `mpcore` sources in directly (`MP_STATIC`) so internals are testable and fully instrumented. `tools/check-asan.ps1` proves detection with a tagged use-after-free test.
 
 ## Test strategy

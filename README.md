@@ -42,8 +42,9 @@ build fails with NU1503. `tools/build.ps1 [-Configuration Release] [-Test]` then
 with MSBuild.exe and the managed ones with `dotnet build Tunqio.Managed.slnf`, and runs every test suite
 including the ASan proof (`tools/check-asan.ps1`).
 
-`Debug` builds the app unpackaged (`WindowsPackageType=None`) for a fast F5 with mixed-mode debugging;
-`Release` builds it as a single-project MSIX. Override with `-p:TunqioPackaged=true|false`.
+`Debug` and `Release` build the app unpackaged (`WindowsPackageType=None`) for a fast F5 with mixed-mode
+debugging and for the managed tests; a package build (`-p:GenerateAppxPackageOnBuild=true`, as CI's package
+step passes) produces the single-project MSIX. Override with `-p:TunqioPackaged=true|false`.
 
 All outputs land under `artifacts/`.
 
