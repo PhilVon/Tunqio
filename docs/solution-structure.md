@@ -180,7 +180,7 @@ public interface IVisualizationHost
     IObservable<RenderStats> Stats { get; }
 }
 
-public interface ILibraryService { ITrackRepository Tracks { get; } IAlbumRepository Albums { get; } /* ... */ ILibraryScanner Scanner { get; } }
+public interface ILibraryService { ITrackRepository Tracks { get; } IAlbumRepository Albums { get; } IArtistRepository Artists { get; } IGenreRepository Genres { get; } ILibraryFolderRepository Folders { get; } /* ILibraryScanner Scanner joins in E3-S5 */ }
 ```
 
 Everything above is mockable; view models are tested against fakes, and `Interop.Tests` proves the real implementations against `mpcore`.

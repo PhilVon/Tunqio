@@ -197,20 +197,25 @@ public interface ITrackRepository
     Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct);
 }
 
-public interface IAlbumRepository { /* list with art hash and track count; detail with tracks grouped by disc */ }
-public interface IArtistRepository { /* list with album/track counts; detail with albums and appearances */ }
-public interface IPlaylistRepository { /* CRUD, reorder as (from, to) moves, bulk add */ }
-public interface IPlayHistoryRepository { /* record event, recently played, most played, per-track stats */ }
-public interface ISearchService { Task<SearchResults> SearchAsync(string text, int limit, CancellationToken ct); }
-public interface ISettingsStore { T Get<T>(string key, T fallback); Task SetAsync<T>(string key, T value); }
+public interface IAlbumRepository { /* Get, GetDetail (tracks in disc/track order + genres), List(AlbumQuery), Count */ }
+public interface IArtistRepository { /* Get, GetDetail (own albums + "appears on"), List(ArtistQuery), Count */ }
+public interface IGenreRepository { /* List: every genre with its present-track count */ }
+public interface ILibraryFolderRepository { /* List, Add (normalised path, idempotent), SetEnabled, Remove (cascades tracks), RecordScan */ }
+public interface ILibraryService { ITrackRepository Tracks; IAlbumRepository Albums; IArtistRepository Artists; IGenreRepository Genres; ILibraryFolderRepository Folders; }
+public interface IPlaylistRepository { /* CRUD, reorder as (from, to) moves, bulk add (E6-S1) */ }
+public interface IPlayHistoryRepository { /* record event, recently played, most played, per-track stats (E3-S11) */ }
+public interface ISearchService { Task<SearchResults> SearchAsync(string text, int limit, CancellationToken ct); }   // E3-S9
 ```
 
+The contracts and DTOs live in `Tunqio.Core.Library` (no SQLite); the SQL implementations in `Tunqio.Library.Repositories` (E3-S2).
+
 Rules:
-- One `SqliteConnection` per operation from a small pool; WAL mode allows concurrent readers with the single scanner writer.
-- All list queries are keyset-paged (`WHERE (sort_key, id) > (?, ?) LIMIT n`) so virtualised UI lists never OFFSET-scan 100k rows.
-- `TrackQuery` is a plain record (sort field, direction, filters by album/artist/genre/folder/text, page) translated to SQL by one query builder with unit tests per filter combination.
-- Writes from the scanner are batched in transactions of 500 tracks. UI writes (rating, playlist edit) are single small transactions.
-- Every repository method is covered by an integration test against an in-memory `:memory:` database seeded from a fixture.
+- One `SqliteConnection` per operation from the pool (`LibraryDatabase.OpenConnectionAsync`); WAL mode allows concurrent readers with the single writer, and every write holds `LibraryDatabase.AcquireWriterAsync` for its one transaction.
+- All list queries are keyset-paged (`WHERE (k1, k2, ..., id) > (?, ?, ..., ?) LIMIT n`) so virtualised UI lists never OFFSET-scan 100k rows. The cursor is a `PageCursor` (the sort keys and id of the last row) obtained from `TrackQuery.CursorAfter(row)` / `AlbumQuery.CursorAfter(row)`; `StreamAsync` drives it internally. Every sort-key expression coalesces nulls to a sentinel (`SortKeys`: U+FFFF for text, `long.MaxValue` for times, `int.MaxValue` for years, -1 for ratings) so a null never breaks the row-value comparison, and text keys use `COLLATE NOCASE`. `TrackQuery.SortKeysOf(row)` reproduces the SQL keys from a DTO, which is what makes the cursor and the tests' oracle agree by construction.
+- `TrackQuery` is a plain record (sort field, direction, filters by album/artist/genre/folder/text, missing, page size, total cap) translated to SQL by one query builder; `TrackRepositoryTests` pages every sort × direction × filter combination against a LINQ oracle over the same rows. Sorts: title, artist (first credit, then album order), album (title, disc, track), duration, year, added, last played, play count, rating, codec.
+- Writes from the scanner are batched in transactions of 500 tracks (`UpsertBatchAsync`: 500 new tracks with credits, genres and FTS on the 100k database in well under 150 ms). Inside the batch, artists, genres and albums are resolved by name (case-insensitive) through a per-transaction cache; album identity is `(title, album artist, year)` with the album artist falling back to the first credited artist; artist `sort_name` moves a leading "The"/"A"/"An" to the end. A re-upserted path keeps its id, `added_at`, rating and play history. UI writes (rating, tag edit) are single small transactions.
+- **FTS5 and write order.** `track_fts` is contentless, so a row is removed by re-supplying the exact values that were indexed; the repository derives them from the row (title; credited artists joined with ", " in credit order; album title; album artist) both when indexing and when un-indexing. The batch upsert gathers every FTS write after the last track write: a track statement that follows an FTS insert in the same transaction makes FTS5 flush its pending terms, which measured at 280 ms per 500 interleaved rows against 10 ms gathered.
+- Every repository method is covered by an integration test against an in-memory database seeded from the fixture manifest (`LibraryDatabase.OpenInMemory`).
 
 ## Scanner
 
