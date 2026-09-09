@@ -96,7 +96,7 @@ public class NativeEngineTests
         using NativeEngine engine = Create();
         using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("stubs"));
 
-        FluentActions.Invoking(() => engine.PreloadNext(track)).Should().Throw<NativeException>().WithMessage("*E1-S3*");
+        FluentActions.Invoking(() => engine.PreloadNext(track)).Should().NotThrow("the gapless join landed with E1-S2");
         FluentActions.Invoking(() => engine.SetReplayGain(0f, 1f)).Should().Throw<NativeException>().WithMessage("*E1-S5*");
         FluentActions.Invoking(() => engine.SetCrossfade(TimeSpan.FromSeconds(1))).Should().Throw<NativeException>().WithMessage("*E1-S4*");
         FluentActions.Invoking(() => engine.StartPreview(track, -6f)).Should().Throw<NativeException>().WithMessage("*E5-S5*");

@@ -107,7 +107,8 @@ public class AudioEngineTests
         NativeAudioEngine engine = await CreateHeadlessAsync();
         var foreign = new TrackHandle(12345, new TrackInfo(TimeSpan.Zero, Rate, 2, 16, "wav", 0));
         await FluentActions.Awaiting(() => engine.PlayAsync(foreign)).Should().ThrowAsync<ArgumentException>();
-        await FluentActions.Awaiting(() => engine.PreloadNextAsync(null)).Should().ThrowAsync<NativeException>("E1-S3 has not landed");
+        await FluentActions.Awaiting(() => engine.PreloadNextAsync(foreign)).Should().ThrowAsync<ArgumentException>();
+        await FluentActions.Awaiting(() => engine.PreloadNextAsync(null)).Should().NotThrowAsync("clearing the queue is always valid");
 
         await engine.DisposeAsync();
         await engine.DisposeAsync();

@@ -27,7 +27,7 @@ Not a target: streaming-service subscribers with no local files, DJs needing bea
 **Playback**
 - Play, pause, stop, next, previous, seek (click and drag on a progress bar with hover time tooltip), volume with mute, playback speed unchanged.
 - Formats: MP3, FLAC, WAV, AIFF, AAC/M4A/ALAC, OGG Vorbis, Opus, WMA, WavPack, APE, MPC. Cue sheets are not in 1.0.
-- Gapless playback (default on) and optional user crossfade 0–12 s.
+- Gapless playback (default on) and optional user crossfade 0–12 s. Sample-accurate for WAV, AIFF, FLAC, ALAC, WavPack, MP3 (LAME/Xing delay and padding applied), Ogg Vorbis and Opus, also when the source rate differs from the output. Best-effort for AAC (Media Foundation does not strip the encoder priming; card T-102 is the fix) and WMA (the decoder drops the last 1 792 frames; no gapless metadata exists for it); APE and MPC are unmeasured (T-88). Measured in [spikes/e1-s2-gapless-join.md](spikes/e1-s2-gapless-join.md).
 - Shared-mode WASAPI by default; exclusive mode as an opt-in setting with device selection, and automatic recovery when the device disappears.
 - ReplayGain (track and album) read from tags and applied; no scanning of untagged files in 1.0.
 - Play queue: play now, play next, add to queue, remove, reorder by drag, clear, save queue as playlist. Shuffle (off / on) and repeat (off / all / one). Queue and position are restored on relaunch.

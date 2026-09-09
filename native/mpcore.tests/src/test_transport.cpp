@@ -5,6 +5,7 @@
 
 #include "audio/bass_engine.h"
 #include "common/rt_guard.h"
+#include "offline_engine.h"
 #include "wav_fixture.h"
 
 #include <algorithm>
@@ -14,99 +15,16 @@
 #include <string>
 #include <vector>
 
-namespace {
-
-constexpr uint32_t k_rate = 48000;
-constexpr uint32_t k_channels = 2;
-constexpr uint32_t k_fade_frames = k_rate * mp::audio::engine::k_guard_fade_ms / 1000; // 2400
-constexpr uint32_t k_buffer_frames = 480;                                              // 10 ms, a shared-mode period
-
-std::string last_error() {
-    char buf[512];
-    mp_last_error(buf, sizeof buf);
-    return buf;
-}
-
-struct offline_engine {
-    mp_engine* engine = nullptr;
-
-    offline_engine() {
-        mp_engine_config cfg{};
-        cfg.struct_size = sizeof cfg;
-        cfg.sample_rate = k_rate;
-        cfg.channels = k_channels;
-        if (mp_engine_create(&cfg, &engine) != MP_OK) {
-            FAIL("mp_engine_create failed: " << last_error());
-        }
-        mp_output_config out{};
-        out.struct_size = sizeof out;
-        out.device_index = MP_DEVICE_NONE;
-        if (mp_engine_set_output(engine, &out) != MP_OK) {
-            FAIL("mp_engine_set_output(MP_DEVICE_NONE) failed: " << last_error());
-        }
-    }
-    ~offline_engine() {
-        if (engine != nullptr) {
-            mp_engine_destroy(engine);
-        }
-    }
-
-    mp_track* open(const std::string& path) {
-        REQUIRE_FALSE(path.empty());
-        mp_track* t = nullptr;
-        REQUIRE(mp_track_open(engine, path.c_str(), &t) == MP_OK);
-        return t;
-    }
-
-    // Pulls `frames` frames in k_buffer_frames pieces, as a device would, and returns them concatenated.
-    std::vector<float> render(uint32_t frames) {
-        std::vector<float> out(static_cast<size_t>(frames) * k_channels);
-        uint32_t done = 0;
-        while (done < frames) {
-            const uint32_t n = std::min(k_buffer_frames, frames - done);
-            REQUIRE(mp_engine_render(engine, out.data() + static_cast<size_t>(done) * k_channels, n) == MP_OK);
-            done += n;
-        }
-        return out;
-    }
-
-    int64_t position_ms() {
-        mp_clock clock{};
-        clock.struct_size = sizeof clock;
-        REQUIRE(mp_engine_get_clock(engine, &clock) == MP_OK);
-        return clock.position_ms;
-    }
-};
-
-double rms(const std::vector<float>& samples, size_t from_frame, size_t to_frame) {
-    double sum = 0;
-    size_t n = 0;
-    for (size_t i = from_frame * k_channels; i < to_frame * k_channels && i < samples.size(); ++i) {
-        sum += static_cast<double>(samples[i]) * samples[i];
-        ++n;
-    }
-    return n == 0 ? 0.0 : std::sqrt(sum / static_cast<double>(n));
-}
-
-// Largest sample-to-sample step per channel: what a click is.
-double max_step(const std::vector<float>& samples) {
-    double worst = 0;
-    for (size_t i = k_channels; i < samples.size(); ++i) {
-        worst = std::max(worst, static_cast<double>(std::fabs(samples[i] - samples[i - k_channels])));
-    }
-    return worst;
-}
-
-bool all_zero(const std::vector<float>& samples, size_t from_frame) {
-    return std::all_of(samples.begin() + static_cast<std::ptrdiff_t>(from_frame * k_channels), samples.end(),
-                       [](float s) { return s == 0.0f; });
-}
-
-void append(std::vector<float>& to, const std::vector<float>& more) {
-    to.insert(to.end(), more.begin(), more.end());
-}
-
-} // namespace
+using mp::tests::all_zero;
+using mp::tests::append;
+using mp::tests::k_buffer_frames;
+using mp::tests::k_channels;
+using mp::tests::k_fade_frames;
+using mp::tests::k_rate;
+using mp::tests::last_error;
+using mp::tests::max_step;
+using mp::tests::offline_engine;
+using mp::tests::rms;
 
 TEST_CASE("render is only available on the MP_DEVICE_NONE output", "[transport][abi]") {
     mp_engine_config cfg{};

@@ -44,6 +44,8 @@ public:
     bool owns(const track* t) const;
 
     mp_result play(track* t, int64_t start_ms);
+    // Queues `next` to start at mix time exactly where the current source ends (E1-S2 join); NULL clears.
+    mp_result preload_next(track* next);
     mp_result pause();
     mp_result resume();
     mp_result stop(mp_fade_mode fade);
@@ -85,7 +87,12 @@ private:
     std::vector<uint32_t> plugins_;
     std::vector<std::unique_ptr<track>> tracks_;
 
-    track* current_ = nullptr;         // control plane
+    // The control plane writes current_ under control_; the audio thread replaces it at a gapless join
+    // (end_sync) and reads next_ there. Both are only ever pointers into tracks_, which the control plane owns.
+    std::atomic<track*> current_{nullptr};
+    std::atomic<track*> next_{nullptr};
+    std::atomic<track*> join_pending_{nullptr}; // set by end_sync, raised as events by pull() after the read
+    std::atomic<int64_t> join_ended_channel_{0};
     std::atomic<bool> playing_{false}; // read by the audio thread for underrun accounting
 
     // Envelope (guard fades) and volume. The audio thread owns env_level_ and volume_current_; the control

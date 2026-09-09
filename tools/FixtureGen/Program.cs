@@ -45,6 +45,18 @@ switch (args[0])
             return 0;
         }
 
+    case "gapless":
+        {
+            string output = Option("-out") ?? Path.Combine("tests", "fixtures", "gapless");
+            FfmpegEncoder? ffmpeg = FfmpegEncoder.Find(Option("-ffmpeg"));
+            Console.WriteLine(ffmpeg is null
+                ? "ffmpeg not found: only the WAV and AIFF pairs will be written"
+                : $"ffmpeg: {ffmpeg.Path}");
+            (List<string> written, List<string> skipped) = GaplessFixtureBuilder.Build(ffmpeg, Path.GetFullPath(output), Console.Out);
+            Console.WriteLine($"{written.Count} pairs" + (skipped.Count > 0 ? $"; skipped: {string.Join(", ", skipped)}" : string.Empty));
+            return 0;
+        }
+
     default:
         return Usage();
 }
@@ -56,6 +68,7 @@ static int Usage()
           files [-out DIR] [-ffmpeg PATH]   generate the fixture library (default tests/fixtures/library)
           db    [-out FILE] [-tracks N]     generate the synthetic 100k-track database (default tests/fixtures/library-100k.db)
           tree  [-out DIR] [-tracks N] [-art]  generate a large tagged-WAV folder tree for scanner timing (default artifacts/scan-tree, 10000 files; -art embeds one cover per album)
+          gapless [-out DIR] [-ffmpeg PATH]  generate the gapless-join chirp pairs per format (default tests/fixtures/gapless)
         """);
     return 2;
 }

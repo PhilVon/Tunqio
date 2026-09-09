@@ -18,7 +18,9 @@
  * draft; exports marked "not implemented" return MP_E_STATE until the story that implements them lands).
  * 0.3 renderer: create/destroy/resize/visible/stats implemented by the render spike (E0-S5); presets, theme and
  * quality are declared and stubbed for E4. 0.4 engine skeleton (E1-S1): MP_DEVICE_NONE output and
- * mp_engine_render for headless use; guard fades on pause/resume/stop/seek; audio-taper volume.
+ * mp_engine_render for headless use; guard fades on pause/resume/stop/seek; audio-taper volume. 0.5 gapless
+ * join (E1-S2 spike): mp_engine_preload_next queues the successor and the mix-time END sync starts it where the
+ * current track ends; MP_EVENT_TRACK_STARTED/ENDED carry the mixer byte position of the join in b.
  */
 #pragma once
 
@@ -41,7 +43,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 4u
+#define MP_ABI_MINOR 5u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -158,8 +160,10 @@ typedef struct mp_engine_stats {
 } mp_engine_stats;
 
 typedef enum mp_event_type {
-    MP_EVENT_TRACK_STARTED = 1,
-    MP_EVENT_TRACK_ENDED = 2, /* natural end; a = track handle as integer */
+    MP_EVENT_TRACK_STARTED = 1, /* a = track handle; b = start_ms for mp_engine_play, the mixer byte position at a
+                                   gapless join (mp_clock.mixer_byte_pos units) */
+    MP_EVENT_TRACK_ENDED = 2,   /* natural end; a = track handle as integer; b = the mixer byte position when a
+                                   preloaded successor took over, else 0 */
     MP_EVENT_DEVICE_LOST = 3,
     MP_EVENT_DEVICE_CHANGED = 4,
     MP_EVENT_UNDERRUN = 5,
@@ -195,7 +199,12 @@ MP_API mp_result MP_CALL mp_track_get_info(mp_track* track, mp_track_info* out_i
 /* Replaces the current source with track at start_ms and starts the output if needed. A source that was
  * playing is guard-faded out first (50 ms, waited for on a live device); the new one fades in over 50 ms. */
 MP_API mp_result MP_CALL mp_engine_play(mp_engine* engine, mp_track* track, int64_t start_ms);
-MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* engine, mp_track* next); /* not implemented until E1-S3 */
+/* Queues next (rewound to 0) to start at mix time exactly where the current track ends: no gap, no overlap, no
+ * fade. NULL clears the queue; so does mp_engine_stop, closing the track, or playing it by hand. Fires
+ * MP_EVENT_TRACK_ENDED then MP_EVENT_TRACK_STARTED (b = mixer byte position of the join) from the audio thread.
+ * Encoder delay and padding are removed by the decoder where the format carries them (see
+ * docs/spikes/e1-s2-gapless-join.md for the per-format result). */
+MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* engine, mp_track* next);
 /* Fades out over 50 ms on the audio thread, then holds: the output keeps running with silence and the source
  * position freezes, so resume is immediate. Returns at once. */
 MP_API mp_result MP_CALL mp_engine_pause(mp_engine* engine);

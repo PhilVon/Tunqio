@@ -24,7 +24,7 @@ Likelihood and impact: Low / Medium / High. Each risk has a mitigation story.
 | ID | Risk | L | I | Mitigation | Story |
 |----|------|---|---|-----------|-------|
 | R-1 | BASS licence terms change or distribution becomes commercial | L | H | Non-commercial confirmed (OQ-1); `IAudioEngine` and the C ABI keep BASS contained in `mpcore/audio`; revisit ADR-003 before any commercial move | E0-S3 |
-| R-2 | Sample-accurate gapless via bassmix mix-time sync misbehaves for some formats (MP3 encoder delay, AAC priming) | M | M | Spike with continuous-sine fixtures per format; apply LAME/iTunSMPB gapless info from tags; document best-effort formats | E1-S2 |
+| R-2 | Sample-accurate gapless via bassmix mix-time sync misbehaves for some formats (MP3 encoder delay, AAC priming) | M | M | **Measured (E1-S2).** Ten of twelve pairs join at the exact frame once sources carry `BASS_MIXER_CHAN_LIMIT` (a source added in a mix-time sync otherwise starts at the buffer boundary); MP3 delay/padding is removed by BASS. AAC through Media Foundation keeps its 1 024-frame priming and WMA loses its tail: both best-effort in product-scope.md, AAC fixable by T-102 | E1-S2 |
 | R-3 | Exclusive-mode WASAPI fails on some drivers or fights other apps | H | M | Shared mode default; exclusive opt-in with automatic fallback and a clear `InfoBar`; Realtek, USB DAC and Bluetooth in the test matrix | E1-S6 |
 | R-4 | Device change or unplug crashes or silently continues | M | H | `BASS_WASAPI_SetNotify` plus `IMMNotificationClient` in the core; flow 4 is an acceptance test | E1-S7 |
 | R-5 | `SwapChainPanel` render thread and XAML composition contend on iGPU | M | M | Spike E0-S5 in C++ with a synthetic preset; adaptive quality from the start | E0-S5 |

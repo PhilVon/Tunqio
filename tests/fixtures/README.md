@@ -13,6 +13,14 @@ dotnet run -c Release -p:Platform=x64 --project tools/FixtureGen -- files -out t
 
 Two runs produce identical bytes (`Tunqio.Library.Tests.FixtureLibraryTests.Generation_is_deterministic`).
 
+`gapless/` is the E1-S2 set: one 4 s chirp cut at 2.0 s, each half encoded on its own in every format an encoder
+exists for (two pairs at 44.1 kHz); `native/mpcore.tests` joins each pair and matches the seam against the chirp
+([docs/spikes/e1-s2-gapless-join.md](../../docs/spikes/e1-s2-gapless-join.md)). Regenerate with:
+
+```bash
+dotnet run -c Release -p:Platform=x64 --project tools/FixtureGen -- gapless -out tests/fixtures/gapless
+```
+
 `library-100k.db` (not committed, gitignored) is the synthetic 100 000-track database for repository and search
 benchmarks:
 

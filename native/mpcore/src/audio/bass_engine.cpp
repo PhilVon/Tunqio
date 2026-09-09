@@ -11,6 +11,13 @@
 // silence and the mixer is left alone, so the position freezes and resume is immediate. Stop, seek and a
 // play over a running source fade out first and, on a live device, wait for the ramp before touching the
 // mixer. Volume is a separate gain on an audio taper, interpolated across each buffer.
+//
+// Gapless join (E1-S2 spike, the first cut E1-S3 builds on): preload_next parks a second source; the
+// MIXTIME END sync of the playing source runs on the audio thread at the exact mix position where that
+// source ends, and BASSmix applies a BASS_Mixer_StreamAddChannelEx made inside such a sync at that same
+// position, so the successor's first frame follows the predecessor's last with nothing between them. BASS
+// itself removes encoder delay and padding for MP3 (LAME/Xing/VBRI/iTunes headers) unless
+// BASS_MP3_IGNOREDELAY is passed; what each other format gives is measured in docs/spikes/e1-s2-gapless-join.md.
 #include "audio/bass_engine.h"
 
 #include "abi/last_error.h"
@@ -183,6 +190,11 @@ constexpr uint32_t k_default_rate = 48000;
 constexpr uint32_t k_default_channels = 2;
 constexpr uint32_t k_guard_wait_ms = 150; // longest a control call waits for a fade on a live device
 
+// NORAMPIN: BASSmix must not add its own ramp; the envelope in pull() is the fade-in. LIMIT: the mixer stops a
+// BASS_ChannelGetData at the exact frame the source ends instead of finishing the buffer, so the END sync (and
+// a successor added in it) lands on that frame rather than on the buffer boundary; pull() loops to fill the rest.
+constexpr DWORD k_source_flags = BASS_MIXER_CHAN_NORAMPIN | BASS_MIXER_CHAN_LIMIT;
+
 } // namespace
 
 // ---- lifetime -----------------------------------------------------------------------------------
@@ -268,7 +280,8 @@ engine::~engine() {
         std::lock_guard lock{control_};
         playing_.store(false, std::memory_order_release);
         free_output(); // joins the WASAPI thread: no callback after this point
-        current_ = nullptr;
+        current_.store(nullptr, std::memory_order_relaxed);
+        next_.store(nullptr, std::memory_order_relaxed);
         for (auto& t : tracks_) {
             if (t->stream != 0) {
                 BASS_StreamFree(t->stream);
@@ -355,21 +368,22 @@ mp_result engine::set_output(const mp_output_config& config) {
     // re-attach the current source at its position (surprise recorded in the spike doc).
     if (output_rate_ != mixer_rate_ || output_channels_ != mixer_channels_) {
         QWORD resume_pos = 0;
-        if (current_ != nullptr) {
-            resume_pos = BASS_Mixer_ChannelGetPosition(current_->stream, BASS_POS_BYTE);
-            BASS_Mixer_ChannelRemove(current_->stream);
+        track* const cur = current_.load(std::memory_order_acquire);
+        if (cur != nullptr) {
+            resume_pos = BASS_Mixer_ChannelGetPosition(cur->stream, BASS_POS_BYTE);
+            BASS_Mixer_ChannelRemove(cur->stream);
         }
         const mp_result r = create_mixer(output_rate_, output_channels_);
         if (r != MP_OK) {
             free_output();
             return r;
         }
-        if (current_ != nullptr) {
-            BASS_ChannelSetPosition(current_->stream, resume_pos, BASS_POS_BYTE);
-            if (!BASS_Mixer_StreamAddChannel(mixer_, current_->stream, BASS_MIXER_CHAN_NORAMPIN)) {
+        if (cur != nullptr) {
+            BASS_ChannelSetPosition(cur->stream, resume_pos, BASS_POS_BYTE);
+            if (!BASS_Mixer_StreamAddChannel(mixer_, cur->stream, k_source_flags)) {
                 return bass_fail("BASS_Mixer_StreamAddChannel (re-attach)");
             }
-            BASS_Mixer_ChannelSetSync(current_->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, this);
+            BASS_Mixer_ChannelSetSync(cur->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, this);
         }
     }
 
@@ -490,10 +504,13 @@ mp_result engine::close_track(track* t) {
         mp::abi::set_last_error("mp_track_close: unknown track handle");
         return MP_E_INVALID_ARG;
     }
-    if (current_ == t) {
+    if (next_.load(std::memory_order_acquire) == t) {
+        next_.store(nullptr, std::memory_order_release);
+    }
+    if (current_.load(std::memory_order_acquire) == t) {
         guard_out();
         BASS_Mixer_ChannelRemove(t->stream);
-        current_ = nullptr;
+        current_.store(nullptr, std::memory_order_release);
         playing_.store(false, std::memory_order_release);
     }
     BASS_StreamFree(t->stream);
@@ -509,7 +526,8 @@ mp_result engine::close_track(track* t) {
 void engine::guard_out() {
     pause_pending_.store(false, std::memory_order_relaxed);
     env_target_.store(0.0f, std::memory_order_release);
-    if (hold_.load(std::memory_order_acquire) || offline_ || !output_started_ || current_ == nullptr) {
+    if (hold_.load(std::memory_order_acquire) || offline_ || !output_started_ ||
+        current_.load(std::memory_order_acquire) == nullptr) {
         env_level_.store(0.0f, std::memory_order_release);
         return;
     }
@@ -531,23 +549,25 @@ mp_result engine::play(track* t, int64_t start_ms) {
     if (!output_open_) {
         return state_fail("mp_engine_play: no output set (mp_engine_set_output first)");
     }
-    if (current_ != nullptr) {
+    if (track* const cur = current_.load(std::memory_order_acquire); cur != nullptr) {
         guard_out();
-        BASS_Mixer_ChannelRemove(current_->stream);
-        current_ = nullptr;
+        BASS_Mixer_ChannelRemove(cur->stream);
+        current_.store(nullptr, std::memory_order_release);
+    }
+    if (next_.load(std::memory_order_acquire) == t) {
+        next_.store(nullptr, std::memory_order_release); // playing the preloaded track by hand consumes it
     }
     const QWORD start = BASS_ChannelSeconds2Bytes(t->stream, static_cast<double>(start_ms) / 1000.0);
     if (!BASS_ChannelSetPosition(t->stream, start, BASS_POS_BYTE)) {
         return bass_fail("BASS_ChannelSetPosition");
     }
-    // NORAMPIN: BASSmix must not add its own ramp; the envelope below is the fade-in. The mixer resamples
-    // if the source rate differs.
-    if (!BASS_Mixer_StreamAddChannel(mixer_, t->stream, BASS_MIXER_CHAN_NORAMPIN)) {
+    // The mixer resamples if the source rate differs.
+    if (!BASS_Mixer_StreamAddChannel(mixer_, t->stream, k_source_flags)) {
         return bass_fail("BASS_Mixer_StreamAddChannel");
     }
     // MIXTIME: fires when the end is mixed, not when it is heard; the managed side compensates with the clock.
     BASS_Mixer_ChannelSetSync(t->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, this);
-    current_ = t;
+    current_.store(t, std::memory_order_release);
     env_level_.store(0.0f, std::memory_order_release);
     begin_fade_in();
     playing_.store(true, std::memory_order_release);
@@ -561,9 +581,27 @@ mp_result engine::play(track* t, int64_t start_ms) {
     return MP_OK;
 }
 
+mp_result engine::preload_next(track* next) {
+    std::lock_guard lock{control_};
+    if (next == nullptr) {
+        next_.store(nullptr, std::memory_order_release);
+        return MP_OK;
+    }
+    if (next == current_.load(std::memory_order_acquire)) {
+        mp::abi::set_last_error("mp_engine_preload_next: the track is already playing");
+        return MP_E_INVALID_ARG;
+    }
+    // Rewind here, on the control thread; the audio thread only adds it to the mixer.
+    if (!BASS_ChannelSetPosition(next->stream, 0, BASS_POS_BYTE)) {
+        return bass_fail("BASS_ChannelSetPosition (preload)");
+    }
+    next_.store(next, std::memory_order_release);
+    return MP_OK;
+}
+
 mp_result engine::pause() {
     std::lock_guard lock{control_};
-    if (current_ == nullptr) {
+    if (current_.load(std::memory_order_acquire) == nullptr) {
         return state_fail("mp_engine_pause: nothing is playing");
     }
     if (hold_.load(std::memory_order_acquire)) {
@@ -578,7 +616,7 @@ mp_result engine::pause() {
 
 mp_result engine::resume() {
     std::lock_guard lock{control_};
-    if (current_ == nullptr) {
+    if (current_.load(std::memory_order_acquire) == nullptr) {
         return state_fail("mp_engine_resume: nothing is loaded");
     }
     begin_fade_in();
@@ -589,7 +627,8 @@ mp_result engine::resume() {
 mp_result engine::stop(mp_fade_mode fade) {
     std::lock_guard lock{control_};
     playing_.store(false, std::memory_order_release);
-    if (current_ != nullptr) {
+    next_.store(nullptr, std::memory_order_release); // nothing to join to any more
+    if (track* const cur = current_.load(std::memory_order_acquire); cur != nullptr) {
         if (fade == MP_FADE_GUARD) {
             guard_out();
         } else {
@@ -597,8 +636,8 @@ mp_result engine::stop(mp_fade_mode fade) {
             env_target_.store(0.0f, std::memory_order_release);
             env_level_.store(0.0f, std::memory_order_release);
         }
-        BASS_Mixer_ChannelRemove(current_->stream);
-        current_ = nullptr;
+        BASS_Mixer_ChannelRemove(cur->stream);
+        current_.store(nullptr, std::memory_order_release);
     }
     hold_.store(false, std::memory_order_release);
     return MP_OK;
@@ -606,15 +645,16 @@ mp_result engine::stop(mp_fade_mode fade) {
 
 mp_result engine::seek(int64_t position_ms) {
     std::lock_guard lock{control_};
-    if (current_ == nullptr) {
+    track* const cur = current_.load(std::memory_order_acquire);
+    if (cur == nullptr) {
         return state_fail("mp_engine_seek: nothing is loaded");
     }
     const bool was_held = hold_.load(std::memory_order_acquire);
     const bool was_playing = playing_.load(std::memory_order_acquire);
     guard_out();
-    const QWORD pos = BASS_ChannelSeconds2Bytes(current_->stream, static_cast<double>(position_ms) / 1000.0);
+    const QWORD pos = BASS_ChannelSeconds2Bytes(cur->stream, static_cast<double>(position_ms) / 1000.0);
     // MIXER_RESET drops what the mixer already buffered from the old position.
-    if (!BASS_Mixer_ChannelSetPosition(current_->stream, pos, BASS_POS_BYTE | BASS_POS_MIXER_RESET)) {
+    if (!BASS_Mixer_ChannelSetPosition(cur->stream, pos, BASS_POS_BYTE | BASS_POS_MIXER_RESET)) {
         const mp_result r = bass_fail("BASS_Mixer_ChannelSetPosition");
         if (was_playing) {
             begin_fade_in();
@@ -660,7 +700,7 @@ mp_result engine::get_clock(mp_clock& out) const {
         buffered = 0;
     }
     out.output_buffered_bytes = buffered;
-    const track* t = current_;
+    const track* t = current_.load(std::memory_order_acquire);
     if (t == nullptr) {
         out.position_ms = 0;
         return MP_OK;
@@ -725,9 +765,22 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
     if (hold_.load(std::memory_order_acquire)) {
         std::memset(buffer, 0, bytes); // paused: the mixer is not advanced, so the position stays put
     } else {
-        DWORD got = BASS_ChannelGetData(mixer_, buffer, bytes);
-        if (got == static_cast<DWORD>(-1)) {
-            got = 0;
+        // A source with LIMIT ends the read at its last frame; the next read continues with whatever follows it
+        // (a successor added by end_sync, or NONSTOP silence), so a short read here is a real underrun.
+        uint32_t got = 0;
+        while (got < bytes) {
+            const DWORD n = BASS_ChannelGetData(mixer_, static_cast<char*>(buffer) + got, bytes - got);
+            if (track* const joined = join_pending_.exchange(nullptr, std::memory_order_acq_rel); joined != nullptr) {
+                // end_sync swapped the sources inside that read; the read stopped on the last frame of the old
+                // source (LIMIT), so the mixer position now is exactly where the new one starts.
+                const auto at = static_cast<int64_t>(BASS_ChannelGetPosition(mixer_, BASS_POS_BYTE));
+                emit(MP_EVENT_TRACK_ENDED, join_ended_channel_.load(std::memory_order_relaxed), at, nullptr);
+                emit(MP_EVENT_TRACK_STARTED, reinterpret_cast<int64_t>(joined), at, nullptr);
+            }
+            if (n == 0 || n == static_cast<DWORD>(-1)) {
+                break;
+            }
+            got += n;
         }
         if (got < bytes) {
             std::memset(static_cast<char*>(buffer) + got, 0, bytes - got);
@@ -795,9 +848,21 @@ mp_result engine::render(float* out_interleaved, uint32_t frames) {
     return MP_OK;
 }
 
+// Mix-time END sync, called by BASSmix from inside the BASS_ChannelGetData in pull() when `channel` runs out.
+// Without LIMIT a source added here would start at the beginning of the buffer being mixed (measured: a 200-frame
+// overlap with 479-frame pulls); with it the read stops on the source's last frame and the successor's first
+// frame is the next one read. The events are raised by pull() after the read, when the mixer position is that
+// frame. BASS drops the ended source from the mixer itself. No allocation and no logging (Interop trampoline rule).
 void __stdcall engine::end_sync(unsigned long /*handle*/, unsigned long channel, unsigned long /*data*/, void* user) {
     auto* self = static_cast<engine*>(user);
-    // Mix-time sync on the WASAPI thread. The listener only enqueues (Interop trampoline rule).
+    track* const next = self->next_.exchange(nullptr, std::memory_order_acq_rel);
+    if (next != nullptr && BASS_Mixer_StreamAddChannelEx(self->mixer_, next->stream, k_source_flags, 0, 0)) {
+        BASS_Mixer_ChannelSetSync(next->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, self);
+        self->current_.store(next, std::memory_order_release);
+        self->join_ended_channel_.store(static_cast<int64_t>(channel), std::memory_order_relaxed);
+        self->join_pending_.store(next, std::memory_order_release);
+        return;
+    }
     self->playing_.store(false, std::memory_order_release);
     self->emit(MP_EVENT_TRACK_ENDED, static_cast<int64_t>(channel), 0, nullptr);
 }

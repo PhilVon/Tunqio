@@ -191,12 +191,15 @@ MP_API mp_result MP_CALL mp_engine_play(mp_engine* e, mp_track* t, int64_t start
     });
 }
 
-MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* e, mp_track* /*next*/) {
+MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* e, mp_track* next) {
     return mp::abi::guard([&]() -> mp_result {
         if (e == nullptr) {
             return invalid("mp_engine_preload_next: NULL engine");
         }
-        return not_implemented("mp_engine_preload_next", "E1-S3");
+        if (next != nullptr && !as_engine(e)->owns(as_track(next))) {
+            return invalid("mp_engine_preload_next: track does not belong to this engine");
+        }
+        return as_engine(e)->preload_next(as_track(next));
     });
 }
 
