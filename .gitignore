@@ -22,5 +22,8 @@ AppPackages/
 *.pfx
 *.cer
 
+# Generated benchmark database (tools/FixtureGen db); the 60-file fixture library is committed
+tests/fixtures/*.db
+
 # Kanban board runtime state (server pid/port/token and the local SQLite board)
 .kanban/

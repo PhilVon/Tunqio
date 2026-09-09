@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- tools/FixtureGen (E0-S7): generates tests/fixtures/library (60 tagged files across 8 albums, every format
+       an encoder exists for, plus the documented edge cases) and library-100k.db (v1 schema, 100k synthetic tracks).
+         dotnet run -c Release -p:Platform=x64 -project tools/FixtureGen (then: files -out tests/fixtures/library)
+         dotnet run -c Release -p:Platform=x64 -project tools/FixtureGen (then: db -out tests/fixtures/library-100k.db)
+       Lossy and non-PCM formats need ffmpeg on PATH (or -ffmpeg PATH); WAV and AIFF are written natively. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Tunqio.FixtureGen</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TagLibSharp" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tunqio.Library\Tunqio.Library.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tunqio.Library.Tests" />
+  </ItemGroup>
+
+</Project>

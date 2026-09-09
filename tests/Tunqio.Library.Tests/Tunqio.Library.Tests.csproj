@@ -7,10 +7,12 @@
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="TagLibSharp" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Tunqio.Library\Tunqio.Library.csproj" />
+    <ProjectReference Include="..\..\tools\FixtureGen\Tunqio.FixtureGen.csproj" />
   </ItemGroup>
 
 </Project>

@@ -9,7 +9,8 @@
       "tests\\Tunqio.Benchmarks\\Tunqio.Benchmarks.csproj",
       "tests\\Tunqio.Core.Tests\\Tunqio.Core.Tests.csproj",
       "tests\\Tunqio.Interop.Tests\\Tunqio.Interop.Tests.csproj",
-      "tests\\Tunqio.Library.Tests\\Tunqio.Library.Tests.csproj"
+      "tests\\Tunqio.Library.Tests\\Tunqio.Library.Tests.csproj",
+      "tools\\FixtureGen\\Tunqio.FixtureGen.csproj"
     ]
   }
 }

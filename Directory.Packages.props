@@ -21,6 +21,7 @@
     <!-- Library -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="8.0.31" />
     <PackageVersion Include="TagLibSharp" Version="2.3.0" />
+    <PackageVersion Include="System.IO.Hashing" Version="8.0.0" />
     <!-- Tests and benchmarks -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />

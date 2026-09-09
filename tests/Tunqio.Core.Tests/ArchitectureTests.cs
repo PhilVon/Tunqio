@@ -27,7 +27,9 @@ public class ArchitectureTests
     [Fact]
     public void Core_depends_on_nothing_above_it()
     {
+        // Coverlet injects an instrumentation tracker type (which writes hit files) into the assembly under coverage.
         TestResult result = Types.InAssembly(typeof(Identity).Assembly)
+            .That().DoNotResideInNamespaceStartingWith("Coverlet")
             .ShouldNot()
             .HaveDependencyOnAny(ForbiddenForCore)
             .GetResult();
