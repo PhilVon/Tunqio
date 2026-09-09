@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Tunqio.App.LibrarySpikeWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Tunqio.App.Controls">
+  <!-- E3-S3 measurement mode: the Tracks table and Albums grid over a given library database (LibrarySpikeRunner). -->
+  <Grid RowDefinitions="Auto,*" ColumnDefinitions="3*,2*" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <TextBlock x:Name="StatusText" Grid.ColumnSpan="2" Padding="16,8" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
+    <controls:TracksList x:Name="Tracks" Grid.Row="1" />
+    <controls:AlbumsGrid x:Name="Albums" Grid.Row="1" Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" />
+  </Grid>
+</Window>

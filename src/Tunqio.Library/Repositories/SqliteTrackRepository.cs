@@ -53,6 +53,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
 
     private readonly LibraryDatabase _db;
     private readonly TimeProvider _clock;
+    private readonly StringPool _pool = new();
 
     public SqliteTrackRepository(LibraryDatabase db, TimeProvider? clock = null)
     {
@@ -67,7 +68,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
         await using SqliteCommand command = Sql.Command(connection, TrackQueryBuilder.Select + TrackQueryBuilder.From + " WHERE t.id = $id");
         command.Add("$id", id);
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        return await reader.ReadAsync(ct).ConfigureAwait(false) ? TrackRowMapper.Read(reader) : null;
+        return await reader.ReadAsync(ct).ConfigureAwait(false) ? TrackRowMapper.Read(reader, _pool) : null;
     }
 
     public async Task<IReadOnlyList<TrackDto>> GetByIdsAsync(IReadOnlyList<long> ids, CancellationToken ct = default)
@@ -96,7 +97,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
                 await using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
-                    TrackDto track = TrackRowMapper.Read(reader);
+                    TrackDto track = TrackRowMapper.Read(reader, _pool);
                     byId[track.Id] = track;
                 }
             }
@@ -123,7 +124,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
         var page = new List<TrackDto>(query.PageSize);
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
-            page.Add(TrackRowMapper.Read(reader));
+            page.Add(TrackRowMapper.Read(reader, _pool));
         }
 
         return page;
@@ -305,7 +306,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
                 throw new KeyNotFoundException($"Track {id} does not exist.");
             }
 
-            current = TrackRowMapper.Read(reader);
+            current = TrackRowMapper.Read(reader, _pool);
         }
 
         using var resolver = new EntityResolver(connection, transaction);

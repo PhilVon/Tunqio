@@ -118,10 +118,10 @@ internal static class TrackQueryBuilder
     }
 }
 
-/// <summary>Maps a row of <see cref="TrackQueryBuilder.Select"/> to a <see cref="TrackDto"/>.</summary>
+/// <summary>Maps a row of <see cref="TrackQueryBuilder.Select"/> to a <see cref="TrackDto"/>; repeated values go through the repository's <see cref="StringPool"/>.</summary>
 internal static class TrackRowMapper
 {
-    public static TrackDto Read(SqliteDataReader r)
+    public static TrackDto Read(SqliteDataReader r, StringPool pool)
     {
         double? rgTrackGain = r.Double(21);
         double? rgTrackPeak = r.Double(22);
@@ -136,25 +136,25 @@ internal static class TrackRowMapper
             FolderId: r.GetInt64(1),
             Path: r.GetString(2),
             Title: r.GetString(3),
-            Artists: ParseArtists(r.Text(4)),
+            Artists: ParseArtists(r.Text(4), pool),
             AlbumId: r.Long(5),
-            AlbumTitle: r.Text(6),
-            AlbumArtist: r.Text(7),
+            AlbumTitle: pool.ShareOrNull(r.Text(6)),
+            AlbumArtist: pool.ShareOrNull(r.Text(7)),
             TrackNo: r.Int(8),
             DiscNo: r.Int(9),
             Year: r.Int(10),
             DurationMs: r.GetInt32(11),
-            Codec: r.GetString(12),
+            Codec: pool.Share(r.GetString(12)),
             BitrateKbps: r.Int(13),
             SampleRate: r.Int(14),
             Channels: r.Int(15),
             BitDepth: r.Int(16),
             FileSize: r.GetInt64(17),
             FileMtime: r.GetInt64(18),
-            Composer: r.Text(19),
+            Composer: pool.ShareOrNull(r.Text(19)),
             Comment: r.Text(20),
             ReplayGain: replayGain,
-            ArtHash: r.Text(25),
+            ArtHash: pool.ShareOrNull(r.Text(25)),
             Mbid: r.Text(26),
             AddedAt: r.GetInt64(27),
             Rating: r.Int(28),
@@ -163,7 +163,7 @@ internal static class TrackRowMapper
             Missing: r.GetInt64(31) != 0);
     }
 
-    private static ArtistRef[] ParseArtists(string? packed)
+    private static ArtistRef[] ParseArtists(string? packed, StringPool pool)
     {
         if (string.IsNullOrEmpty(packed))
         {
@@ -175,7 +175,7 @@ internal static class TrackRowMapper
         for (int i = 0; i < records.Length; i++)
         {
             int split = records[i].IndexOf('', StringComparison.Ordinal);
-            artists[i] = new ArtistRef(long.Parse(records[i].AsSpan(0, split), System.Globalization.CultureInfo.InvariantCulture), records[i][(split + 1)..]);
+            artists[i] = pool.Artist(long.Parse(records[i].AsSpan(0, split), System.Globalization.CultureInfo.InvariantCulture), records[i][(split + 1)..]);
         }
 
         return artists;

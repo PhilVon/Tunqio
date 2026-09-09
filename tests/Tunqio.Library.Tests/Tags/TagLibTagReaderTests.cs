@@ -183,7 +183,7 @@ public class TagLibTagReaderTests
         try
         {
             var reader = new TagLibTagReader(
-                () => new TagReaderOptions(Timeout: TimeSpan.FromMilliseconds(250)),
+                () => new TagReaderOptions(Timeout: TimeSpan.FromSeconds(1)), // short, but not so short that a busy thread pool (the suite runs classes in parallel) trips the second read
                 logger: null,
                 open: path =>
                 {

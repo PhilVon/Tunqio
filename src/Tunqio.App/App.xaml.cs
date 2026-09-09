@@ -80,6 +80,17 @@ public partial class App : Application
             previousSession ?? "none", paths.DataRoot);
 
         string[] commandLine = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        if (LibrarySpikeRunner.IsRequested(commandLine))
+        {
+            // E3-S3 measurement mode over a chosen database; the shell window is not shown.
+            var spike = new LibrarySpikeRunner(logger, commandLine, paths.DatabasePath, Path.Combine(paths.LogsDirectory, "library-spike.json"));
+            _window = spike.CreateWindow();
+            _window.Closed += OnWindowClosed;
+            _window.Activate();
+            spike.Start();
+            return;
+        }
+
         var window = new MainWindow(forceWarp: RenderSpikeRunner.WantsWarp(commandLine));
         _window = window;
         _window.Closed += OnWindowClosed;

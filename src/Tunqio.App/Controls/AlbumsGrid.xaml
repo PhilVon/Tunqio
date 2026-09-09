@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Tunqio.App.Controls.AlbumsGrid"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Tunqio.App.Controls"
+    xmlns:lib="using:Tunqio.Core.Library">
+  <!--
+    The Albums grid (docs/ui-screens-and-flows.md, "Library › Albums"): an ItemsRepeater with a
+    UniformGridLayout, which recycles tiles through its RecyclePool, inside a ScrollViewer. ItemsRepeater has
+    no incremental-loading contract of its own, so the code-behind asks the source for the next page when the
+    scroll position nears the end of the extent (and keeps asking until the viewport is full). Art tiles use
+    the title-hash placeholder until the art cache (E3-S7) supplies thumbnails.
+  -->
+  <ScrollViewer x:Name="Scroller" ViewChanged="OnViewChanged" SizeChanged="OnSizeChanged" Padding="16,8">
+    <ItemsRepeater x:Name="Repeater" ItemsSource="{x:Bind ItemsSource, Mode=OneWay}" ElementPrepared="OnElementPrepared">
+      <ItemsRepeater.Layout>
+        <UniformGridLayout MinItemWidth="200" MinItemHeight="252" MinRowSpacing="16" MinColumnSpacing="16" ItemsStretch="Fill" />
+      </ItemsRepeater.Layout>
+      <ItemsRepeater.ItemTemplate>
+        <DataTemplate x:DataType="lib:AlbumDto">
+          <StackPanel Spacing="4">
+            <Grid Height="200" CornerRadius="6" Background="{x:Bind local:PlaceholderArt.Brush(Title)}">
+              <TextBlock Text="{x:Bind local:PlaceholderArt.Initials(Title)}" FontSize="48" FontWeight="SemiBold" Opacity="0.85"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" />
+            </Grid>
+            <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+            <TextBlock Text="{x:Bind local:Format.OrEmpty(AlbumArtist)}" TextTrimming="CharacterEllipsis" Opacity="0.7" />
+            <TextBlock Text="{x:Bind local:Format.Year(Year)}" Opacity="0.5" FontSize="12" />
+          </StackPanel>
+        </DataTemplate>
+      </ItemsRepeater.ItemTemplate>
+    </ItemsRepeater>
+  </ScrollViewer>
+</UserControl>
