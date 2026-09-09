@@ -3,11 +3,16 @@
     x:Class="Tunqio.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <Grid RowDefinitions="*,Auto" Padding="24">
+  <Grid RowDefinitions="*,Auto">
+    <!-- The visualizer surface: the native core renders into this panel's composition swap chain (ADR-002). -->
+    <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
       <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
-      <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.7" />
+      <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />
     </StackPanel>
-    <TextBlock x:Name="EngineText" Grid.Row="1" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" TextWrapping="Wrap" />
+    <StackPanel Grid.Row="1" Padding="12" Spacing="4" Background="#A0101014">
+      <TextBlock x:Name="RenderText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap" />
+      <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
+    </StackPanel>
   </Grid>
 </Window>

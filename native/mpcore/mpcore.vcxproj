@@ -42,7 +42,7 @@
       <SubSystem>Windows</SubSystem>
       <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
       <AdditionalLibraryDirectories>$(TunqioNativeRoot)bass\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -58,12 +58,16 @@
     <ClInclude Include="src\common\log.h" />
     <ClInclude Include="src\common\spsc_ring.h" />
     <ClInclude Include="src\common\version.h" />
+    <ClInclude Include="src\render\renderer.h" />
+    <ClInclude Include="src\render\swapchainpanel_native.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\abi\exports.cpp" />
+    <ClCompile Include="src\abi\exports_render.cpp" />
     <ClCompile Include="src\abi\last_error.cpp" />
     <ClCompile Include="src\audio\bass_engine.cpp" />
     <ClCompile Include="src\common\log.cpp" />
+    <ClCompile Include="src\render\renderer.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="..\tunqio.native.targets" />

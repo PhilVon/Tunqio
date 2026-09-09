@@ -127,7 +127,8 @@ public class FixtureLibraryTests
 
             first.Files.Select(f => (f.RelativePath, f.Sha256)).Should().Equal(second.Files.Select(f => (f.RelativePath, f.Sha256)));
             FixtureLibraryBuilder.TreeHash(a).Should().Be(FixtureLibraryBuilder.TreeHash(b), "two runs must produce identical bytes");
-            first.Files.Count.Should().Be(ffmpeg is null ? 12 : 60);
+            // Without ffmpeg only the natively written formats exist: 6 WAV (Tape One) + 2 AIFF (Odds and Ends).
+            first.Files.Count.Should().Be(ffmpeg is null ? 8 : 60);
         }
         finally
         {

@@ -40,7 +40,7 @@ Read in this order. The **Design** documents are current; the **Foundation** doc
 | [Build, Test and Release](build-test-release.md) | Toolchain, test strategy per layer, performance harnesses, CI, packaging, licences, Definition of Done |
 | [Risks and Open Questions](risks-and-open-questions.md) | Answered questions with where each landed; risk register with mitigation cards |
 | [Roadmap and Backlog](roadmap-and-backlog.md) | Milestones M0–M5, epics E0–E8, 77 sized stories with acceptance criteria, transcribed to the kanban |
-| [Spikes](spikes/) | Measured findings from the technical spikes: [E0-S4 BASS hello world](spikes/e0-s4-bass-hello.md) (latencies, flag set, position-tracking surprises) |
+| [Spikes](spikes/) | Measured findings from the technical spikes: [E0-S4 BASS hello world](spikes/e0-s4-bass-hello.md) (latencies, flag set, position-tracking surprises), [E0-S5 SwapChainPanel render thread](spikes/e0-s5-swapchainpanel-render.md) (composition swap chain handoff, frame statistics, resize storm, WARP) |
 
 ### Foundation (original, partially superseded)
 

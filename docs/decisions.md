@@ -41,7 +41,7 @@ Product name: **Tunqio** (Q-11 on T-1, 2026-09-08). User-facing identity carries
 
 Win2D is **not** used for the main visualizer; it remains an option for small decorative canvases in the C# shell.
 
-**Consequences.** One composition hop, no cross-API sync. Resize and `CompositionScaleX/Y` changes are forwarded from C# to the core, which handles `ResizeBuffers` on the render thread. Audio-reactive UI colours (not the visualizer) flow through XAML brushes and Composition animations in C#.
+**Consequences.** One composition hop, no cross-API sync. Resize and `CompositionScaleX/Y` changes are forwarded from C# to the core, which handles `ResizeBuffers` on the render thread. Audio-reactive UI colours (not the visualizer) flow through XAML brushes and Composition animations in C#. Proved by the E0-S5 spike ([spikes/e0-s5-swapchainpanel-render.md](spikes/e0-s5-swapchainpanel-render.md)): display-rate rendering with zero missed refreshes, 100 rapid resizes without device loss, WARP fallback at display rate for the spike scene.
 
 ---
 

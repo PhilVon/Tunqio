@@ -45,7 +45,8 @@ public sealed record FixtureManifest(
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public string ToJson() => JsonSerializer.Serialize(this, Options);
+    /// <summary>Indented JSON with LF line endings regardless of platform (the repository normalises to LF).</summary>
+    public string ToJson() => JsonSerializer.Serialize(this, Options).Replace("\r\n", "\n", StringComparison.Ordinal);
 
     public static FixtureManifest Load(string path) =>
         JsonSerializer.Deserialize<FixtureManifest>(File.ReadAllText(path), Options)

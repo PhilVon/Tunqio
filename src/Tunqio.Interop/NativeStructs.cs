@@ -142,6 +142,70 @@ internal unsafe struct MpEvent
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct MpRendererConfig
+{
+    public uint StructSize;
+    public uint Width;
+    public uint Height;
+    public float ScaleX;
+    public float ScaleY;
+    public byte ForceWarp;
+    public byte VSync;
+    public byte Headless;
+    public byte Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct MpRenderStats
+{
+    public const int HistogramBuckets = 6;
+
+    public uint StructSize;
+    public ulong Frames;
+    public ulong Resizes;
+    public double Fps;
+    public float FrameMsLast;
+    public float FrameMsMax;
+    public float FrameMsAvg;
+    public fixed uint FrameMsHistogram[HistogramBuckets];
+    public ulong DxgiPresentCount;
+    public ulong DxgiMissedRefreshes;
+    public uint Width;
+    public uint Height;
+    public byte Warp;
+    public byte Headless;
+    public byte DeviceLost;
+    public byte Visible;
+    public fixed byte Adapter[128];
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct MpPresetInfo
+{
+    public uint StructSize;
+    public fixed byte Id[64];
+    public fixed byte Name[128];
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct MpThemeColors
+{
+    public uint StructSize;
+    public fixed float Primary[4];
+    public fixed float Secondary[4];
+    public fixed float Accent[4];
+    public fixed float Background[4];
+}
+
+internal enum MpQualityPolicy
+{
+    Auto = 0,
+    Low = 1,
+    Medium = 2,
+    High = 3,
+}
+
+[StructLayout(LayoutKind.Sequential)]
 internal unsafe struct MpAnalysisFrame
 {
     public const int SpectrumBins = 1024;

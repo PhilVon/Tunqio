@@ -16,7 +16,8 @@
  *
  * History: 0.1 version and error surface (E0-S1). 0.2 engine, track, clock, stats, events, log (E0-S4
  * draft; exports marked "not implemented" return MP_E_STATE until the story that implements them lands).
- * The renderer exports (mp_renderer_*) are drafted by the render spike (E0-S5).
+ * 0.3 renderer: create/destroy/resize/visible/stats implemented by the render spike (E0-S5); presets, theme and
+ * quality are declared and stubbed for E4.
  */
 #pragma once
 
@@ -39,7 +40,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 2u
+#define MP_ABI_MINOR 3u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -230,6 +231,90 @@ typedef struct mp_analysis_frame {
 /* Copies the newest complete frame. MP_E_STATE when none is available yet. */
 MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* engine,
                                                     mp_analysis_frame* out_frame); /* not implemented until E1-S8 */
+
+/* ---- renderer (ABI 0.3; E0-S5 spike, E4-S3 completes the preset surface) ---------------------- */
+
+typedef struct mp_renderer mp_renderer; /* opaque; one per SwapChainPanel */
+
+typedef struct mp_renderer_config {
+    uint32_t struct_size;
+    uint32_t width; /* initial back-buffer size in physical pixels; 0 = 1 until mp_renderer_resize */
+    uint32_t height;
+    float scale_x; /* SwapChainPanel CompositionScaleX/Y; 0 = 1.0 */
+    float scale_y;
+    uint8_t force_warp; /* 1 = software rasteriser (also the automatic fallback when no hardware device) */
+    uint8_t vsync;      /* 1 = Present(1); 0 = present as fast as the compositor allows */
+    uint8_t headless;   /* 1 = render into an offscreen texture; swap_chain_panel_native may be NULL (tests) */
+    uint8_t reserved;
+} mp_renderer_config;
+
+#define MP_RENDER_HISTOGRAM_BUCKETS 6u
+
+typedef struct mp_render_stats {
+    uint32_t struct_size;
+    uint64_t frames;  /* frames rendered since creation */
+    uint64_t resizes; /* ResizeBuffers performed on the render thread */
+    double fps;       /* frames in the most recent whole second */
+    float frame_ms_last;
+    float frame_ms_max;
+    float frame_ms_avg;
+    uint32_t
+        frame_ms_histogram[MP_RENDER_HISTOGRAM_BUCKETS]; /* frame-to-frame: <8.4, <16.7, <20, <33.4, <50, >=50 ms */
+    uint64_t dxgi_present_count;                         /* DXGI_FRAME_STATISTICS.PresentCount */
+    uint64_t dxgi_missed_refreshes;                      /* refresh intervals skipped between consecutive presents */
+    uint32_t width;
+    uint32_t height;
+    uint8_t warp;
+    uint8_t headless;
+    uint8_t device_lost;
+    uint8_t visible;
+    char adapter[128];
+} mp_render_stats;
+
+typedef struct mp_preset_info {
+    uint32_t struct_size;
+    char id[64];
+    char name[128];
+} mp_preset_info;
+
+typedef struct mp_theme_colors {
+    uint32_t struct_size;
+    float primary[4];
+    float secondary[4];
+    float accent[4];
+    float background[4];
+} mp_theme_colors;
+
+typedef enum mp_quality_policy {
+    MP_QUALITY_AUTO = 0,
+    MP_QUALITY_LOW = 1,
+    MP_QUALITY_MEDIUM = 2,
+    MP_QUALITY_HIGH = 3
+} mp_quality_policy;
+
+/* Creates the device (hardware, WARP fallback), the flip-model composition swap chain and the render thread, and
+ * hands the swap chain to the SwapChainPanel. Call on the UI thread; swap_chain_panel_native is the panel's
+ * IUnknown (the core queries ISwapChainPanelNative). engine may be NULL until the analysis stream lands (E4-S1). */
+MP_API mp_result MP_CALL mp_renderer_create(mp_engine* engine, void* swap_chain_panel_native,
+                                            const mp_renderer_config* config, mp_renderer** out_renderer);
+/* Stops and joins the render thread, releases the swap chain and device. */
+MP_API mp_result MP_CALL mp_renderer_destroy(mp_renderer* renderer);
+/* Physical pixel size and composition scale; applied on the render thread before the next frame. */
+MP_API mp_result MP_CALL mp_renderer_resize(mp_renderer* renderer, uint32_t width, uint32_t height, float scale_x,
+                                            float scale_y);
+/* 0 pauses the render loop (hidden panel, minimised window); 1 resumes it. */
+MP_API mp_result MP_CALL mp_renderer_set_visible(mp_renderer* renderer, uint8_t visible);
+MP_API mp_result MP_CALL mp_renderer_get_stats(mp_renderer* renderer, mp_render_stats* out_stats);
+MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* renderer, mp_preset_info* out,
+                                                  uint32_t* count); /* not implemented until E4-S3 */
+MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* renderer,
+                                                const char* utf8_id); /* not implemented until E4-S3 */
+MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* renderer, const char* utf8_name,
+                                               float value); /* not implemented until E4-S3 */
+MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* renderer,
+                                               const mp_theme_colors* colors); /* not implemented until E4-S6 */
+MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* renderer,
+                                                 mp_quality_policy policy); /* not implemented until E4-S7 */
 
 #ifdef __cplusplus
 } /* extern "C" */

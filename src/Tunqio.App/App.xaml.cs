@@ -77,10 +77,17 @@ public partial class App : Application
             Identity.ProductName, typeof(App).Assembly.GetName().Version?.ToString(3), SessionId, launchCount,
             previousSession ?? "none", paths.DataRoot);
 
-        _window = new MainWindow();
+        string[] commandLine = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        var window = new MainWindow(forceWarp: RenderSpikeRunner.WantsWarp(commandLine));
+        _window = window;
         _window.Closed += OnWindowClosed;
         _window.Activate();
         logger.LogInformation("Main window shown after {ElapsedMs} ms", startup.ElapsedMilliseconds);
+
+        if (RenderSpikeRunner.IsRequested(commandLine))
+        {
+            new RenderSpikeRunner(window, logger, commandLine, Path.Combine(paths.LogsDirectory, "render-spike.json")).Start();
+        }
     }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)

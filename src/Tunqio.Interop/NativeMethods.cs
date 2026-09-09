@@ -132,4 +132,46 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "mp_analysis_try_get_latest")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult AnalysisTryGetLatest(nint engine, MpAnalysisFrame* frame);
+
+    // ---- renderer ----
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererCreate(nint engine, void* swapChainPanelNative, MpRendererConfig* config, nint* outRenderer);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererDestroy(nint renderer);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_resize")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererResize(nint renderer, uint width, uint height, float scaleX, float scaleY);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_visible")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetVisible(nint renderer, byte visible);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_get_stats")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererGetStats(nint renderer, MpRenderStats* stats);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_enum_presets")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererEnumPresets(nint renderer, MpPresetInfo* presets, uint* count);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_preset")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetPreset(nint renderer, byte* utf8Id);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_param")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetParam(nint renderer, byte* utf8Name, float value);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_theme")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetTheme(nint renderer, MpThemeColors* colors);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_quality")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetQuality(nint renderer, MpQualityPolicy policy);
 }
