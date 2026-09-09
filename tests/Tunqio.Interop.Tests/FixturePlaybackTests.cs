@@ -44,7 +44,7 @@ public class FixturePlaybackTests
             try
             {
                 using NativeTrack track = engine.OpenTrack(path);
-                if (Math.Abs(track.Info.Duration.TotalMilliseconds - entry.DurationMs) > 120)
+                if (Math.Abs(track.Info.Duration.TotalMilliseconds - entry.DurationMs) > 50) // E1-S1 AC-33
                 {
                     failures.Add($"{entry.RelativePath}: duration {track.Info.Duration.TotalMilliseconds} ms");
                 }

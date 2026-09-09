@@ -17,7 +17,8 @@
  * History: 0.1 version and error surface (E0-S1). 0.2 engine, track, clock, stats, events, log (E0-S4
  * draft; exports marked "not implemented" return MP_E_STATE until the story that implements them lands).
  * 0.3 renderer: create/destroy/resize/visible/stats implemented by the render spike (E0-S5); presets, theme and
- * quality are declared and stubbed for E4.
+ * quality are declared and stubbed for E4. 0.4 engine skeleton (E1-S1): MP_DEVICE_NONE output and
+ * mp_engine_render for headless use; guard fades on pause/resume/stop/seek; audio-taper volume.
  */
 #pragma once
 
@@ -40,7 +41,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 3u
+#define MP_ABI_MINOR 4u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -96,9 +97,13 @@ typedef struct mp_engine_config {
     const char* plugin_dir; /* UTF-8 directory holding the BASS add-on DLLs; NULL = the directory of mpcore.dll */
 } mp_engine_config;
 
+/* device_index values besides an index from mp_engine_enum_devices. */
+#define MP_DEVICE_DEFAULT (-1)
+#define MP_DEVICE_NONE (-2) /* no device: audio is produced only when the caller pulls it with mp_engine_render */
+
 typedef struct mp_output_config {
     uint32_t struct_size;
-    int32_t device_index; /* index from mp_engine_enum_devices; -1 = default device */
+    int32_t device_index; /* index from mp_engine_enum_devices, MP_DEVICE_DEFAULT or MP_DEVICE_NONE */
     mp_output_mode mode;
     uint32_t buffer_ms;   /* 0 = device default */
     uint8_t event_driven; /* 1 = WASAPI event-driven buffering (lower latency; buffer becomes one period) */
@@ -187,13 +192,21 @@ MP_API mp_result MP_CALL mp_track_open(mp_engine* engine, const char* utf8_path,
 MP_API mp_result MP_CALL mp_track_close(mp_track* track);
 MP_API mp_result MP_CALL mp_track_get_info(mp_track* track, mp_track_info* out_info);
 
-/* Replaces the current source with track at start_ms and starts the output if needed. */
+/* Replaces the current source with track at start_ms and starts the output if needed. A source that was
+ * playing is guard-faded out first (50 ms, waited for on a live device); the new one fades in over 50 ms. */
 MP_API mp_result MP_CALL mp_engine_play(mp_engine* engine, mp_track* track, int64_t start_ms);
 MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* engine, mp_track* next); /* not implemented until E1-S3 */
+/* Fades out over 50 ms on the audio thread, then holds: the output keeps running with silence and the source
+ * position freezes, so resume is immediate. Returns at once. */
 MP_API mp_result MP_CALL mp_engine_pause(mp_engine* engine);
 MP_API mp_result MP_CALL mp_engine_resume(mp_engine* engine);
+/* MP_FADE_GUARD fades out over 50 ms before the source is removed (waited for on a live device). */
 MP_API mp_result MP_CALL mp_engine_stop(mp_engine* engine, mp_fade_mode fade);
+/* Guard-faded: out, reposition, in. While paused the position moves and the hold stays. */
 MP_API mp_result MP_CALL mp_engine_seek(mp_engine* engine, int64_t position_ms);
+/* Slider position 0..1 on an audio taper: gain = 10^(2 (v - 1)) (-20 dB at 0.5, -40 dB just above 0, silence
+ * at 0). Applied at the mixer output, interpolated across one output buffer so there is no zipper noise;
+ * 0 therefore mutes within one buffer without a click. */
 MP_API mp_result MP_CALL mp_engine_set_volume(mp_engine* engine, float linear);
 MP_API mp_result MP_CALL mp_engine_set_replaygain(mp_engine* engine, float gain_db,
                                                   float peak);                    /* not implemented until E1-S5 */
@@ -201,6 +214,9 @@ MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* engine, uint32_t ms)
 /* Lock-free with respect to the audio thread. */
 MP_API mp_result MP_CALL mp_engine_get_clock(mp_engine* engine, mp_clock* out_clock);
 MP_API mp_result MP_CALL mp_engine_get_stats(mp_engine* engine, mp_engine_stats* out_stats);
+/* Pulls the next frames of mixed float PCM (interleaved, the mixer's channel count) exactly as the output
+ * thread would, volume and fades applied. Only with MP_DEVICE_NONE; MP_E_STATE when a device is open. */
+MP_API mp_result MP_CALL mp_engine_render(mp_engine* engine, float* out_interleaved, uint32_t frames);
 
 MP_API mp_result MP_CALL mp_preview_start(mp_engine* engine, mp_track* track,
                                           float gain_db);    /* not implemented until E5-S5 */

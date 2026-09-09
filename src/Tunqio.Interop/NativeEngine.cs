@@ -25,9 +25,10 @@ public sealed unsafe class NativeEngine : IDisposable
     private nint _handle;
     private int _disposed;
 
-    private NativeEngine(nint handle)
+    private NativeEngine(nint handle, int mixerChannels)
     {
         _handle = handle;
+        MixerChannels = mixerChannels;
         _self = GCHandle.Alloc(this, GCHandleType.Normal);
         _pump = new Thread(PumpLoop) { Name = "Tunqio native event pump", IsBackground = true };
         _pump.Start();
@@ -48,6 +49,9 @@ public sealed unsafe class NativeEngine : IDisposable
     /// <summary>Raw handle for benchmarks and diagnostics. Do not free it.</summary>
     public nint Handle => _handle;
 
+    /// <summary>Channels the mixer was created with (what <see cref="Render"/> produces per frame).</summary>
+    public int MixerChannels { get; }
+
     /// <summary>Creates the engine (<c>mp_engine_create</c>): BASS no-sound device, plugins, mixer.</summary>
     /// <param name="pluginDirectory">Directory of the BASS add-on DLLs; null means next to mpcore.dll.</param>
     public static NativeEngine Create(int sampleRate = 0, int channels = 0, string? pluginDirectory = null)
@@ -64,7 +68,7 @@ public sealed unsafe class NativeEngine : IDisposable
             };
             nint handle;
             NativeException.ThrowIfFailed(NativeMethods.EngineCreate(&config, &handle), "mp_engine_create");
-            return new NativeEngine(handle);
+            return new NativeEngine(handle, channels > 0 ? channels : 2);
         }
     }
 
@@ -179,6 +183,25 @@ public sealed unsafe class NativeEngine : IDisposable
         NativeException.ThrowIfFailed(NativeMethods.PreviewStart(RequireHandle(), track.RequireHandle(), gainDb), "mp_preview_start");
 
     public void StopPreview() => NativeException.ThrowIfFailed(NativeMethods.PreviewStop(RequireHandle()), "mp_preview_stop");
+
+    /// <summary>
+    /// Pulls the next <paramref name="frames"/> frames of mixed float PCM into <paramref name="interleaved"/>
+    /// (<c>mp_engine_render</c>): only with <see cref="OutputConfig.NoDevice"/>; the buffer needs
+    /// <paramref name="frames"/> times <see cref="MixerChannels"/> samples.
+    /// </summary>
+    public void Render(Span<float> interleaved, int frames)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(frames);
+        if (interleaved.Length < frames * MixerChannels)
+        {
+            throw new ArgumentException("The buffer is smaller than frames x MixerChannels.", nameof(interleaved));
+        }
+
+        fixed (float* p = interleaved)
+        {
+            NativeException.ThrowIfFailed(NativeMethods.EngineRender(RequireHandle(), p, (uint)frames), "mp_engine_render");
+        }
+    }
 
     // ---- clock, stats, analysis ----
 

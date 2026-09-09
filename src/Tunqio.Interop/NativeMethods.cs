@@ -119,6 +119,10 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult EngineGetStats(nint engine, MpEngineStats* stats);
 
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_render")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineRender(nint engine, float* outInterleaved, uint frames);
+
     [LibraryImport(LibraryName, EntryPoint = "mp_preview_start")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult PreviewStart(nint engine, nint track, float gainDb);

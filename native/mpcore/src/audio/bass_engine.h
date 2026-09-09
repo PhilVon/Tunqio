@@ -1,4 +1,4 @@
-// The BASS-backed engine (first cut from the E0-S4 spike). This header exposes only mpcore ABI types;
+// The BASS-backed engine (E0-S4 first cut, E1-S1 skeleton). This header exposes only mpcore ABI types;
 // BASS headers are included by bass_engine.cpp alone (docs/solution-structure.md dependency rule,
 // enforced by the include-grep test).
 #pragma once
@@ -25,6 +25,9 @@ struct track {
 
 class engine {
 public:
+    // Guard fade length (ADR-003 item 5): pause, resume, stop, seek and a manual play over a running source.
+    static constexpr uint32_t k_guard_fade_ms = 50;
+
     // One engine per process (BASS is process-global). Returns MP_E_STATE when one already exists.
     static mp_result create(const mp_engine_config& config, std::unique_ptr<engine>& out);
     ~engine();
@@ -43,12 +46,18 @@ public:
     mp_result play(track* t, int64_t start_ms);
     mp_result pause();
     mp_result resume();
-    mp_result stop();
+    mp_result stop(mp_fade_mode fade);
     mp_result seek(int64_t position_ms);
-    void set_volume(float linear);
+    void set_volume(float slider);
 
     mp_result get_clock(mp_clock& out) const;
     mp_result get_stats(mp_engine_stats& out) const;
+
+    // MP_DEVICE_NONE only: what the output thread would have pulled. `frames` interleaved float frames.
+    mp_result render(float* out_interleaved, uint32_t frames);
+
+    // Slider position to gain (audio taper, see mp_engine_set_volume). Exposed for the tests.
+    static float volume_taper(float slider) noexcept;
 
 private:
     engine() = default;
@@ -57,6 +66,13 @@ private:
     void load_plugins(const std::wstring& dir);
     void free_output() noexcept;
     void emit(mp_event_type type, int64_t a, int64_t b, const char* message) noexcept;
+
+    // Control plane: fade the envelope to silence and, on a live device, wait for the audio thread to get there.
+    void guard_out();
+    void begin_fade_in() noexcept;
+
+    // The pull stage shared by the WASAPI callback and render(): mixer -> envelope -> volume. Real-time.
+    void pull(void* buffer, uint32_t bytes) noexcept;
 
     static unsigned long __stdcall output_proc(void* buffer, unsigned long length, void* user);
     static void __stdcall end_sync(unsigned long handle, unsigned long channel, unsigned long data, void* user);
@@ -71,10 +87,20 @@ private:
 
     track* current_ = nullptr;         // control plane
     std::atomic<bool> playing_{false}; // read by the audio thread for underrun accounting
-    std::atomic<float> gain_{1.0f};
+
+    // Envelope (guard fades) and volume. The audio thread owns env_level_ and volume_current_; the control
+    // thread only writes targets and reads the level back to know when a fade has landed.
+    std::atomic<float> env_target_{1.0f};
+    std::atomic<float> env_level_{1.0f};
+    std::atomic<uint32_t> fade_frames_{2400};
+    std::atomic<bool> pause_pending_{false}; // fade out, then hold
+    std::atomic<bool> hold_{false};          // paused: the pull stage emits silence and leaves the mixer alone
+    std::atomic<float> volume_target_{1.0f}; // taper applied
+    float volume_current_ = 1.0f;            // audio thread only
 
     bool output_open_ = false;
     bool output_started_ = false;
+    bool offline_ = false; // MP_DEVICE_NONE: no WASAPI; render() pulls
     bool exclusive_ = false;
     uint32_t output_rate_ = 0;
     uint32_t output_channels_ = 0;

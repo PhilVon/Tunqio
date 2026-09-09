@@ -2,19 +2,30 @@
 //
 // Shape (ADR-003, ADR-010): BASS runs on the "no sound" device purely as a decoder; a BASSmix decode
 // mixer is the single source of PCM; BASSWASAPI owns the output thread and pulls from the mixer through
-// output_proc. Nothing on that path allocates or blocks: it is one BASS_ChannelGetData plus a gain loop.
+// output_proc. Nothing on that path allocates, locks or logs: it is one BASS_ChannelGetData plus the
+// envelope-and-volume loop in pull(). With MP_DEVICE_NONE there is no output thread and render() is the
+// same pull stage driven by the caller, which is how the tests hear the engine.
+//
+// Fades (E1-S1): the audio thread owns an envelope that ramps linearly between 0 and 1 over
+// k_guard_fade_ms. Pause asks for 0 and, once the ramp lands, holds: the output keeps running with
+// silence and the mixer is left alone, so the position freezes and resume is immediate. Stop, seek and a
+// play over a running source fade out first and, on a live device, wait for the ramp before touching the
+// mixer. Volume is a separate gain on an audio taper, interpolated across each buffer.
 #include "audio/bass_engine.h"
 
 #include "abi/last_error.h"
 #include "common/log.h"
+#include "common/rt_guard.h"
 
 #include <algorithm>
 #include <bass.h>
 #include <bassmix.h>
 #include <basswasapi.h>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 #include <windows.h>
 
@@ -170,6 +181,7 @@ int64_t qpc_frequency() {
 
 constexpr uint32_t k_default_rate = 48000;
 constexpr uint32_t k_default_channels = 2;
+constexpr uint32_t k_guard_wait_ms = 150; // longest a control call waits for a fade on a live device
 
 } // namespace
 
@@ -247,6 +259,7 @@ mp_result engine::create_mixer(uint32_t rate, uint32_t channels) {
     mixer_ = mixer;
     mixer_rate_ = rate;
     mixer_channels_ = channels;
+    fade_frames_.store(std::max(1u, rate * k_guard_fade_ms / 1000u), std::memory_order_relaxed);
     return MP_OK;
 }
 
@@ -280,12 +293,13 @@ engine::~engine() {
 }
 
 void engine::free_output() noexcept {
-    if (output_open_) {
+    if (output_open_ && !offline_) {
         BASS_WASAPI_Stop(TRUE);
         BASS_WASAPI_Free();
-        output_open_ = false;
-        output_started_ = false;
     }
+    output_open_ = false;
+    output_started_ = false;
+    offline_ = false;
 }
 
 // ---- output -------------------------------------------------------------------------------------
@@ -293,6 +307,20 @@ void engine::free_output() noexcept {
 mp_result engine::set_output(const mp_output_config& config) {
     std::lock_guard lock{control_};
     free_output();
+
+    if (config.device_index == MP_DEVICE_NONE) {
+        // Headless: the mixer keeps its rate; render() is the output thread.
+        output_open_ = true;
+        output_started_ = true;
+        offline_ = true;
+        exclusive_ = false;
+        output_rate_ = mixer_rate_;
+        output_channels_ = mixer_channels_;
+        output_buffer_bytes_ = 0;
+        output_format_ = 0;
+        log(MP_LOG_INFO, "output: none (render), %u Hz / %u ch", output_rate_, output_channels_);
+        return MP_OK;
+    }
 
     DWORD flags = 0;
     if (config.mode == MP_OUTPUT_EXCLUSIVE) {
@@ -463,6 +491,7 @@ mp_result engine::close_track(track* t) {
         return MP_E_INVALID_ARG;
     }
     if (current_ == t) {
+        guard_out();
         BASS_Mixer_ChannelRemove(t->stream);
         current_ = nullptr;
         playing_.store(false, std::memory_order_release);
@@ -474,12 +503,36 @@ mp_result engine::close_track(track* t) {
 
 // ---- transport ----------------------------------------------------------------------------------
 
+// Fade the envelope to silence. On a live device this waits (bounded) for the audio thread to get there,
+// so the caller can change the mixer without a step in the output. Headless, or when the output is not
+// running, nothing is being heard, so the level is dropped straight away. Held (paused) output is silent already.
+void engine::guard_out() {
+    pause_pending_.store(false, std::memory_order_relaxed);
+    env_target_.store(0.0f, std::memory_order_release);
+    if (hold_.load(std::memory_order_acquire) || offline_ || !output_started_ || current_ == nullptr) {
+        env_level_.store(0.0f, std::memory_order_release);
+        return;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(k_guard_wait_ms);
+    while (env_level_.load(std::memory_order_acquire) > 0.0f && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    env_level_.store(0.0f, std::memory_order_release); // a stalled output must not leave the fade half done
+}
+
+void engine::begin_fade_in() noexcept {
+    pause_pending_.store(false, std::memory_order_relaxed);
+    hold_.store(false, std::memory_order_release);
+    env_target_.store(1.0f, std::memory_order_release);
+}
+
 mp_result engine::play(track* t, int64_t start_ms) {
     std::lock_guard lock{control_};
     if (!output_open_) {
         return state_fail("mp_engine_play: no output set (mp_engine_set_output first)");
     }
     if (current_ != nullptr) {
+        guard_out();
         BASS_Mixer_ChannelRemove(current_->stream);
         current_ = nullptr;
     }
@@ -487,13 +540,16 @@ mp_result engine::play(track* t, int64_t start_ms) {
     if (!BASS_ChannelSetPosition(t->stream, start, BASS_POS_BYTE)) {
         return bass_fail("BASS_ChannelSetPosition");
     }
-    // NORAMPIN: no fade-in on the join (gapless); the mixer resamples if the source rate differs.
+    // NORAMPIN: BASSmix must not add its own ramp; the envelope below is the fade-in. The mixer resamples
+    // if the source rate differs.
     if (!BASS_Mixer_StreamAddChannel(mixer_, t->stream, BASS_MIXER_CHAN_NORAMPIN)) {
         return bass_fail("BASS_Mixer_StreamAddChannel");
     }
     // MIXTIME: fires when the end is mixed, not when it is heard; the managed side compensates with the clock.
     BASS_Mixer_ChannelSetSync(t->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, this);
     current_ = t;
+    env_level_.store(0.0f, std::memory_order_release);
+    begin_fade_in();
     playing_.store(true, std::memory_order_release);
     if (!output_started_) {
         if (!BASS_WASAPI_Start()) {
@@ -510,8 +566,13 @@ mp_result engine::pause() {
     if (current_ == nullptr) {
         return state_fail("mp_engine_pause: nothing is playing");
     }
-    BASS_Mixer_ChannelFlags(current_->stream, BASS_MIXER_CHAN_PAUSE, BASS_MIXER_CHAN_PAUSE);
+    if (hold_.load(std::memory_order_acquire)) {
+        return MP_OK;
+    }
     playing_.store(false, std::memory_order_release);
+    // The audio thread ramps the envelope down and then engages the hold itself (see pull()).
+    pause_pending_.store(true, std::memory_order_release);
+    env_target_.store(0.0f, std::memory_order_release);
     return MP_OK;
 }
 
@@ -520,18 +581,26 @@ mp_result engine::resume() {
     if (current_ == nullptr) {
         return state_fail("mp_engine_resume: nothing is loaded");
     }
-    BASS_Mixer_ChannelFlags(current_->stream, 0, BASS_MIXER_CHAN_PAUSE);
+    begin_fade_in();
     playing_.store(true, std::memory_order_release);
     return MP_OK;
 }
 
-mp_result engine::stop() {
+mp_result engine::stop(mp_fade_mode fade) {
     std::lock_guard lock{control_};
     playing_.store(false, std::memory_order_release);
     if (current_ != nullptr) {
+        if (fade == MP_FADE_GUARD) {
+            guard_out();
+        } else {
+            pause_pending_.store(false, std::memory_order_relaxed);
+            env_target_.store(0.0f, std::memory_order_release);
+            env_level_.store(0.0f, std::memory_order_release);
+        }
         BASS_Mixer_ChannelRemove(current_->stream);
         current_ = nullptr;
     }
+    hold_.store(false, std::memory_order_release);
     return MP_OK;
 }
 
@@ -540,16 +609,40 @@ mp_result engine::seek(int64_t position_ms) {
     if (current_ == nullptr) {
         return state_fail("mp_engine_seek: nothing is loaded");
     }
+    const bool was_held = hold_.load(std::memory_order_acquire);
+    const bool was_playing = playing_.load(std::memory_order_acquire);
+    guard_out();
     const QWORD pos = BASS_ChannelSeconds2Bytes(current_->stream, static_cast<double>(position_ms) / 1000.0);
     // MIXER_RESET drops what the mixer already buffered from the old position.
     if (!BASS_Mixer_ChannelSetPosition(current_->stream, pos, BASS_POS_BYTE | BASS_POS_MIXER_RESET)) {
-        return bass_fail("BASS_Mixer_ChannelSetPosition");
+        const mp_result r = bass_fail("BASS_Mixer_ChannelSetPosition");
+        if (was_playing) {
+            begin_fade_in();
+        }
+        return r;
+    }
+    if (was_held || !was_playing) {
+        // Paused: stay silent and held at the new position; resume fades in from there.
+        hold_.store(true, std::memory_order_release);
+        pause_pending_.store(false, std::memory_order_relaxed);
+    } else {
+        begin_fade_in();
     }
     return MP_OK;
 }
 
-void engine::set_volume(float linear) {
-    gain_.store(std::clamp(linear, 0.0f, 4.0f), std::memory_order_relaxed);
+float engine::volume_taper(float slider) noexcept {
+    if (!(slider > 0.0f)) { // also catches NaN
+        return 0.0f;
+    }
+    if (slider >= 1.0f) {
+        return 1.0f;
+    }
+    return std::pow(10.0f, 2.0f * (slider - 1.0f));
+}
+
+void engine::set_volume(float slider) {
+    volume_target_.store(volume_taper(slider), std::memory_order_release);
 }
 
 // ---- clock and stats ----------------------------------------------------------------------------
@@ -562,7 +655,7 @@ mp_result engine::get_clock(mp_clock& out) const {
     out.output_latency_ms =
         output_rate_ != 0 ? output_buffer_bytes_ * 1000u / (output_rate_ * output_channels_ * 4u) : 0u;
     // Bytes still sitting in the WASAPI buffer have been mixed but not heard; POSEX subtracts them.
-    DWORD buffered = output_open_ ? BASS_WASAPI_GetData(nullptr, BASS_DATA_AVAILABLE) : 0;
+    DWORD buffered = output_open_ && !offline_ ? BASS_WASAPI_GetData(nullptr, BASS_DATA_AVAILABLE) : 0;
     if (buffered == static_cast<DWORD>(-1)) {
         buffered = 0;
     }
@@ -610,44 +703,96 @@ mp_result engine::get_stats(mp_engine_stats& out) const {
     default:
         break;
     }
+    if (offline_) {
+        format = "render";
+    }
     copy_utf8(out.output_format, sizeof out.output_format, output_open_ ? format : "none");
     return MP_OK;
 }
 
 // ---- audio thread -------------------------------------------------------------------------------
 
+// The pull stage. Real-time rules: no locks, no allocation, no logging (rt::scope counts allocations in
+// Debug builds). Runs on the BASSWASAPI thread through output_proc, or on the caller's thread through
+// render() when there is no device.
+void engine::pull(void* buffer, uint32_t bytes) noexcept {
+    [[maybe_unused]] mp::rt::scope rt_guard; // counts allocations in Debug; nothing in Release
+    const int64_t t0 = qpc_now();
+    auto* samples = static_cast<float*>(buffer);
+    const uint32_t channels = std::max(1u, mixer_channels_);
+    const uint32_t frames = bytes / (sizeof(float) * channels);
+
+    if (hold_.load(std::memory_order_acquire)) {
+        std::memset(buffer, 0, bytes); // paused: the mixer is not advanced, so the position stays put
+    } else {
+        DWORD got = BASS_ChannelGetData(mixer_, buffer, bytes);
+        if (got == static_cast<DWORD>(-1)) {
+            got = 0;
+        }
+        if (got < bytes) {
+            std::memset(static_cast<char*>(buffer) + got, 0, bytes - got);
+            if (playing_.load(std::memory_order_acquire)) {
+                underruns_.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+
+        // Envelope: linear ramp over fade_frames_ toward the target. Volume: linear interpolation from the
+        // last buffer's gain to the new target across this buffer (no zipper, and a mute lands within it).
+        float env = env_level_.load(std::memory_order_acquire);
+        const float target = env_target_.load(std::memory_order_acquire);
+        const float step = 1.0f / static_cast<float>(std::max(1u, fade_frames_.load(std::memory_order_relaxed)));
+        const float vol0 = volume_current_;
+        const float vol1 = volume_target_.load(std::memory_order_acquire);
+        const float vol_step = frames != 0 ? (vol1 - vol0) / static_cast<float>(frames) : 0.0f;
+        const bool flat = env == target && vol0 == vol1;
+        if (!(flat && env == 1.0f && vol1 == 1.0f)) {
+            float vol = vol0;
+            for (uint32_t f = 0; f < frames; ++f) {
+                if (env < target) {
+                    env = std::min(target, env + step);
+                } else if (env > target) {
+                    env = std::max(target, env - step);
+                }
+                vol += vol_step;
+                const float g = env * vol;
+                float* frame = samples + static_cast<size_t>(f) * channels;
+                for (uint32_t c = 0; c < channels; ++c) {
+                    frame[c] *= g;
+                }
+            }
+        }
+        volume_current_ = vol1;
+        env_level_.store(env, std::memory_order_release);
+        if (env <= 0.0f && pause_pending_.load(std::memory_order_acquire)) {
+            pause_pending_.store(false, std::memory_order_relaxed);
+            hold_.store(true, std::memory_order_release);
+        }
+    }
+
+    callbacks_.fetch_add(1, std::memory_order_relaxed);
+    const auto us = static_cast<uint32_t>((qpc_now() - t0) * 1'000'000 / qpc_frequency());
+    uint32_t prev = callback_max_us_.load(std::memory_order_relaxed);
+    while (us > prev && !callback_max_us_.compare_exchange_weak(prev, us, std::memory_order_relaxed)) {
+    }
+}
+
 // BASSWASAPI calls this on its own thread; the data it wants is always 32-bit float regardless of the
-// device format. Real-time rules: no locks, no allocation, no logging.
+// device format.
 unsigned long __stdcall engine::output_proc(void* buffer, unsigned long length, void* user) {
     auto* self = static_cast<engine*>(user);
-    const int64_t t0 = qpc_now();
-
-    DWORD got = BASS_ChannelGetData(self->mixer_, buffer, length);
-    if (got == static_cast<DWORD>(-1)) {
-        got = 0;
-    }
-    if (got < length) {
-        std::memset(static_cast<char*>(buffer) + got, 0, length - got);
-        if (self->playing_.load(std::memory_order_acquire)) {
-            self->underruns_.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-
-    const float gain = self->gain_.load(std::memory_order_relaxed);
-    if (gain != 1.0f) {
-        auto* samples = static_cast<float*>(buffer);
-        const size_t n = got / sizeof(float);
-        for (size_t i = 0; i < n; ++i) {
-            samples[i] *= gain;
-        }
-    }
-
-    self->callbacks_.fetch_add(1, std::memory_order_relaxed);
-    const auto us = static_cast<uint32_t>((qpc_now() - t0) * 1'000'000 / qpc_frequency());
-    uint32_t prev = self->callback_max_us_.load(std::memory_order_relaxed);
-    while (us > prev && !self->callback_max_us_.compare_exchange_weak(prev, us, std::memory_order_relaxed)) {
-    }
+    self->pull(buffer, static_cast<uint32_t>(length));
     return length; // always a full buffer: silence pads a short read
+}
+
+mp_result engine::render(float* out_interleaved, uint32_t frames) {
+    if (!output_open_ || !offline_) {
+        return state_fail("mp_engine_render: the output is not MP_DEVICE_NONE");
+    }
+    if (frames == 0) {
+        return MP_OK;
+    }
+    pull(out_interleaved, frames * static_cast<uint32_t>(sizeof(float)) * mixer_channels_);
+    return MP_OK;
 }
 
 void __stdcall engine::end_sync(unsigned long /*handle*/, unsigned long channel, unsigned long /*data*/, void* user) {

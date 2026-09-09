@@ -62,6 +62,7 @@
     <ClCompile Include="$(MpCoreDir)src\abi\last_error.cpp" />
     <ClCompile Include="$(MpCoreDir)src\audio\bass_engine.cpp" />
     <ClCompile Include="$(MpCoreDir)src\common\log.cpp" />
+    <ClCompile Include="$(MpCoreDir)src\common\rt_guard.cpp" />
     <ClCompile Include="$(MpCoreDir)src\render\renderer.cpp" />
     <!-- Tests -->
     <ClCompile Include="src\main.cpp" />
@@ -69,6 +70,7 @@
     <ClCompile Include="src\test_architecture.cpp" />
     <ClCompile Include="src\test_asan_scratch.cpp" />
     <ClCompile Include="src\test_engine.cpp" />
+    <ClCompile Include="src\test_transport.cpp" />
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_spsc_ring.cpp" />
     <!-- Catch2 amalgamated: third-party, compiled at a lower warning level. -->

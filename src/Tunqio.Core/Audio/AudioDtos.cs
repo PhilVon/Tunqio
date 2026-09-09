@@ -18,7 +18,14 @@ public enum FadeMode
 /// <param name="DeviceIndex">Index from <see cref="OutputDevice.Index"/>, or -1 for the default device.</param>
 /// <param name="BufferMs">Requested buffer in milliseconds; 0 for the device default.</param>
 /// <param name="EventDriven">WASAPI event-driven buffering (lower latency, one-period buffer).</param>
-public sealed record OutputConfig(int DeviceIndex = -1, OutputMode Mode = OutputMode.Shared, int BufferMs = 0, bool EventDriven = false);
+public sealed record OutputConfig(int DeviceIndex = OutputConfig.DefaultDevice, OutputMode Mode = OutputMode.Shared, int BufferMs = 0, bool EventDriven = false)
+{
+    /// <summary>The system default output device (<c>MP_DEVICE_DEFAULT</c>).</summary>
+    public const int DefaultDevice = -1;
+
+    /// <summary>No device (<c>MP_DEVICE_NONE</c>): audio exists only when the caller pulls it (tests, offline rendering).</summary>
+    public const int NoDevice = -2;
+}
 
 /// <summary>An output device as enumerated by the engine (<c>mp_device_info</c>).</summary>
 public sealed record OutputDevice(

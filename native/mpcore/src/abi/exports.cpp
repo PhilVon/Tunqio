@@ -218,12 +218,15 @@ MP_API mp_result MP_CALL mp_engine_resume(mp_engine* e) {
     });
 }
 
-MP_API mp_result MP_CALL mp_engine_stop(mp_engine* e, mp_fade_mode /*fade: E1-S4 */) {
+MP_API mp_result MP_CALL mp_engine_stop(mp_engine* e, mp_fade_mode fade) {
     return mp::abi::guard([&]() -> mp_result {
         if (e == nullptr) {
             return invalid("mp_engine_stop: NULL engine");
         }
-        return as_engine(e)->stop();
+        if (fade != MP_FADE_NONE && fade != MP_FADE_GUARD) {
+            return invalid("mp_engine_stop: unknown fade mode");
+        }
+        return as_engine(e)->stop(fade);
     });
 }
 
@@ -278,6 +281,15 @@ MP_API mp_result MP_CALL mp_engine_get_stats(mp_engine* e, mp_engine_stats* out_
             return invalid("mp_engine_get_stats: NULL engine or bad struct_size");
         }
         return as_engine(e)->get_stats(*out_stats);
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_render(mp_engine* e, float* out_interleaved, uint32_t frames) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr || out_interleaved == nullptr) {
+            return invalid("mp_engine_render: NULL engine or buffer");
+        }
+        return as_engine(e)->render(out_interleaved, frames);
     });
 }
 

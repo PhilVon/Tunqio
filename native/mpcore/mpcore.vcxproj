@@ -67,6 +67,7 @@
     <ClCompile Include="src\abi\last_error.cpp" />
     <ClCompile Include="src\audio\bass_engine.cpp" />
     <ClCompile Include="src\common\log.cpp" />
+    <ClCompile Include="src\common\rt_guard.cpp" />
     <ClCompile Include="src\render\renderer.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
