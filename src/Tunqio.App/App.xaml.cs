@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Serilog;
 using Tunqio.Core;
+using Tunqio.Core.Library;
 using Tunqio.Library;
 using Tunqio.Library.Database;
 
@@ -101,6 +102,7 @@ public partial class App : Application
 
         _window.Activate();
         logger.LogInformation("Main window shown after {ElapsedMs} ms", startup.ElapsedMilliseconds);
+        _ = StartLibraryWatcherAsync(logger);
 
         if (RenderSpikeRunner.IsRequested(commandLine))
         {
@@ -138,6 +140,22 @@ public partial class App : Application
         {
             logger.LogError(ex, "Library database unavailable ({Problem})", ex.Problem);
             return new StartupNotice("Library unavailable", ex.Message, StartupNoticeSeverity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Live library updates (E3-S6) start once the window is up; the launch scan itself arrives with the
+    /// Library settings page (E3-S12). Stopping is part of host disposal.
+    /// </summary>
+    private async Task StartLibraryWatcherAsync(ILogger<App> logger)
+    {
+        try
+        {
+            await _host!.Services.GetRequiredService<ILibraryWatcher>().StartAsync().ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            logger.LogError(e, "Library watcher did not start; changes on disk need a manual rescan this session");
         }
     }
 

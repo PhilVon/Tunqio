@@ -6,14 +6,14 @@ using Tunqio.Library.Tags;
 
 namespace Tunqio.Library.Repositories;
 
-/// <summary><see cref="ILibraryService"/> over one <see cref="LibraryDatabase"/>: the repositories and the scanner that feeds them.</summary>
+/// <summary><see cref="ILibraryService"/> over one <see cref="LibraryDatabase"/>: the repositories, the scanner that feeds them and the watcher that drives the scanner.</summary>
 public sealed class LibraryService : ILibraryService
 {
     /// <summary>
     /// Repositories plus a scanner over the given reader. The host passes the settings-backed
     /// <see cref="TagLibTagReader"/> and, when they exist, the art cache (E3-S7) and the engine's duration probe;
     /// a <c>null</c> reader gets a <see cref="TagLibTagReader"/> with default options, which is enough for
-    /// tests and tools that never scan.
+    /// tests and tools that never scan. The watcher is built but not started; the shell starts it.
     /// </summary>
     public LibraryService(
         LibraryDatabase db,
@@ -21,7 +21,8 @@ public sealed class LibraryService : ILibraryService
         ITagReader? tagReader = null,
         IArtCache? artCache = null,
         IDurationProbe? durationProbe = null,
-        ILoggerFactory? loggers = null)
+        ILoggerFactory? loggers = null,
+        LibraryWatcherOptions? watcherOptions = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         var tracks = new SqliteTrackRepository(db, clock);
@@ -40,6 +41,7 @@ public sealed class LibraryService : ILibraryService
             artCache,
             durationProbe,
             loggers?.CreateLogger<LibraryScanner>());
+        Watcher = new LibraryWatcher(Scanner, folders, watcherOptions, clock, loggers?.CreateLogger<LibraryWatcher>());
     }
 
     public ITrackRepository Tracks { get; }
@@ -53,4 +55,6 @@ public sealed class LibraryService : ILibraryService
     public ILibraryFolderRepository Folders { get; }
 
     public ILibraryScanner Scanner { get; }
+
+    public ILibraryWatcher Watcher { get; }
 }

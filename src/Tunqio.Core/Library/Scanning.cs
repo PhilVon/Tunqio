@@ -18,16 +18,38 @@ public interface ILibraryScanner
     /// at most a few times a second plus once at the end with the final counts.
     /// </summary>
     Task<ScanReport> ScanAsync(ScanRequest request, IProgress<ScanProgress>? progress = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Raised after every scan, whatever its outcome and whoever asked for it (Settings, launch, the watcher),
+    /// with the report; views refresh from here when the report changed anything. Raised on a pool thread.
+    /// </summary>
+    event EventHandler<ScanReport>? ScanCompleted;
 }
 
 /// <summary>What to scan.</summary>
 /// <param name="FolderIds">Library folders to scan; <c>null</c> means every enabled folder. A disabled folder is skipped even when named.</param>
 /// <param name="ForceReread">Read the tags of every file again instead of only files whose size or modification time changed (Settings > Library > Rescan).</param>
-public sealed record ScanRequest(IReadOnlyList<long>? FolderIds = null, bool ForceReread = false)
+/// <param name="Paths">
+/// Only these paths, under the one folder in <paramref name="FolderIds"/> (the watcher's request, E3-S6). A
+/// path that is a directory is walked; a file is diffed with its directory (so the compilation rule still sees
+/// the folder); a path no longer on disk has its rows marked missing, a whole subtree of them when it was a
+/// directory. Nothing outside the paths is touched and the folder's last-scan record is left alone.
+/// </param>
+public sealed record ScanRequest(IReadOnlyList<long>? FolderIds = null, bool ForceReread = false, IReadOnlyList<string>? Paths = null)
 {
     public static ScanRequest All { get; } = new();
 
     public static ScanRequest Folder(long folderId) => new([folderId]);
+
+    /// <summary>A scan of <paramref name="paths"/> under <paramref name="folderId"/> only.</summary>
+    public static ScanRequest Targeted(long folderId, IReadOnlyList<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        return new ScanRequest([folderId], Paths: paths);
+    }
+
+    /// <summary>True when <see cref="Paths"/> narrows the scan to part of one folder.</summary>
+    public bool IsTargeted => Paths is { Count: > 0 };
 }
 
 /// <summary>Where a scan is.</summary>

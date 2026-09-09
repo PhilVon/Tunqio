@@ -28,6 +28,15 @@ namespace Tunqio.Library.Scanning;
 /// scan keeps the batches that committed and nothing of the one in flight. Missing marking only happens
 /// after a folder has been walked to the end, so an interrupted walk never flags files it did not reach.
 /// </para>
+/// <para>
+/// A targeted request (<see cref="ScanRequest.Paths"/>, the watcher's) runs the same pipeline over a set of
+/// <em>scopes</em> instead of the whole root: a directory that exists is walked (recursively), a file is
+/// diffed with the directory it is in (one listing; the compilation rule still sees the folder, and the
+/// unchanged siblings are dropped by Diff as usual), and a path that is gone is either a directory the
+/// snapshot knows, whose rows are all marked missing, or a file, found missing by the listing of its
+/// directory. Only snapshot rows inside a scope can be marked missing, and the folder's last-scan record is
+/// not written.
+/// </para>
 /// </summary>
 public sealed class LibraryScanner : ILibraryScanner
 {
@@ -43,6 +52,15 @@ public sealed class LibraryScanner : ILibraryScanner
     private static readonly EnumerationOptions WalkOptions = new()
     {
         RecurseSubdirectories = true,
+        IgnoreInaccessible = true,
+        AttributesToSkip = FileAttributes.Hidden | FileAttributes.System,
+        ReturnSpecialDirectories = false,
+    };
+
+    /// <summary>One directory, no descent: a targeted scan's scope for a file event.</summary>
+    private static readonly EnumerationOptions ListOptions = new()
+    {
+        RecurseSubdirectories = false,
         IgnoreInaccessible = true,
         AttributesToSkip = FileAttributes.Hidden | FileAttributes.System,
         ReturnSpecialDirectories = false,
@@ -88,58 +106,97 @@ public sealed class LibraryScanner : ILibraryScanner
 
     public bool IsScanning => Volatile.Read(ref _scanning) == 1;
 
+    public event EventHandler<ScanReport>? ScanCompleted;
+
     public async Task<ScanReport> ScanAsync(ScanRequest request, IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.IsTargeted && request.FolderIds is not { Count: 1 })
+        {
+            throw new ArgumentException("A targeted scan names exactly one folder.", nameof(request));
+        }
+
         if (Interlocked.CompareExchange(ref _scanning, 1, 0) != 0)
         {
             throw new InvalidOperationException("A library scan is already running.");
         }
 
-        using var run = new ScanRun(_clock, progress, _readDegree);
-        try
+        ScanReport report;
+        using (var run = new ScanRun(_clock, progress, _readDegree))
         {
-            IReadOnlyList<LibraryFolderDto> all = await _folders.ListAsync(ct).ConfigureAwait(false);
-            List<LibraryFolderDto> selected = all
-                .Where(f => f.Enabled && (request.FolderIds is null || request.FolderIds.Contains(f.Id)))
-                .ToList();
-            _logger.LogInformation("Library scan starting over {Count} folder(s){Force}", selected.Count, request.ForceReread ? " (full re-read)" : string.Empty);
-
-            ScanOutcome outcome = ScanOutcome.Completed;
-            string? error = null;
             try
             {
-                foreach (LibraryFolderDto folder in selected)
-                {
-                    await ScanFolderAsync(folder, request.ForceReread, run, ct).ConfigureAwait(false);
-                }
+                report = await RunAsync(request, run, ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            finally
             {
-                outcome = ScanOutcome.Cancelled;
-                _logger.LogInformation("Library scan cancelled");
+                Volatile.Write(ref _scanning, 0);
             }
-            catch (Exception e) when (e is not OutOfMemoryException)
-            {
-                outcome = ScanOutcome.Failed;
-                error = e.Message;
-                _logger.LogError(e, "Library scan failed");
-            }
-
-            ScanReport report = run.Finish(outcome, error);
-            _logger.LogInformation(
-                "Library scan {Outcome} in {Elapsed:0.0} s: {Seen} seen, {Added} added, {Updated} updated, {Unchanged} unchanged, {Failed} failed, {Missing} missing, {Restored} restored",
-                report.Outcome, report.Elapsed.TotalSeconds, report.Seen, report.Added, report.Updated, report.Unchanged, report.Failed, report.Missing, report.Restored);
-            return report;
         }
-        finally
+
+        RaiseCompleted(report);
+        return report;
+    }
+
+    private void RaiseCompleted(ScanReport report)
+    {
+        try
         {
-            Volatile.Write(ref _scanning, 0);
+            ScanCompleted?.Invoke(this, report);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            _logger.LogError(e, "A ScanCompleted handler threw");
         }
     }
 
-    private async Task ScanFolderAsync(LibraryFolderDto folder, bool forceReread, ScanRun run, CancellationToken ct)
+    private async Task<ScanReport> RunAsync(ScanRequest request, ScanRun run, CancellationToken ct)
     {
+        IReadOnlyList<LibraryFolderDto> all = await _folders.ListAsync(ct).ConfigureAwait(false);
+        List<LibraryFolderDto> selected = all
+            .Where(f => f.Enabled && (request.FolderIds is null || request.FolderIds.Contains(f.Id)))
+            .ToList();
+        if (request.IsTargeted)
+        {
+            _logger.LogDebug("Targeted library scan of {Count} path(s) under folder {FolderId}", request.Paths!.Count, request.FolderIds![0]);
+        }
+        else
+        {
+            _logger.LogInformation("Library scan starting over {Count} folder(s){Force}", selected.Count, request.ForceReread ? " (full re-read)" : string.Empty);
+        }
+
+        ScanOutcome outcome = ScanOutcome.Completed;
+        string? error = null;
+        try
+        {
+            foreach (LibraryFolderDto folder in selected)
+            {
+                await ScanFolderAsync(folder, request, run, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            outcome = ScanOutcome.Cancelled;
+            _logger.LogInformation("Library scan cancelled");
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            outcome = ScanOutcome.Failed;
+            error = e.Message;
+            _logger.LogError(e, "Library scan failed");
+        }
+
+        ScanReport report = run.Finish(outcome, error);
+        _logger.Log(
+            request.IsTargeted ? LogLevel.Debug : LogLevel.Information,
+            "Library scan {Outcome} in {Elapsed:0.0} s: {Seen} seen, {Added} added, {Updated} updated, {Unchanged} unchanged, {Failed} failed, {Missing} missing, {Restored} restored",
+            report.Outcome, report.Elapsed.TotalSeconds, report.Seen, report.Added, report.Updated, report.Unchanged, report.Failed, report.Missing, report.Restored);
+        return report;
+    }
+
+    private async Task ScanFolderAsync(LibraryFolderDto folder, ScanRequest request, ScanRun run, CancellationToken ct)
+    {
+        bool forceReread = request.ForceReread;
         FolderRun state = run.BeginFolder(folder);
         IReadOnlyList<TrackFileStamp> stamps = await _tracks.SnapshotAsync(folder.Id, ct).ConfigureAwait(false);
         var snapshot = new Dictionary<string, TrackFileStamp>(stamps.Count, StringComparer.Ordinal);
@@ -159,6 +216,9 @@ public sealed class LibraryScanner : ILibraryScanner
             return;
         }
 
+        IReadOnlyList<ScanScope> scopes = request.IsTargeted
+            ? ScanScope.Resolve(folder.Path, request.Paths!, snapshot.Keys, _logger)
+            : [new ScanScope(folder.Path, Recursive: true)];
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var restore = new List<long>();
         Channel<DirectoryBatch> directories = Channel.CreateBounded<DirectoryBatch>(new BoundedChannelOptions(64) { SingleWriter = true });
@@ -168,7 +228,7 @@ public sealed class LibraryScanner : ILibraryScanner
         CancellationToken token = stages.Token;
         try
         {
-            Task enumerate = Task.Run(() => StageAsync(() => EnumerateAsync(folder, snapshot, forceReread, seen, restore, directories.Writer, run, token), directories.Writer.TryComplete, stages), CancellationToken.None);
+            Task enumerate = Task.Run(() => StageAsync(() => EnumerateAsync(scopes, snapshot, forceReread, seen, restore, directories.Writer, run, token), directories.Writer.TryComplete, stages), CancellationToken.None);
             Task read = Task.Run(() => StageAsync(() => ReadAsync(folder.Id, directories.Reader, batches.Writer, run, token), batches.Writer.TryComplete, stages), CancellationToken.None);
             Task upsert = StageAsync(() => UpsertAsync(batches.Reader, run, token), null, stages);
             await WhenAllStagesAsync(ct, enumerate, read, upsert).ConfigureAwait(false);
@@ -185,12 +245,19 @@ public sealed class LibraryScanner : ILibraryScanner
         }
 
         run.Phase = ScanPhase.MarkingMissing;
-        List<long> gone = snapshot.Values.Where(s => !s.Missing && !seen.Contains(s.Path)).Select(s => s.Id).ToList();
+        List<long> gone = snapshot.Values
+            .Where(s => !s.Missing && !seen.Contains(s.Path) && (!request.IsTargeted || ScanScope.Covers(scopes, s.Path)))
+            .Select(s => s.Id)
+            .ToList();
         await MarkAsync(gone, missing: true, state, ct).ConfigureAwait(false);
         await MarkAsync(restore, missing: false, state, ct).ConfigureAwait(false);
 
-        string status = state.Failed.Value == 0 ? "ok" : $"ok, {state.Failed.Value} file(s) with unreadable tags";
-        await _folders.RecordScanAsync(folder.Id, _clock.GetUtcNow().ToUnixTimeMilliseconds(), status, ct).ConfigureAwait(false);
+        if (!request.IsTargeted)
+        {
+            string status = state.Failed.Value == 0 ? "ok" : $"ok, {state.Failed.Value} file(s) with unreadable tags";
+            await _folders.RecordScanAsync(folder.Id, _clock.GetUtcNow().ToUnixTimeMilliseconds(), status, ct).ConfigureAwait(false);
+        }
+
         state.Ended = true;
     }
 
@@ -240,54 +307,67 @@ public sealed class LibraryScanner : ILibraryScanner
         }
     }
 
-    /// <summary>Enumerate and Diff, on one thread: walks the folder, drops unchanged files, groups the rest by directory.</summary>
-    private static async Task EnumerateAsync(LibraryFolderDto folder, Dictionary<string, TrackFileStamp> snapshot, bool forceReread, HashSet<string> seen, List<long> restore, ChannelWriter<DirectoryBatch> writer, ScanRun run, CancellationToken ct)
+    /// <summary>Enumerate and Diff, on one thread: walks each scope, drops unchanged files, groups the rest by directory.</summary>
+    private static async Task EnumerateAsync(IReadOnlyList<ScanScope> scopes, Dictionary<string, TrackFileStamp> snapshot, bool forceReread, HashSet<string> seen, List<long> restore, ChannelWriter<DirectoryBatch> writer, ScanRun run, CancellationToken ct)
     {
         run.Phase = ScanPhase.Enumerating;
-        var walk = new FileSystemEnumerable<FileStamp>(
-            folder.Path,
-            (ref FileSystemEntry entry) => new FileStamp(entry.ToFullPath(), entry.Length, entry.LastWriteTimeUtc.ToUnixTimeMilliseconds()),
-            WalkOptions)
-        {
-            ShouldIncludePredicate = (ref FileSystemEntry entry) => !entry.IsDirectory && AudioFormats.IsSupported(entry.FileName),
-        };
-
         string? currentDirectory = null;
         var toRead = new List<FileStamp>();
         var unchanged = new List<FileStamp>();
-        foreach (FileStamp file in walk)
+        foreach (ScanScope scope in scopes)
         {
-            ct.ThrowIfCancellationRequested();
-            string directory = Path.GetDirectoryName(file.Path) ?? folder.Path;
-            if (!string.Equals(directory, currentDirectory, StringComparison.Ordinal))
+            if (!Directory.Exists(scope.Directory))
             {
-                await FlushAsync().ConfigureAwait(false);
-                currentDirectory = directory;
+                continue; // a removed directory: its rows are marked missing after the walk
             }
 
-            seen.Add(file.Path);
-            run.Folder.Seen.Increment();
-            run.CurrentPath = file.Path;
-            TrackFileStamp? known = snapshot.GetValueOrDefault(file.Path);
-            if (!forceReread && known is not null && known.FileSize == file.Size && known.FileMtime == file.Mtime)
+            var walk = new FileSystemEnumerable<FileStamp>(
+                scope.Directory,
+                (ref FileSystemEntry entry) => new FileStamp(entry.ToFullPath(), entry.Length, entry.LastWriteTimeUtc.ToUnixTimeMilliseconds()),
+                scope.Recursive ? WalkOptions : ListOptions)
             {
-                run.Folder.Unchanged.Increment();
-                if (known.Missing)
-                {
-                    restore.Add(known.Id);
-                }
+                ShouldIncludePredicate = (ref FileSystemEntry entry) => !entry.IsDirectory && AudioFormats.IsSupported(entry.FileName),
+            };
 
-                unchanged.Add(file);
-            }
-            else
-            {
-                toRead.Add(file with { IsNew = known is null });
-            }
-
-            run.Report();
+            await WalkAsync(walk, scope.Directory).ConfigureAwait(false);
         }
 
         await FlushAsync().ConfigureAwait(false);
+
+        async Task WalkAsync(FileSystemEnumerable<FileStamp> walk, string scopeDirectory)
+        {
+            foreach (FileStamp file in walk)
+            {
+                ct.ThrowIfCancellationRequested();
+                string directory = Path.GetDirectoryName(file.Path) ?? scopeDirectory;
+                if (!string.Equals(directory, currentDirectory, StringComparison.Ordinal))
+                {
+                    await FlushAsync().ConfigureAwait(false);
+                    currentDirectory = directory;
+                }
+
+                seen.Add(file.Path);
+                run.Folder.Seen.Increment();
+                run.CurrentPath = file.Path;
+                TrackFileStamp? known = snapshot.GetValueOrDefault(file.Path);
+                if (!forceReread && known is not null && known.FileSize == file.Size && known.FileMtime == file.Mtime)
+                {
+                    run.Folder.Unchanged.Increment();
+                    if (known.Missing)
+                    {
+                        restore.Add(known.Id);
+                    }
+
+                    unchanged.Add(file);
+                }
+                else
+                {
+                    toRead.Add(file with { IsNew = known is null });
+                }
+
+                run.Report();
+            }
+        }
 
         async Task FlushAsync()
         {

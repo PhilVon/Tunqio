@@ -180,7 +180,7 @@ public interface IVisualizationHost
     IObservable<RenderStats> Stats { get; }
 }
 
-public interface ILibraryService { ITrackRepository Tracks { get; } IAlbumRepository Albums { get; } IArtistRepository Artists { get; } IGenreRepository Genres { get; } ILibraryFolderRepository Folders { get; } ILibraryScanner Scanner { get; } }
+public interface ILibraryService { ITrackRepository Tracks { get; } IAlbumRepository Albums { get; } IArtistRepository Artists { get; } IGenreRepository Genres { get; } ILibraryFolderRepository Folders { get; } ILibraryScanner Scanner { get; } ILibraryWatcher Watcher { get; } }
 ```
 
 Everything above is mockable; view models are tested against fakes, and `Interop.Tests` proves the real implementations against `mpcore`.
@@ -213,7 +213,7 @@ Logging: Serilog through `Microsoft.Extensions.Logging` for C#; `mpcore` logs th
    c. Attach the renderer to the Now Playing SwapChainPanel (only when visible).
    d. Restore queue_state; if "resume on launch", open the current track paused at the saved position.
    e. Execute the pending activation command.
-   f. Start hosted services: SMTC, tray, jump list, toasts.
+   f. Start hosted services: SMTC, tray, jump list, toasts; start the library watcher (today: right after Activate()).
    g. After 3 s idle: incremental library scan.
 ```
 

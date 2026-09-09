@@ -98,4 +98,7 @@ public interface ILibraryService
     ILibraryFolderRepository Folders { get; }
 
     ILibraryScanner Scanner { get; }
+
+    /// <summary>Live updates over the same scanner (E3-S6); started by the shell.</summary>
+    ILibraryWatcher Watcher { get; }
 }
