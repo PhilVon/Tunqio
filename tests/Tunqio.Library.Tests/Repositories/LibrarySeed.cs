@@ -9,8 +9,9 @@ namespace Tunqio.Library.Tests.Repositories;
 /// <summary>
 /// An in-memory library seeded from the fixture manifest (60 files, 8 albums, the documented edge cases) plus a
 /// few synthetic rows that exercise what the fixture cannot: tracks without an album, a year or artists, ratings,
-/// play counts and missing files. The tag reader (E3-S4) will produce the same <see cref="ScannedTrack"/>s from
-/// the files themselves; until then the manifest stands in for it.
+/// play counts and missing files. <see cref="FixtureTracks"/> is the manifest as <c>TagLibTagReader</c> (E3-S4)
+/// reports the files (<c>Tags.TagLibTagReaderTests</c> checks the two agree on names, numbers and codecs);
+/// it is built from the manifest so the repository tests do not depend on the reader.
 /// </summary>
 internal sealed class LibrarySeed : IDisposable
 {
@@ -66,14 +67,14 @@ internal sealed class LibrarySeed : IDisposable
                 FolderId: FixtureFolderId,
                 FileSize: f.Size,
                 FileMtime: Now - 86_400_000,
-                Codec: f.Format,
+                Codec: FixtureFormats.Codec(f.Format),
                 DurationMs: f.DurationMs,
-                Title: f.CorruptTags ? Path.GetFileNameWithoutExtension(f.RelativePath) : f.Title,
+                Title: f.Title, // the corrupt file's title is recovered from its "04 - Broken Header" file name
                 Artists: f.CorruptTags ? [] : f.Artists,
                 AlbumTitle: f.CorruptTags ? Path.GetFileName(Path.GetDirectoryName(f.RelativePath)) : f.AlbumTitle,
                 AlbumArtist: f.CorruptTags ? null : albumArtist,
                 Year: f.CorruptTags ? null : f.Year,
-                TrackNo: f.CorruptTags ? null : f.Track,
+                TrackNo: f.Track, // also recovered from the file name
                 DiscNo: f.Disc,
                 DiscCount: f.DiscCount,
                 Genres: f.CorruptTags ? null : [f.Genre],
