@@ -459,6 +459,12 @@ public class LibraryScannerTests
 
             return Task.FromResult(new ArtHashes("track:" + Path.GetFileName(audioPath), "album:" + Path.GetFileName(Path.GetDirectoryName(audioPath)!)));
         }
+
+        public string? PathFor(string? hash, ArtSize size) => null;
+
+        public Task<ArtPalette?> LoadPaletteAsync(string? hash, CancellationToken ct = default) => Task.FromResult<ArtPalette?>(null);
+
+        public Task ClearAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private sealed class FakeProbe(int durationMs) : IDurationProbe

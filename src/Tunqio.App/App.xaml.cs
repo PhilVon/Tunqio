@@ -64,6 +64,7 @@ public partial class App : Application
             })
             .Build();
         _host.Start();
+        Controls.AlbumArt.Cache = _host.Services.GetService<IArtCache>();
 
         ILogger<App> logger = _host.Services.GetRequiredService<ILogger<App>>();
         StartupNotice? databaseNotice = OpenLibraryDatabase(logger);

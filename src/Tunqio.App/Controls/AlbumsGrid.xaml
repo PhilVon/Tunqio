@@ -9,8 +9,9 @@
     The Albums grid (docs/ui-screens-and-flows.md, "Library › Albums"): an ItemsRepeater with a
     UniformGridLayout, which recycles tiles through its RecyclePool, inside a ScrollViewer. ItemsRepeater has
     no incremental-loading contract of its own, so the code-behind asks the source for the next page when the
-    scroll position nears the end of the extent (and keeps asking until the viewport is full). Art tiles use
-    the title-hash placeholder until the art cache (E3-S7) supplies thumbnails.
+    scroll position nears the end of the extent (and keeps asking until the viewport is full). A tile shows the
+    art cache's 300 px rendering over the title-hash placeholder (E3-S7: AlbumArt.Tile gives a BitmapImage that
+    XAML decodes off the UI thread; a hash with no file behind it leaves the placeholder showing).
   -->
   <ScrollViewer x:Name="Scroller" ViewChanged="OnViewChanged" SizeChanged="OnSizeChanged" Padding="16,8">
     <ItemsRepeater x:Name="Repeater" ItemsSource="{x:Bind ItemsSource, Mode=OneWay}" ElementPrepared="OnElementPrepared">
@@ -23,6 +24,7 @@
             <Grid Height="200" CornerRadius="6" Background="{x:Bind local:PlaceholderArt.Brush(Title)}">
               <TextBlock Text="{x:Bind local:PlaceholderArt.Initials(Title)}" FontSize="48" FontWeight="SemiBold" Opacity="0.85"
                          HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" />
+              <Image Source="{x:Bind local:AlbumArt.Tile(ArtHash)}" Stretch="UniformToFill" />
             </Grid>
             <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
             <TextBlock Text="{x:Bind local:Format.OrEmpty(AlbumArtist)}" TextTrimming="CharacterEllipsis" Opacity="0.7" />

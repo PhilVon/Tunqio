@@ -40,7 +40,7 @@ switch (args[0])
         {
             string output = Option("-out") ?? Path.Combine("artifacts", "scan-tree");
             int tracks = int.Parse(Option("-tracks") ?? "10000", System.Globalization.CultureInfo.InvariantCulture);
-            IReadOnlyList<string> paths = ScanTreeBuilder.Build(Path.GetFullPath(output), tracks);
+            IReadOnlyList<string> paths = ScanTreeBuilder.Build(Path.GetFullPath(output), tracks, embedArt: args.Contains("-art"));
             Console.WriteLine($"{paths.Count} files under {Path.GetFullPath(output)}");
             return 0;
         }
@@ -55,7 +55,7 @@ static int Usage()
         Tunqio.FixtureGen
           files [-out DIR] [-ffmpeg PATH]   generate the fixture library (default tests/fixtures/library)
           db    [-out FILE] [-tracks N]     generate the synthetic 100k-track database (default tests/fixtures/library-100k.db)
-          tree  [-out DIR] [-tracks N]      generate a large tagged-WAV folder tree for scanner timing (default artifacts/scan-tree, 10000 files)
+          tree  [-out DIR] [-tracks N] [-art]  generate a large tagged-WAV folder tree for scanner timing (default artifacts/scan-tree, 10000 files; -art embeds one cover per album)
         """);
     return 2;
 }

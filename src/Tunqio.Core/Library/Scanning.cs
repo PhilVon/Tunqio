@@ -134,21 +134,5 @@ public interface IDurationProbe
     Task<int?> ProbeAsync(string path, CancellationToken ct = default);
 }
 
-/// <summary>Art hashes for one scanned file, as the art cache assigns them (<c>track.art_hash</c> and <c>album.art_hash</c>).</summary>
-public sealed record ArtHashes(string? TrackArtHash, string? AlbumArtHash)
-{
-    public static ArtHashes None { get; } = new(null, null);
-}
-
-/// <summary>
-/// The scanner's ExtractArt stage (E3-S7 implements it over the hashed on-disk cache): given the embedded
-/// picture the tag reader found, or nothing, and the file's path for the folder-image fallback, stores the
-/// image and returns the hashes to record. Must never throw for a bad image: return <see cref="ArtHashes.None"/>.
-/// </summary>
-public interface IArtCache
-{
-    Task<ArtHashes> StoreAsync(EmbeddedPicture? picture, string audioPath, CancellationToken ct = default);
-}
-
 /// <summary>What the scanner's Diff stage compares a file on disk against: the stamp the row was written with.</summary>
 public sealed record TrackFileStamp(long Id, string Path, long FileSize, long FileMtime, bool Missing);
