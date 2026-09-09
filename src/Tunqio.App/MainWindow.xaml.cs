@@ -39,6 +39,21 @@ public sealed partial class MainWindow : Window
     /// <summary>The native renderer bound to the panel, once the panel has loaded.</summary>
     public NativeRenderer? Renderer => _renderer;
 
+    /// <summary>Shows a start-up notice in the window's InfoBar (closable; one at a time).</summary>
+    public void ShowNotice(StartupNotice notice)
+    {
+        ArgumentNullException.ThrowIfNull(notice);
+        NoticeBar.Title = notice.Title;
+        NoticeBar.Message = notice.Message;
+        NoticeBar.Severity = notice.Severity switch
+        {
+            StartupNoticeSeverity.Error => InfoBarSeverity.Error,
+            StartupNoticeSeverity.Warning => InfoBarSeverity.Warning,
+            _ => InfoBarSeverity.Informational,
+        };
+        NoticeBar.IsOpen = true;
+    }
+
     private void OnPanelLoaded(object sender, RoutedEventArgs e)
     {
         if (_renderer is not null)

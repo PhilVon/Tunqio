@@ -6,6 +6,8 @@
   <Grid RowDefinitions="*,Auto">
     <!-- The visualizer surface: the native core renders into this panel's composition swap chain (ADR-002). -->
     <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
+    <!-- Start-up notices (E3-S1 database recovery). E2-S7 replaces this with the shell's error surfaces. -->
+    <InfoBar x:Name="NoticeBar" VerticalAlignment="Top" Margin="12" IsOpen="False" />
     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
       <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
       <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />

@@ -1,16 +1,12 @@
-using Microsoft.Data.Sqlite;
-
 namespace Tunqio.Library.Schema;
 
 /// <summary>
 /// The library database schema, version 1, exactly as documented in docs/library-and-data.md ("Schema (v1)").
-/// E3-S1 adds the migration runner; until then <see cref="Create"/> builds a fresh database (used by the fixture
-/// generator for library-100k.db and by repository tests).
+/// Frozen: this is migration 1 in <see cref="Database.LibraryMigrations"/> and tests/fixtures/schema/v1.sql
+/// snapshots it. Schema changes are new migrations, never edits here.
 /// </summary>
 public static class LibrarySchema
 {
-    public const int Version = 1;
-
     public const string V1 = """
         CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at INTEGER NOT NULL);
 
@@ -144,28 +140,4 @@ public static class LibrarySchema
           tokenize = 'trigram'
         );
         """;
-
-    /// <summary>Applies the v1 schema to an empty database and records the version.</summary>
-    public static void Create(SqliteConnection connection, long appliedAtUnixMs)
-    {
-        ArgumentNullException.ThrowIfNull(connection);
-        using SqliteTransaction tx = connection.BeginTransaction();
-        using (SqliteCommand create = connection.CreateCommand())
-        {
-            create.Transaction = tx;
-            create.CommandText = V1;
-            create.ExecuteNonQuery();
-        }
-
-        using (SqliteCommand version = connection.CreateCommand())
-        {
-            version.Transaction = tx;
-            version.CommandText = "INSERT INTO schema_version(version, applied_at) VALUES ($v, $t)";
-            version.Parameters.AddWithValue("$v", Version);
-            version.Parameters.AddWithValue("$t", appliedAtUnixMs);
-            version.ExecuteNonQuery();
-        }
-
-        tx.Commit();
-    }
 }

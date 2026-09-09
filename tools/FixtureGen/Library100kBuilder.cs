@@ -1,6 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
-using Tunqio.Library.Schema;
+using Tunqio.Library.Database;
 
 namespace Tunqio.FixtureGen;
 
@@ -28,13 +28,13 @@ public static class Library100kBuilder
 
         var rng = new Random(seed);
         const long now = 1_757_376_000_000; // 2025-09-09T00:00:00Z, fixed so the file is reproducible
-        int albumCount = Math.Max(1, trackCount / 16);
+        int albumCount = (trackCount + 15) / 16; // 16 tracks per album; the last album may be short
         int artistCount = Math.Max(1, albumCount / 2);
 
         using var connection = new SqliteConnection($"Data Source={databasePath}");
         connection.Open();
         Execute(connection, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;");
-        LibrarySchema.Create(connection, now);
+        LibraryMigrator.Apply(connection, new FixedClock(now));
 
         using SqliteTransaction tx = connection.BeginTransaction();
         Execute(connection, "INSERT INTO library_folder(id, path, enabled, last_scan_at, last_scan_status) VALUES (1, 'D:\\Music\\', 1, $now, 'ok')", ("$now", now));
@@ -156,5 +156,11 @@ public static class Library100kBuilder
         }
 
         command.ExecuteNonQuery();
+    }
+
+    /// <summary>Makes <c>schema_version.applied_at</c> reproducible.</summary>
+    private sealed class FixedClock(long unixMilliseconds) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds);
     }
 }

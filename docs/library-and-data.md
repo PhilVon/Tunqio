@@ -8,7 +8,8 @@ The library subsystem turns folders of audio files into a browsable, searchable 
 %LocalAppData%\Tunqio\
   library.db              SQLite, WAL mode. Catalogue, playlists, history, settings.
   library.db-wal / -shm   SQLite journal files.
-  settings.json           Settings until E3-S1 moves them into the setting table (E0-S6 JsonSettingsStore; atomic replace).
+  settings.json           Settings (E0-S6 JsonSettingsStore; atomic replace). Moving them into the setting table is an open card, not part of E3-S1.
+  library.corrupt-<ts>.db An unusable database moved aside by E3-S1 recovery (kept, never deleted by the app).
   art\
     ab\abcdef0123...\      Album art keyed by SHA-256 of the source image bytes.
       original.jpg|png     Untouched source (only kept if < 4 MB).
@@ -169,6 +170,10 @@ CREATE VIRTUAL TABLE track_fts USING fts5(
 );
 ```
 
+**Migrations (E3-S1).** `Tunqio.Library.Database.LibraryMigrations.All` is the ordered, append-only list of every schema version; `LibraryMigrator` applies the pending ones on open, each in its own transaction followed by its `schema_version` row, so a crash mid-upgrade leaves the previous version intact. Version 0 is an empty file (migration 1 creates `schema_version` itself). A shipped migration is frozen: `tests/fixtures/schema/v{N}.sql` snapshots the DDL at version N with one row in every table, and `LibraryMigratorTests` proves each snapshot matches what the migrations produce, migrates it to the latest version with its rows intact, and ends with exactly the fresh schema. A schema change is therefore always a new migration plus a new snapshot, never an edit to `LibrarySchema.V1`. A database whose version is newer than the build is refused (`LibraryDatabaseException`, `NewerVersion`) and left untouched.
+
+**Connections.** `LibraryDatabase` opens the file once (WAL is switched on there and persists in the file), then hands out `Microsoft.Data.Sqlite` pooled connections with `foreign_keys` on and `synchronous = NORMAL`. `AcquireWriterAsync` is a process-wide writer lease so the scanner and UI writes never contend on SQLite's busy timeout; readers need no lease. `OpenInMemory` gives repository tests a shared-cache in-memory database at the current schema.
+
 **FTS maintenance.** `track_fts` is contentless and is updated by the repository in the same transaction as the track write, using `INSERT INTO track_fts(rowid, ...)` and the `'delete'` command. A full rebuild command exists for repair. Trigram tokenizer gives substring matching for "as you type" search with no prefix-index tuning.
 
 **Artist splitting.** Tag values are split on `;`, `/`, ` feat. `, ` ft. ` and `,` only when the `ARTISTS` multi-value tag is absent. Splitting rules are a settings toggle because some artist names contain those separators.
@@ -272,7 +277,8 @@ Playlists and ratings are user work that a rescan cannot recreate. On every play
 
 | Failure | Behaviour |
 |---------|-----------|
-| Database corrupt on open | Rename to `library.corrupt-<timestamp>.db`, create fresh, prompt to rescan and offer playlist import |
+| Database corrupt on open | Rename to `library.corrupt-<timestamp>.db` (with its -wal/-shm), create fresh, show an InfoBar notice: rescan, and import playlists from exports. "Corrupt" is what SQLite reports while opening, reading the schema and migrating (SQLITE_CORRUPT / SQLITE_NOTADB), plus a SQLite file that is not a Tunqio library. The open path runs no `quick_check` (about 280 ms on the 100k fixture against the 500 ms open budget); `LibraryDatabase.QuickCheck` backs the diagnostics page instead |
+| Database from a newer build | Refused, file left in place, InfoBar error; the app runs without a library |
 | Folder offline (network share, removable drive) | Tracks marked missing after scan; not purged; playback of a missing track skips with a transient notice |
 | Tag read exception | Track added with file-name metadata, flagged in scan report |
 | Art decode failure | No art, album uses placeholder derived from album title hash colour |

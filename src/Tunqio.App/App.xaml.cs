@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Serilog;
 using Tunqio.Core;
 using Tunqio.Library;
+using Tunqio.Library.Database;
 
 namespace Tunqio.App;
 
@@ -64,6 +65,7 @@ public partial class App : Application
         _host.Start();
 
         ILogger<App> logger = _host.Services.GetRequiredService<ILogger<App>>();
+        StartupNotice? databaseNotice = OpenLibraryDatabase(logger);
         ISettingsStore settings = _host.Services.GetRequiredService<ISettingsStore>();
         int launchCount = settings.GetValue(SettingsKeys.AppLaunchCount, 0) + 1;
         string? previousSession = settings.GetValue<string?>(SettingsKeys.AppLastSessionId, null);
@@ -81,12 +83,50 @@ public partial class App : Application
         var window = new MainWindow(forceWarp: RenderSpikeRunner.WantsWarp(commandLine));
         _window = window;
         _window.Closed += OnWindowClosed;
+        if (databaseNotice is not null)
+        {
+            window.ShowNotice(databaseNotice);
+        }
+
         _window.Activate();
         logger.LogInformation("Main window shown after {ElapsedMs} ms", startup.ElapsedMilliseconds);
 
         if (RenderSpikeRunner.IsRequested(commandLine))
         {
             new RenderSpikeRunner(window, logger, commandLine, Path.Combine(paths.LogsDirectory, "render-spike.json")).Start();
+        }
+    }
+
+    /// <summary>
+    /// Start-up step 2b (docs/solution-structure.md): open library.db and apply migrations. A damaged file has
+    /// already been moved aside by <see cref="LibraryDatabase.Open(IAppPaths, TimeProvider?, ILogger?)"/>; the
+    /// user is told. A database from a newer build is refused and the app runs without a library rather than
+    /// touching the file (docs/library-and-data.md, "Failure handling").
+    /// </summary>
+    private StartupNotice? OpenLibraryDatabase(ILogger<App> logger)
+    {
+        try
+        {
+            LibraryDatabase database = _host!.Services.GetRequiredService<LibraryDatabase>();
+            if (database.OpenResult.Recovery is not { } recovery)
+            {
+                return null;
+            }
+
+            string kept = Path.GetFileName(recovery.AsidePath);
+            string why = recovery.Problem == LibraryDatabaseProblem.Unrecognised
+                ? "was not a Tunqio library"
+                : "was damaged";
+            return new StartupNotice(
+                "Library database reset",
+                $"The library database {why} ({recovery.Detail}) and has been replaced with an empty one. The old file was kept as {kept}. " +
+                "Rescan your music folders to rebuild the library; playlists can be restored from Settings > Library > Import playlists.",
+                StartupNoticeSeverity.Warning);
+        }
+        catch (LibraryDatabaseException ex)
+        {
+            logger.LogError(ex, "Library database unavailable ({Problem})", ex.Problem);
+            return new StartupNotice("Library unavailable", ex.Message, StartupNoticeSeverity.Error);
         }
     }
 
