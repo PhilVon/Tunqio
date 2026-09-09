@@ -17,7 +17,7 @@ The design lives in [docs/](docs/README.md); start with [decisions.md](docs/deci
 | `src/Tunqio.Interop` | `LibraryImport` bindings over `mpcore.h`; the only project that names the DLL |
 | `src/Tunqio.Library` | SQLite library, scanner, tags, art cache |
 | `src/Tunqio.App` | WinUI 3 shell, MSIX manifest |
-| `tests/` | xUnit projects per layer |
+| `tests/` | xUnit projects per layer; `Tunqio.Benchmarks` (BenchmarkDotNet gates, run in Release) |
 | `tools/` | Build and verification scripts |
 
 ## Build

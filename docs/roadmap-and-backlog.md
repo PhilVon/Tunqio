@@ -93,7 +93,7 @@ Name is **Tunqio** (Q-11 on T-1). Write [identity.md](identity.md) as the single
 - [ ] Every design and foundation doc agrees with identity.md; no `MusicPlayer` / `musicplayer://` placeholder remains under docs/
 
 ### E0-S9 · Interop layer over the C ABI · **L** · `interop` `native`
-Depends on: E0-S4. `Tunqio.Interop`: `LibraryImport` bindings for every export in `mpcore.h`, `SafeHandle`s, `[UnmanagedCallersOnly]` trampolines that only enqueue to a channel, the event pump thread, ABI version check, `mp_last_error` to `EngineEvent.Error` conversion, and `Interop.Tests` against the real DLL.
+Depends on: E0-S4. `Tunqio.Interop`: `LibraryImport` bindings for every export in `mpcore.h`, `SafeHandle`s, `[UnmanagedCallersOnly]` trampolines that only enqueue for the event pump thread, ABI version check, `mp_last_error` to `EngineEvent.Error` conversion, and `Interop.Tests` against the real DLL.
 - [ ] Every export in `mpcore.h` has a binding and a round-trip test (the test enumerates the header and fails on an unbound export)
 - [ ] A callback fired from a native thread reaches `IObservable<EngineEvent>` on the pump thread; no managed code runs on the native thread (asserted by thread id in a test)
 - [ ] 1000 create/destroy cycles leave native handle counts stable and no callback arrives after destroy

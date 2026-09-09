@@ -24,7 +24,10 @@ tunqio/
       src/abi/                     extern "C" exports, SEH guards, error strings, ABI version
       src/common/                  Lock-free primitives, thread utilities (AvSetMmThreadCharacteristics), logging sink
     mpcore.tests/                  Catch2 v3 unit and integration tests (mpcore.tests.vcxproj); compiles mpcore sources in (MP_STATIC); ASan configuration
+      abi_stub/                    mpcore_abi_stub.dll reporting ABI major + 1, for the interop loader's refusal test
+    spikes/bass_hello/             E0-S4 console spike over the ABI (needs an output device; not run in CI)
     tunqio.native.props            Shared C++ compiler/linker settings (/W4 /WX, C++20, per-configuration CRT)
+    tunqio.native.targets          Copies the BASS runtime next to every native binary
     .clang-format                  LLVM base, 4 spaces, 120 columns
     third_party/                   pffft (BSD), nlohmann/json (MIT), Catch2 (Boost): vendored sources, hash-pinned in THIRD-PARTY-NOTICES.md
     bass/                          BASS + add-on headers, import libs and DLLs (x64). Fetched by tools/fetch-native.ps1, not committed.
@@ -83,7 +86,7 @@ mp_result mp_engine_enum_devices(mp_engine*, mp_device_info* out, uint32_t* coun
 mp_result mp_engine_set_event_callback(mp_engine*, mp_event_cb, void* user);
 mp_result mp_track_open(mp_engine*, const char* utf8_path, mp_track**);   // decode stream, prescan, gapless info
 mp_result mp_track_close(mp_track*);
-mp_result mp_track_info(mp_track*, mp_track_info*);                        // duration, rate, channels, bits, codec
+mp_result mp_track_get_info(mp_track*, mp_track_info*);                     // duration, rate, channels, bits, codec
 mp_result mp_engine_play(mp_engine*, mp_track*, int64_t start_ms);
 mp_result mp_engine_preload_next(mp_engine*, mp_track*);                   // NULL clears
 mp_result mp_engine_pause(mp_engine*); mp_result mp_engine_resume(mp_engine*);
@@ -264,4 +267,4 @@ Close-to-tray, when enabled, only hides the window.
 
 **C++ (`mpcore`)**: C++20, `/W4 /WX /permissive- /utf-8 /Zc:__cplusplus`, `/analyze` in CI, clang-format (LLVM base, 4-space indent). No exceptions across the ABI; internally, exceptions only during construction. RAII wrappers for every BASS and COM handle (`bass_handle`, `com_ptr`). Real-time code: no `new`, no locks, no logging, no `std::string`; asserted by a `RT_ASSERT_NO_ALLOC` debug hook that patches `operator new` during callbacks in Debug builds. Public functions in `abi/` are the only non-`namespace mp` symbols.
 
-**C#**: nullable on, `TreatWarningsAsErrors`, analyzers at `Recommended`, `Microsoft.VisualStudio.Threading.Analyzers`. No `Task.Run` in view models. `Interop` uses `LibraryImport` with `StringMarshalling.Utf8`, `SafeHandle` for every native handle, and `[UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]` trampolines that do nothing but `TryWrite` to a channel.
+**C#**: nullable on, `TreatWarningsAsErrors`, analyzers at `Recommended`, `Microsoft.VisualStudio.Threading.Analyzers`. No `Task.Run` in view models. `Interop` uses `LibraryImport` with `StringMarshalling.Utf8`, `SafeHandle` for every native handle, and `[UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]` trampolines that do nothing but enqueue for the dedicated pump thread (a `BlockingCollection` over a `ConcurrentQueue`; the pump publishes to `IObservable<EngineEvent>`).

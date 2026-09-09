@@ -5,25 +5,19 @@ using System.Runtime.InteropServices;
 
 namespace Tunqio.Interop;
 
-/// <summary>Result codes of the mpcore C ABI (<c>mp_result</c> in <c>mpcore.h</c>).</summary>
-public enum MpResult
-{
-    Ok = 0,
-    InvalidArgument = 1,
-    Bass = 2,
-    Device = 3,
-    D3D = 4,
-    State = 5,
-    Internal = 6,
-}
-
 /// <summary>
-/// Source-generated bindings for <c>mpcore.h</c>. One entry per export; every export is <c>__cdecl</c>.
-/// Nothing outside this class names the native library.
+/// Source-generated bindings for every export in <c>mpcore.h</c>; one entry per export, all <c>__cdecl</c>,
+/// pointers to blittable structs, no marshalling. Nothing outside this class names the native library.
+/// <c>Tunqio.Interop.Tests</c> parses the header and fails when an export has no binding here.
 /// </summary>
 internal static unsafe partial class NativeMethods
 {
     internal const string LibraryName = "mpcore";
+
+    // Runs before the first P/Invoke on this class: the resolver refuses an mpcore.dll with the wrong ABI major.
+    static NativeMethods() => NativeLibraryLoader.Install();
+
+    // ---- version and errors ----
 
     [LibraryImport(LibraryName, EntryPoint = "mpcore_abi_version")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -36,4 +30,106 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "mp_last_error")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult LastError(byte* buffer, nuint length);
+
+    // ---- logging ----
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_log_set_sink")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult LogSetSink(delegate* unmanaged[Cdecl]<MpLogLevel, byte*, void*, void> sink, void* user, MpLogLevel minLevel);
+
+    // ---- engine ----
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineCreate(MpEngineConfig* config, nint* outEngine);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineDestroy(nint engine);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_set_output")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineSetOutput(nint engine, MpOutputConfig* config);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_enum_devices")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineEnumDevices(nint engine, MpDeviceInfo* devices, uint* count);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_set_event_callback")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineSetEventCallback(nint engine, delegate* unmanaged[Cdecl]<MpEvent*, void*, void> callback, void* user);
+
+    // ---- tracks ----
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_track_open")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult TrackOpen(nint engine, byte* utf8Path, nint* outTrack);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_track_close")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult TrackClose(nint track);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_track_get_info")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult TrackGetInfo(nint track, MpTrackInfo* info);
+
+    // ---- transport ----
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_play")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EnginePlay(nint engine, nint track, long startMs);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_preload_next")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EnginePreloadNext(nint engine, nint next);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_pause")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EnginePause(nint engine);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_resume")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineResume(nint engine);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_stop")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineStop(nint engine, MpFadeMode fade);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_seek")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineSeek(nint engine, long positionMs);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_set_volume")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineSetVolume(nint engine, float linear);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_set_replaygain")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineSetReplayGain(nint engine, float gainDb, float peak);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_set_crossfade")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineSetCrossfade(nint engine, uint ms);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_get_clock")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineGetClock(nint engine, MpClock* clock);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_get_stats")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EngineGetStats(nint engine, MpEngineStats* stats);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_preview_start")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult PreviewStart(nint engine, nint track, float gainDb);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_preview_stop")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult PreviewStop(nint engine);
+
+    // ---- analysis ----
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_analysis_try_get_latest")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult AnalysisTryGetLatest(nint engine, MpAnalysisFrame* frame);
 }

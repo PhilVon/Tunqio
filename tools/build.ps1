@@ -33,7 +33,7 @@ $vs = & $vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86
 if (-not $vs) { throw 'Visual Studio with the C++ toolset not found.' }
 $msbuild = Join-Path $vs 'MSBuild\Current\Bin\amd64\MSBuild.exe'
 
-foreach ($proj in 'native\mpcore\mpcore.vcxproj', 'native\mpcore.tests\mpcore.tests.vcxproj', 'native\spikes\bass_hello\bass_hello.vcxproj') {
+foreach ($proj in 'native\mpcore\mpcore.vcxproj', 'native\mpcore.tests\mpcore.tests.vcxproj', 'native\mpcore.tests\abi_stub\abi_stub.vcxproj', 'native\spikes\bass_hello\bass_hello.vcxproj') {
     Invoke-Checked "native: $proj ($Configuration)" {
         & $msbuild $proj -p:Configuration=$Configuration -p:Platform=x64 -m -nologo -v:minimal
     }

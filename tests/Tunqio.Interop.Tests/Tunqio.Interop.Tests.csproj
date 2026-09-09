@@ -1,12 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Runs against the real mpcore.dll built by native/mpcore/mpcore.vcxproj (solution build order puts mpcore first). -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="System.Reactive" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
@@ -17,14 +23,18 @@
     <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
     <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
   </PropertyGroup>
-  <!-- mpcore.dll links bass, bassmix and basswasapi, so the BASS runtime (tools/fetch-native.ps1) must sit next to it. -->
+  <!-- mpcore.dll links bass, bassmix and basswasapi, so the BASS runtime (tools/fetch-native.ps1) must sit next to it.
+       mpcore_abi_stub.dll (native/mpcore.tests/abi_stub) is the deliberately incompatible library for the loader test. -->
   <Target Name="TunqioCopyNativeCore" AfterTargets="Build">
     <Error Condition="!Exists('$(TunqioNativeOut)mpcore.dll')"
            Text="mpcore.dll not found at $(TunqioNativeOut). Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
     <Error Condition="!Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
            Text="native/bass is empty; run tools/fetch-native.ps1 first." />
+    <Warning Condition="!Exists('$(TunqioNativeOut)mpcore_abi_stub.dll')"
+             Text="mpcore_abi_stub.dll not found at $(TunqioNativeOut); the ABI mismatch test will fail. Build native/mpcore.tests/abi_stub." />
     <ItemGroup>
       <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore_abi_stub.dll" Condition="Exists('$(TunqioNativeOut)mpcore_abi_stub.dll')" />
       <_TunqioNativeFiles Include="$(TunqioBassRoot)bin\x64\*.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />

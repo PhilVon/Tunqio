@@ -610,7 +610,7 @@ mp_result engine::get_stats(mp_engine_stats& out) const {
     default:
         break;
     }
-    copy_utf8(out.output_format, sizeof out.output_format, format);
+    copy_utf8(out.output_format, sizeof out.output_format, output_open_ ? format : "none");
     return MP_OK;
 }
 

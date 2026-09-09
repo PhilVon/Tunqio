@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- BenchmarkDotNet gates (docs/build-test-release.md, "Performance verification"). Run in Release:
+         dotnet run -c Release -p:Platform=x64 -project tests/Tunqio.Benchmarks (then pass the BenchmarkDotNet filter)
+       Needs mpcore.dll and the BASS runtime next to the binary (copied below), like Tunqio.Interop.Tests. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Tunqio.Benchmarks</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- BenchmarkDotNet's generated projects reuse the host build; keep the artifacts path predictable. -->
+    <NoWarn>$(NoWarn);CA1822</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tunqio.Interop\Tunqio.Interop.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+    <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
+  </PropertyGroup>
+  <Target Name="TunqioCopyNativeCore" AfterTargets="Build" Condition="Exists('$(TunqioNativeOut)mpcore.dll')">
+    <ItemGroup>
+      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+      <_TunqioNativeFiles Include="$(TunqioBassRoot)bin\x64\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
