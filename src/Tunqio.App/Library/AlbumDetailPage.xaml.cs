@@ -12,9 +12,10 @@ using Windows.System;
 namespace Tunqio.App.Library;
 
 /// <summary>Code-behind for the album detail page; the parameter is the album id.</summary>
-public sealed partial class AlbumDetailPage : Page
+public sealed partial class AlbumDetailPage : Page, ILibraryRefreshable
 {
     private AlbumTrackRow? _menuAnchor;
+    private long? _albumId;
 
     public AlbumDetailPage()
     {
@@ -29,7 +30,16 @@ public sealed partial class AlbumDetailPage : Page
         base.OnNavigatedTo(e);
         if (e.Parameter is long albumId)
         {
+            _albumId = albumId;
             LoadAsync(albumId).Forget("Album detail load");
+        }
+    }
+
+    public void RefreshLibrary()
+    {
+        if (_albumId is { } albumId)
+        {
+            LoadAsync(albumId).Forget("Album detail refresh");
         }
     }
 

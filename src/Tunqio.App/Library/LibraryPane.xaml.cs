@@ -15,6 +15,9 @@ public sealed partial class LibraryPane : UserControl
     /// <summary>The "/" key (VK_OEM_2 on a US layout), which has no <see cref="VirtualKey"/> name.</summary>
     private const VirtualKey SlashKey = (VirtualKey)191;
 
+    /// <summary>The "," key (VK_OEM_COMMA), for Ctrl+, (docs/ui-screens-and-flows.md, "Keyboard shortcuts": Settings).</summary>
+    private const VirtualKey CommaKey = (VirtualKey)188;
+
     /// <summary>The root page of each pane item; a Tracks page is told which fixed view it is.</summary>
     private static readonly IReadOnlyDictionary<string, (Type Page, object? Parameter)> Routes = new Dictionary<string, (Type, object?)>(StringComparer.Ordinal)
     {
@@ -29,16 +32,21 @@ public sealed partial class LibraryPane : UserControl
     };
 
     private readonly LibraryNavigator _navigator;
+    private readonly LibraryScanCoordinator _scans;
     private bool _syncingSelection;
     private object? _currentParameter;
 
     public LibraryPane()
     {
         _navigator = App.Services.GetRequiredService<LibraryNavigator>();
+        _scans = App.Services.GetRequiredService<LibraryScanCoordinator>();
         Search = App.Services.GetRequiredService<SearchViewModel>();
         InitializeComponent();
+        var settings = new KeyboardAccelerator { Key = CommaKey, Modifiers = VirtualKeyModifiers.Control };
+        settings.Invoked += OnSettingsAccelerator;
+        KeyboardAccelerators.Add(settings);
         Loaded += OnLoaded;
-        Unloaded += (_, _) => _navigator.Detach(PageFrame);
+        Unloaded += OnUnloaded;
     }
 
     /// <summary>The frame the pages live in (the shell's Alt+Left target).</summary>
@@ -53,18 +61,55 @@ public sealed partial class LibraryPane : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _navigator.Attach(PageFrame);
+        _scans.LibraryChanged += OnLibraryChanged;
         if (PageFrame.Content is null)
         {
             Nav.SelectedItem = Nav.MenuItems[0]; // Albums, the default sidebar page
         }
     }
 
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _scans.LibraryChanged -= OnLibraryChanged;
+        _navigator.Detach(PageFrame);
+    }
+
+    /// <summary>Rows changed (a scan, a folder removed, a purge): the page showing reloads; the cached ones catch up when they come back.</summary>
+    private void OnLibraryChanged(object? sender, EventArgs e) => (PageFrame.Content as ILibraryRefreshable)?.RefreshLibrary();
+
     private void OnSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (!_syncingSelection && args.SelectedItem is NavigationViewItem { Tag: string tag })
+        if (_syncingSelection)
+        {
+            return;
+        }
+
+        if (args.IsSettingsSelected)
+        {
+            OpenSettings();
+        }
+        else if (args.SelectedItem is NavigationViewItem { Tag: string tag })
         {
             Navigate(tag);
         }
+    }
+
+    /// <summary>Settings › Library in the frame (E3-S12); already there, it is shown (the search cleared).</summary>
+    public void OpenSettings()
+    {
+        if (PageFrame.Content is LibrarySettingsPage)
+        {
+            ClearSearch();
+            return;
+        }
+
+        PageFrame.Navigate(typeof(LibrarySettingsPage), null, new EntranceNavigationTransitionInfo());
+    }
+
+    private void OnSettingsAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        OpenSettings();
+        args.Handled = true;
     }
 
     private void Navigate(string tag)
@@ -85,9 +130,13 @@ public sealed partial class LibraryPane : UserControl
         Nav.IsBackEnabled = PageFrame.CanGoBack;
         ClearSearch(); // a result opened, a pane item chosen, back: the page is the destination now
 
-        // A root page selects its pane item; a detail page leaves the selection where it was.
-        string? tag = Routes.FirstOrDefault(r => r.Value.Page == e.SourcePageType && Equals(r.Value.Parameter, e.Parameter)).Key;
-        if (tag is null)
+        // A root page (or settings) selects its pane item; a detail page leaves the selection where it was.
+        object? item = e.SourcePageType == typeof(LibrarySettingsPage)
+            ? Nav.SettingsItem
+            : Routes.FirstOrDefault(r => r.Value.Page == e.SourcePageType && Equals(r.Value.Parameter, e.Parameter)).Key is { } tag
+                ? Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => (string?)i.Tag == tag)
+                : null;
+        if (item is null)
         {
             return;
         }
@@ -95,7 +144,7 @@ public sealed partial class LibraryPane : UserControl
         _syncingSelection = true;
         try
         {
-            Nav.SelectedItem = Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => (string?)i.Tag == tag);
+            Nav.SelectedItem = item;
         }
         finally
         {

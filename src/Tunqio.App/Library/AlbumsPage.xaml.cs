@@ -7,8 +7,9 @@ using Tunqio.App.Controls;
 namespace Tunqio.App.Library;
 
 /// <summary>Code-behind for Library › Albums: the chips are pushed to and from the view model by hand so a replaced option list never leaves a chooser blank.</summary>
-public sealed partial class AlbumsPage : Page
+public sealed partial class AlbumsPage : Page, ILibraryRefreshable
 {
+    private readonly LibraryFreshness _freshness = new();
     private bool _syncing;
 
     public AlbumsPage()
@@ -24,14 +25,17 @@ public sealed partial class AlbumsPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.NavigationMode == NavigationMode.New)
+        if (_freshness.ShouldLoad(e))
         {
             LoadAsync().Forget("Albums load");
         }
     }
 
+    public void RefreshLibrary() => LoadAsync().Forget("Albums refresh");
+
     private async Task LoadAsync()
     {
+        _freshness.MarkLoaded();
         await ViewModel.InitializeAsync();
         SyncChips();
     }

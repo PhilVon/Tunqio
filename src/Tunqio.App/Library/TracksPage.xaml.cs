@@ -8,7 +8,7 @@ using Tunqio.Core.Library;
 namespace Tunqio.App.Library;
 
 /// <summary>Code-behind for the Tracks views; the parameter is a <see cref="TracksSpec"/>.</summary>
-public sealed partial class TracksPage : Page
+public sealed partial class TracksPage : Page, ILibraryRefreshable
 {
     public TracksPage()
     {
@@ -36,6 +36,8 @@ public sealed partial class TracksPage : Page
             ViewModel.LoadAsync(spec).Forget("Tracks load");
         }
     }
+
+    public void RefreshLibrary() => ViewModel.LoadAsync(ViewModel.Spec).Forget("Tracks refresh");
 
     private void OnColumnToggled(object sender, RoutedEventArgs e)
     {

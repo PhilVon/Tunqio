@@ -7,8 +7,10 @@ using Tunqio.App.Controls;
 namespace Tunqio.App.Library;
 
 /// <summary>Code-behind for Library › Genres.</summary>
-public sealed partial class GenresPage : Page
+public sealed partial class GenresPage : Page, ILibraryRefreshable
 {
+    private readonly LibraryFreshness _freshness = new();
+
     public GenresPage()
     {
         ViewModel = App.Services.GetRequiredService<GenresViewModel>();
@@ -20,10 +22,16 @@ public sealed partial class GenresPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.NavigationMode == NavigationMode.New)
+        if (_freshness.ShouldLoad(e))
         {
-            ViewModel.LoadAsync().Forget("Genres load");
+            RefreshLibrary();
         }
+    }
+
+    public void RefreshLibrary()
+    {
+        _freshness.MarkLoaded();
+        ViewModel.LoadAsync().Forget("Genres load");
     }
 
     private void OnTagClick(object sender, RoutedEventArgs e)

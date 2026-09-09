@@ -7,8 +7,10 @@ using Tunqio.App.Controls;
 namespace Tunqio.App.Library;
 
 /// <summary>Code-behind for the artist detail page; the parameter is the artist id.</summary>
-public sealed partial class ArtistDetailPage : Page
+public sealed partial class ArtistDetailPage : Page, ILibraryRefreshable
 {
+    private long? _artistId;
+
     public ArtistDetailPage()
     {
         ViewModel = App.Services.GetRequiredService<ArtistDetailViewModel>();
@@ -22,7 +24,16 @@ public sealed partial class ArtistDetailPage : Page
         base.OnNavigatedTo(e);
         if (e.Parameter is long artistId)
         {
+            _artistId = artistId;
             ViewModel.LoadAsync(artistId).Forget("Artist detail load");
+        }
+    }
+
+    public void RefreshLibrary()
+    {
+        if (_artistId is { } artistId)
+        {
+            ViewModel.LoadAsync(artistId).Forget("Artist detail refresh");
         }
     }
 

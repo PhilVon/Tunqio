@@ -1,12 +1,24 @@
 namespace Tunqio.Library.Schema;
 
 /// <summary>
-/// The library database schema, version 1, exactly as documented in docs/library-and-data.md ("Schema (v1)").
-/// Frozen: this is migration 1 in <see cref="Database.LibraryMigrations"/> and tests/fixtures/schema/v1.sql
-/// snapshots it. Schema changes are new migrations, never edits here.
+/// The library database schema as documented in docs/library-and-data.md ("Schema"): <see cref="V1"/> is the
+/// initial DDL and each later constant is one upgrade step. Every one is frozen: it is a migration in
+/// <see cref="Database.LibraryMigrations"/> and tests/fixtures/schema/v{N}.sql snapshots the schema it
+/// produces. Schema changes are new migrations, never edits here.
 /// </summary>
 public static class LibrarySchema
 {
+    /// <summary>
+    /// Version 2 (E3-S12): when a track was first found missing, so Settings &gt; Library &gt; Purge missing can
+    /// delete the ones away for over 30 days and leave a drive that was unplugged last week alone. Null while
+    /// the file is present. Rows already flagged at upgrade time get the upgrade's clock, the earliest moment
+    /// the build can vouch for.
+    /// </summary>
+    public const string V2 = """
+        ALTER TABLE track ADD COLUMN missing_since INTEGER;
+        UPDATE track SET missing_since = (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)) WHERE missing = 1;
+        """;
+
     public const string V1 = """
         CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at INTEGER NOT NULL);
 

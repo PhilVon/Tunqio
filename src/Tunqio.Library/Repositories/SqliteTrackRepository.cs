@@ -33,7 +33,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
             codec = excluded.codec, composer = excluded.composer, comment = excluded.comment,
             rg_track_gain = excluded.rg_track_gain, rg_track_peak = excluded.rg_track_peak,
             rg_album_gain = excluded.rg_album_gain, rg_album_peak = excluded.rg_album_peak,
-            art_hash = excluded.art_hash, mbid = excluded.mbid, missing = 0
+            art_hash = excluded.art_hash, mbid = excluded.mbid, missing = 0, missing_since = NULL
         RETURNING id
         """;
 
@@ -267,8 +267,15 @@ public sealed class SqliteTrackRepository : ITrackRepository
         using IDisposable lease = await _db.AcquireWriterAsync(ct).ConfigureAwait(false);
         await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
         await using DbTransaction transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
-        await using SqliteCommand update = Sql.Command(connection, "UPDATE track SET missing = $missing WHERE id = $id", (SqliteTransaction)transaction);
-        update.Add("$missing", missing ? 1L : 0L);
+        // The first marking stamps missing_since; later scans that still miss the file keep the stamp (Purge missing counts from it).
+        await using SqliteCommand update = Sql.Command(connection, missing
+            ? "UPDATE track SET missing = 1, missing_since = COALESCE(missing_since, $now) WHERE id = $id"
+            : "UPDATE track SET missing = 0, missing_since = NULL WHERE id = $id", (SqliteTransaction)transaction);
+        if (missing)
+        {
+            update.Add("$now", _clock.GetUtcNow().ToUnixTimeMilliseconds());
+        }
+
         update.Add("$id", 0L);
         foreach (long id in ids)
         {
@@ -278,6 +285,42 @@ public sealed class SqliteTrackRepository : ITrackRepository
 
         await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
+
+    public async Task<int> CountMissingAsync(long missingBefore, CancellationToken ct = default)
+    {
+        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using SqliteCommand command = Sql.Command(connection, "SELECT COUNT(*) FROM track WHERE " + PurgeWhere);
+        command.Add("$before", missingBefore);
+        return checked((int)(long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!);
+    }
+
+    public async Task<int> PurgeMissingAsync(long missingBefore, CancellationToken ct = default)
+    {
+        using IDisposable lease = await _db.AcquireWriterAsync(ct).ConfigureAwait(false);
+        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using DbTransaction transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+        // The contentless FTS rows do not cascade; drop them by hand before the tracks go.
+        await using (SqliteCommand fts = Sql.Command(connection,
+            "INSERT INTO track_fts(track_fts, rowid, title, artists, album, album_artist) SELECT 'delete', t.id, " + FtsSql.Columns + FtsSql.From + " WHERE t." + PurgeWhere,
+            (SqliteTransaction)transaction))
+        {
+            fts.Add("$before", missingBefore);
+            await fts.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
+        int deleted;
+        await using (SqliteCommand delete = Sql.Command(connection, "DELETE FROM track WHERE " + PurgeWhere, (SqliteTransaction)transaction))
+        {
+            delete.Add("$before", missingBefore);
+            deleted = await delete.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        return deleted;
+    }
+
+    /// <summary>The rows Purge missing takes: flagged, and flagged since before <c>$before</c> (a row flagged before v2 carries the upgrade's stamp).</summary>
+    private const string PurgeWhere = "missing = 1 AND missing_since IS NOT NULL AND missing_since < $before";
 
     public async Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default)
     {

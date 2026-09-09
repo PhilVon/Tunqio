@@ -26,8 +26,22 @@ public interface ITrackRepository
     /// </summary>
     Task UpsertBatchAsync(IReadOnlyList<ScannedTrack> tracks, CancellationToken ct = default);
 
-    /// <summary>Flags files absent at the last scan (hidden but retained) or clears the flag when they return.</summary>
+    /// <summary>
+    /// Flags files absent at the last scan (hidden but retained) or clears the flag when they return. Marking
+    /// records when the file was first found missing (<c>missing_since</c>, kept across later scans that still
+    /// miss it); clearing forgets it.
+    /// </summary>
     Task MarkMissingAsync(IReadOnlyList<long> ids, bool missing, CancellationToken ct = default);
+
+    /// <summary>Tracks flagged missing since before <paramref name="missingBefore"/> (Unix milliseconds): what <see cref="PurgeMissingAsync"/> would delete.</summary>
+    Task<int> CountMissingAsync(long missingBefore, CancellationToken ct = default);
+
+    /// <summary>
+    /// Settings &gt; Library &gt; Purge missing: deletes every track flagged missing since before
+    /// <paramref name="missingBefore"/>, with its credits, genres, playlist entries, play history and index rows.
+    /// Returns the number deleted. A file that comes back after a purge is scanned in as a new track.
+    /// </summary>
+    Task<int> PurgeMissingAsync(long missingBefore, CancellationToken ct = default);
 
     /// <summary>Scanner only: the stamp of every track under a folder, loaded once at scan start for the Diff stage.</summary>
     Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default);

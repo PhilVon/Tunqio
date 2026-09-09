@@ -8,8 +8,10 @@ using Tunqio.Core.Library;
 namespace Tunqio.App.Library;
 
 /// <summary>Code-behind for Library › Artists.</summary>
-public sealed partial class ArtistsPage : Page
+public sealed partial class ArtistsPage : Page, ILibraryRefreshable
 {
+    private readonly LibraryFreshness _freshness = new();
+
     public ArtistsPage()
     {
         ViewModel = App.Services.GetRequiredService<ArtistsViewModel>();
@@ -25,10 +27,16 @@ public sealed partial class ArtistsPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.NavigationMode == NavigationMode.New)
+        if (_freshness.ShouldLoad(e))
         {
-            ViewModel.LoadAsync().Forget("Artists load");
+            RefreshLibrary();
         }
+    }
+
+    public void RefreshLibrary()
+    {
+        _freshness.MarkLoaded();
+        ViewModel.LoadAsync().Forget("Artists load");
     }
 
     private void OnItemClick(object sender, ItemClickEventArgs e)

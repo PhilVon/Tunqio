@@ -6,8 +6,10 @@ using Tunqio.App.Controls;
 namespace Tunqio.App.Library;
 
 /// <summary>Code-behind for Library › Folders.</summary>
-public sealed partial class FoldersPage : Page
+public sealed partial class FoldersPage : Page, ILibraryRefreshable
 {
+    private readonly LibraryFreshness _freshness = new();
+
     public FoldersPage()
     {
         ViewModel = App.Services.GetRequiredService<FoldersViewModel>();
@@ -19,10 +21,16 @@ public sealed partial class FoldersPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.NavigationMode == NavigationMode.New)
+        if (_freshness.ShouldLoad(e))
         {
-            ViewModel.LoadAsync().Forget("Folders load");
+            RefreshLibrary();
         }
+    }
+
+    public void RefreshLibrary()
+    {
+        _freshness.MarkLoaded();
+        ViewModel.LoadAsync().Forget("Folders load");
     }
 
     private void OnItemClick(object sender, ItemClickEventArgs e)

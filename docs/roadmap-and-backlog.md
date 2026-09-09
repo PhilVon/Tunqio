@@ -286,7 +286,7 @@ Record events from `PlaybackSession`, update counts, Recently/Most played views.
 
 ### E3-S12 · Library settings page · **S** · `ui` `library`
 Folders CRUD, scan status, split artists, purge missing, rebuild index, import/export playlists.
-- [ ] Every action in ui-screens-and-flows.md Settings › Library is present and works
+- [x] Every action in ui-screens-and-flows.md Settings › Library is present and works (import/export playlists follows the playlist store, E6-S1/E6-S2)
 
 ### E3-S13 · Library benchmarks and 100k fixture in CI · **S** · `perf` `infra`
 - [ ] PR gate runs open-time and search benchmarks against the 100k database with thresholds

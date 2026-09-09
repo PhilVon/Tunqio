@@ -193,6 +193,7 @@ Everything above is mockable; view models are tested against fakes, and `Interop
 |---------|----------|-------|
 | `IAudioEngine`, `PlaybackSession`, `IAnalysisFrameSource`, `IVisualizationHost`, `ILibraryService`, `ShellState`, `ISettingsStore` | Singleton | Created eagerly at startup in the order below |
 | Repositories | Singleton (connection pooled inside) | |
+| `LibraryScanCoordinator`, `ILibraryFolderPicker`, `LibraryNavigator` | Singleton | The shell's scan triggers and status (E3-S12); the coordinator takes the XAML thread's `SynchronizationContext` at registration |
 | View models | Transient; Shell VM singleton | |
 | Windows integration (SMTC, tray, toasts, jump list) | Singleton `IHostedService` | Start after window is shown |
 

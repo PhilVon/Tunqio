@@ -18,6 +18,7 @@ public static class LibraryMigrations
     public static IReadOnlyList<LibraryMigration> All { get; } =
     [
         new(1, "initial schema", LibrarySchema.V1),
+        new(2, "track.missing_since for Settings > Library > Purge missing (E3-S12)", LibrarySchema.V2),
     ];
 
     /// <summary>The schema version this build creates and expects.</summary>

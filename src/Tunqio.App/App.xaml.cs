@@ -28,12 +28,16 @@ public partial class App : Application
 
     private IHost? _host;
     private Window? _window;
+    private static nint s_mainWindowHandle;
 
     public App()
     {
         InitializeComponent();
         UnhandledException += OnUnhandledException;
     }
+
+    /// <summary>The main window's HWND for pickers and dialogs that need an owner; zero before the window exists.</summary>
+    public static nint MainWindowHandle => s_mainWindowHandle;
 
     /// <summary>The application's service provider, available after <see cref="OnLaunched"/>.</summary>
     public static IServiceProvider Services => ((App)Current)._host?.Services
@@ -66,7 +70,7 @@ public partial class App : Application
                 services.AddLibrary();
                 // The library views' play/enqueue actions (E3-S8) target the session; until E1-S10 the stand-in logs them.
                 services.AddSingleton<IPlaybackCommands, PendingPlaybackCommands>();
-                services.AddLibraryViews();
+                services.AddLibraryViews(SynchronizationContext.Current);
             })
             .Build();
         _host.Start();
@@ -101,6 +105,7 @@ public partial class App : Application
 
         var window = new MainWindow(forceWarp: RenderSpikeRunner.WantsWarp(commandLine));
         _window = window;
+        s_mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         _window.Closed += OnWindowClosed;
         if (databaseNotice is not null)
         {
@@ -151,14 +156,16 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Live library updates (E3-S6) start once the window is up; the launch scan itself arrives with the
-    /// Library settings page (E3-S12). Stopping is part of host disposal.
+    /// Live library updates (E3-S6) start once the window is up, and the launch scan (E3-S12) follows after the
+    /// coordinator's delay so the UI is interactive first (docs/library-and-data.md, "Scheduling"). Stopping is
+    /// part of host disposal.
     /// </summary>
     private async Task StartLibraryWatcherAsync(ILogger<App> logger)
     {
         try
         {
-            await _host!.Services.GetRequiredService<ILibraryWatcher>().StartAsync().ConfigureAwait(false);
+            _host!.Services.GetRequiredService<LibraryScanCoordinator>().StartLaunchScan();
+            await _host.Services.GetRequiredService<ILibraryWatcher>().StartAsync().ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

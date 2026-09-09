@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Tunqio.App.Library.LibrarySettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Tunqio.App.Library"
+    NavigationCacheMode="Enabled">
+  <!--
+    Settings › Library (docs/ui-screens-and-flows.md; E3-S12): folders (add/remove/enable/rescan), the running
+    scan and the last report, the split-artists and write-ratings toggles, purge missing, rebuild the search
+    index and regenerate art. Until E6 builds the settings overlay the page lives in the library pane's frame,
+    reached from the NavigationView's settings item or Ctrl+,. Playlist import/export joins with the playlist
+    store (E6-S1, E6-S2).
+  -->
+  <Page.Resources>
+    <Style x:Key="SectionHeader" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+      <Setter Property="Margin" Value="0,16,0,6" />
+    </Style>
+    <Style x:Key="Hint" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </Page.Resources>
+
+  <Grid RowDefinitions="Auto,*">
+    <TextBlock Text="Library settings" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,12,16,4" />
+
+    <ScrollViewer Grid.Row="1" Padding="16,0,16,16">
+      <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+        <InfoBar IsOpen="{x:Bind ViewModel.HasNotice, Mode=OneWay}" Message="{x:Bind ViewModel.Notice, Mode=OneWay}" Severity="Informational" IsClosable="True" Margin="0,8,0,0" />
+
+        <!-- Folders -->
+        <TextBlock Text="Folders" Style="{StaticResource SectionHeader}" />
+        <TextBlock Text="Music in these folders is in the library. New and changed files are picked up as they land; a disabled folder keeps its tracks but is not scanned or watched." Style="{StaticResource Hint}" />
+        <ItemsControl ItemsSource="{x:Bind ViewModel.FolderRows, Mode=OneWay}" Margin="0,8,0,0">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="local:LibraryFolderRow">
+              <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8" Padding="8" Margin="0,0,0,4"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4" AutomationProperties.Name="{x:Bind Path}">
+                <FontIcon Glyph="&#xE8B7;" FontSize="18" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                  <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{x:Bind Path}" Opacity="0.7" FontSize="12" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{x:Bind LastScan}" Opacity="0.7" FontSize="12" />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="2" IsOn="{x:Bind Enabled}" OnContent="" OffContent="" MinWidth="0" VerticalAlignment="Center"
+                              AutomationProperties.Name="Enabled" Toggled="OnFolderToggled" Tag="{x:Bind}" />
+                <Button Grid.Column="3" Content="Rescan" Click="OnRescanFolder" Tag="{x:Bind}" IsEnabled="{x:Bind Enabled}" VerticalAlignment="Center" />
+                <Button Grid.Column="4" Click="OnRemoveFolder" Tag="{x:Bind}" VerticalAlignment="Center" AutomationProperties.Name="Remove folder" ToolTipService.ToolTip="Remove folder">
+                  <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                </Button>
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="No folders yet. Add the folder your music lives in to build the library." Style="{StaticResource Hint}" Margin="0,4,0,0"
+                   Visibility="{x:Bind local:LibraryPane.Unless(ViewModel.HasFolders), Mode=OneWay}" />
+        <Button x:Name="AddFolderButton" Content="Add folder…" Click="OnAddFolder" Margin="0,8,0,0" Style="{StaticResource AccentButtonStyle}" />
+
+        <!-- Scanning -->
+        <TextBlock Text="Scanning" Style="{StaticResource SectionHeader}" />
+        <StackPanel Spacing="6" Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay}">
+          <ProgressBar IsIndeterminate="True" />
+          <TextBlock Text="{x:Bind ViewModel.ScanStatus, Mode=OneWay}" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Visibility="{x:Bind ViewModel.HasLastReport, Mode=OneWay}">
+          <TextBlock Text="{x:Bind ViewModel.LastReportWhen, Mode=OneWay}" Style="{StaticResource Hint}" />
+          <TextBlock Text="{x:Bind ViewModel.LastReport, Mode=OneWay}" TextWrapping="Wrap" />
+          <Expander Header="Files that could not be read" Margin="0,6,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                    Visibility="{x:Bind ViewModel.HasFailures, Mode=OneWay}">
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Failures, Mode=OneWay}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <TextBlock Text="{x:Bind}" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Expander>
+        </StackPanel>
+        <TextBlock Text="No scan has run yet this session." Style="{StaticResource Hint}"
+                   Visibility="{x:Bind local:LibrarySettingsPage.NeitherVisible(ViewModel.IsScanning, ViewModel.HasLastReport), Mode=OneWay}" />
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+          <Button Content="Rescan all" Click="OnRescanAll" IsEnabled="{x:Bind local:LibrarySettingsPage.Not(ViewModel.IsScanning), Mode=OneWay}"
+                  ToolTipService.ToolTip="Read every file again, whether or not it changed" />
+          <Button Content="Cancel" Click="OnCancelScan" Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay}" />
+        </StackPanel>
+
+        <!-- Options -->
+        <TextBlock Text="Tags" Style="{StaticResource SectionHeader}" />
+        <ToggleSwitch Header="Split artist fields on ; / feat. and commas" IsOn="{x:Bind ViewModel.SplitArtists, Mode=TwoWay}" />
+        <TextBlock Text="Off when your artist names contain those separators. Takes effect on the next scan." Style="{StaticResource Hint}" />
+        <ToggleSwitch Header="Write ratings to files" IsOn="{x:Bind ViewModel.WriteRatingsToFiles, Mode=TwoWay}" Margin="0,8,0,0" />
+        <TextBlock Text="Ratings stay in the library either way; on, they are also written to each file's tag." Style="{StaticResource Hint}" />
+
+        <!-- Maintenance -->
+        <TextBlock Text="Maintenance" Style="{StaticResource SectionHeader}" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Click="OnPurgeMissing" IsEnabled="{x:Bind ViewModel.CanPurge, Mode=OneWay}">
+            <TextBlock Text="{x:Bind local:LibrarySettingsPage.PurgeLabel(ViewModel.MissingCount), Mode=OneWay}" />
+          </Button>
+          <Button Content="Rebuild search index" Click="OnRebuildIndex" IsEnabled="{x:Bind local:LibrarySettingsPage.Not(ViewModel.IsBusy), Mode=OneWay}" />
+          <Button Content="Regenerate art" Click="OnRegenerateArt" Visibility="{x:Bind ViewModel.CanRegenerateArt}"
+                  IsEnabled="{x:Bind local:LibrarySettingsPage.Neither(ViewModel.IsBusy, ViewModel.IsScanning), Mode=OneWay}" />
+        </StackPanel>
+        <TextBlock Text="Purge removes tracks whose files have been missing for over 30 days (an unplugged drive keeps its tracks until then). Rebuild fixes a search index that has drifted. Regenerate clears cached album art and reads it from the files again." Style="{StaticResource Hint}" Margin="0,6,0,0" />
+        <ProgressBar IsIndeterminate="True" Margin="0,6,0,0" Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</Page>

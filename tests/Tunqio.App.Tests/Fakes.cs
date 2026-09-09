@@ -166,6 +166,21 @@ internal sealed class FakeTrackRepository : ITrackRepository
 
     public Task MarkMissingAsync(IReadOnlyList<long> ids, bool missing, CancellationToken ct = default) => throw new NotSupportedException();
 
+    /// <summary>What <see cref="PurgeMissingAsync"/> reports (and <see cref="CountMissingAsync"/> before it); the settings view model shows both.</summary>
+    public int MissingOlderThanCutoff { get; set; }
+
+    public List<long> PurgeCutoffs { get; } = [];
+
+    public Task<int> CountMissingAsync(long missingBefore, CancellationToken ct = default) => Task.FromResult(MissingOlderThanCutoff);
+
+    public Task<int> PurgeMissingAsync(long missingBefore, CancellationToken ct = default)
+    {
+        PurgeCutoffs.Add(missingBefore);
+        int purged = MissingOlderThanCutoff;
+        MissingOlderThanCutoff = 0;
+        return Task.FromResult(purged);
+    }
+
     public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) => throw new NotSupportedException();
 
     public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) => throw new NotSupportedException();
@@ -263,15 +278,157 @@ internal sealed class FakeFolderRepository : ILibraryFolderRepository
 {
     public List<LibraryFolderDto> Rows { get; } = [];
 
-    public Task<IReadOnlyList<LibraryFolderDto>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<LibraryFolderDto>>(Rows);
+    public Task<IReadOnlyList<LibraryFolderDto>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<LibraryFolderDto>>(Rows.ToList());
 
-    public Task<LibraryFolderDto> AddAsync(string path, CancellationToken ct = default) => throw new NotSupportedException();
+    /// <summary>Idempotent by path, like the real one; the path is stored as given (no normalisation).</summary>
+    public Task<LibraryFolderDto> AddAsync(string path, CancellationToken ct = default)
+    {
+        LibraryFolderDto? existing = Rows.FirstOrDefault(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            existing = new LibraryFolderDto(Rows.Count == 0 ? 1 : Rows.Max(r => r.Id) + 1, path, true, null, null);
+            Rows.Add(existing);
+        }
 
-    public Task SetEnabledAsync(long id, bool enabled, CancellationToken ct = default) => throw new NotSupportedException();
+        return Task.FromResult(existing);
+    }
 
-    public Task RemoveAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task SetEnabledAsync(long id, bool enabled, CancellationToken ct = default)
+    {
+        int i = Rows.FindIndex(r => r.Id == id);
+        Rows[i] = Rows[i] with { Enabled = enabled };
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveAsync(long id, CancellationToken ct = default)
+    {
+        Rows.RemoveAll(r => r.Id == id);
+        return Task.CompletedTask;
+    }
 
     public Task RecordScanAsync(long id, long scannedAt, string status, CancellationToken ct = default) => throw new NotSupportedException();
+}
+
+/// <summary>
+/// A scanner the test drives by hand: <see cref="ScanAsync"/> records the request and waits until the test
+/// <see cref="Finish"/>es it (or the token cancels), reporting progress on demand; <see cref="Complete"/> raises
+/// <see cref="ScanCompleted"/> for a scan of any origin (the watcher's, say) without going through ScanAsync.
+/// </summary>
+internal sealed class FakeScanner : ILibraryScanner
+{
+    private TaskCompletionSource<ScanReport>? _running;
+    private IProgress<ScanProgress>? _progress;
+
+    public List<ScanRequest> Requests { get; } = [];
+
+    public bool IsScanning { get; set; }
+
+    /// <summary>Thrown by the next ScanAsync call, once (the scanner's one-at-a-time refusal).</summary>
+    public bool RefuseNext { get; set; }
+
+    public event EventHandler<ScanReport>? ScanCompleted;
+
+    public Task<ScanReport> ScanAsync(ScanRequest request, IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
+    {
+        if (RefuseNext)
+        {
+            RefuseNext = false;
+            throw new InvalidOperationException("A library scan is already running.");
+        }
+
+        Requests.Add(request);
+        IsScanning = true;
+        _progress = progress;
+        _running = new TaskCompletionSource<ScanReport>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ct.Register(() => Finish(Report(ScanOutcome.Cancelled)));
+#pragma warning disable VSTHRD003 // the test hands the report over; nothing here blocks on it
+        return _running.Task;
+#pragma warning restore VSTHRD003
+    }
+
+    public void ReportProgress(ScanProgress sample) => _progress?.Report(sample);
+
+    /// <summary>Ends the running scan with <paramref name="report"/> and raises ScanCompleted, as the real scanner does.</summary>
+    public void Finish(ScanReport report)
+    {
+        TaskCompletionSource<ScanReport>? running = Interlocked.Exchange(ref _running, null);
+        if (running is null)
+        {
+            return;
+        }
+
+        IsScanning = false;
+        running.TrySetResult(report);
+        ScanCompleted?.Invoke(this, report);
+    }
+
+    /// <summary>A scan that did not go through this fake's ScanAsync (the watcher's) ended.</summary>
+    public void Complete(ScanReport report) => ScanCompleted?.Invoke(this, report);
+
+    public static ScanReport Report(ScanOutcome outcome = ScanOutcome.Completed, int added = 0, int updated = 0, int unchanged = 0, int failed = 0, int missing = 0, int restored = 0, IReadOnlyList<ScanFailure>? failures = null, string? error = null) =>
+        new(outcome, TimeSpan.FromSeconds(1.5), added + updated + unchanged + failed, added + updated + failed, added, updated, unchanged, failed, missing, restored, 0, failures ?? [], [], error);
+}
+
+internal sealed class FakeWatcher : ILibraryWatcher
+{
+    public int Refreshes { get; private set; }
+
+    public bool IsWatching { get; private set; }
+
+    public LibraryWatcherStats Stats => LibraryWatcherStats.Empty;
+
+    public Task StartAsync(CancellationToken ct = default)
+    {
+        IsWatching = true;
+        return Task.CompletedTask;
+    }
+
+    public Task RefreshAsync(CancellationToken ct = default)
+    {
+        Refreshes++;
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync()
+    {
+        IsWatching = false;
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+    }
+}
+
+internal sealed class FakeArtCache : IArtCache
+{
+    public int Clears { get; private set; }
+
+    public Task<ArtHashes> StoreAsync(EmbeddedPicture? picture, string audioPath, CancellationToken ct = default) => Task.FromResult(ArtHashes.None);
+
+    public string? PathFor(string? hash, ArtSize size) => null;
+
+    public Task<ArtPalette?> LoadPaletteAsync(string? hash, CancellationToken ct = default) => Task.FromResult<ArtPalette?>(null);
+
+    public Task ClearAsync(CancellationToken ct = default)
+    {
+        Clears++;
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class FakeFolderPicker : ILibraryFolderPicker
+{
+    /// <summary>What the next pick returns; <c>null</c> is the user cancelling.</summary>
+    public string? NextPick { get; set; }
+
+    public int Picks { get; private set; }
+
+    public Task<string?> PickFolderAsync(CancellationToken ct = default)
+    {
+        Picks++;
+        return Task.FromResult(NextPick);
+    }
 }
 
 /// <summary>Records every request as the session would receive it.</summary>

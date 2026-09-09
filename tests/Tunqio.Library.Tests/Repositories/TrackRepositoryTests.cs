@@ -202,6 +202,37 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Purge_missing_deletes_only_tracks_flagged_since_before_the_cutoff_and_their_index_rows_Async()
+    {
+        // The seed flagged 5, 6 and 61 at Now (the fixed clock). Purge counts from the first marking, which a
+        // later scan that still misses the file does not move.
+        (await _seed.Tracks.CountMissingAsync(LibrarySeed.Now)).Should().Be(0, "flagged at Now is not before Now");
+        (await _seed.Tracks.CountMissingAsync(LibrarySeed.Now + 1)).Should().Be(3);
+        await _seed.Tracks.MarkMissingAsync([5, 6], missing: true);
+        (await ScalarAsync(_seed, "SELECT COUNT(*) FROM track WHERE missing = 1 AND missing_since = " + LibrarySeed.Now)).Should().Be(3L, "re-marking keeps the first stamp");
+
+        // A file that returns (restored by the scanner or re-read) leaves the purge set.
+        await _seed.Tracks.MarkMissingAsync([5], missing: false);
+        (await ScalarAsync(_seed, "SELECT missing_since FROM track WHERE id = 5")).Should().Be(DBNull.Value);
+        TrackDto six = (await _seed.Tracks.GetByIdsAsync([6])).Single();
+        await _seed.Tracks.UpsertBatchAsync([new ScannedTrack(six.Path, six.FolderId, 1, 1, six.Codec, six.DurationMs, six.Title, six.Artists.Select(a => a.Name).ToArray(), six.AlbumTitle, six.AlbumArtist, six.Year, six.TrackNo, six.DiscNo)]);
+        (await ScalarAsync(_seed, "SELECT missing_since FROM track WHERE id = 6")).Should().Be(DBNull.Value, "an upsert clears the stamp with the flag");
+        (await _seed.Tracks.CountMissingAsync(LibrarySeed.Now + 1)).Should().Be(1);
+
+        TrackDto gone = (await _seed.Tracks.GetByIdsAsync([61])).Single();
+        (await _seed.Tracks.PurgeMissingAsync(LibrarySeed.Now)).Should().Be(0);
+        (await _seed.Tracks.PurgeMissingAsync(LibrarySeed.Now + 1)).Should().Be(1);
+
+        (await _seed.Tracks.GetAsync(61)).Should().BeNull();
+        (await _seed.Tracks.GetAsync(5)).Should().NotBeNull();
+        (await _seed.Tracks.GetAsync(6)).Should().NotBeNull();
+        (await FtsMatchesAsync(gone.Title)).Should().NotContain(61, "the purged row left the search index");
+        (await ScalarAsync(_seed, "SELECT COUNT(*) FROM track_artist WHERE track_id = 61")).Should().Be(0L, "credits cascade");
+        (await ScalarAsync(_seed, "PRAGMA foreign_key_check")).Should().BeNull();
+        (await ScalarAsync(_seed, "SELECT COUNT(*) FROM track_fts")).Should().Be((long)_all.Count - 1);
+    }
+
+    [Fact]
     public async Task UpdateTags_rehomes_the_album_replaces_credits_and_keeps_search_in_step_Async()
     {
         TrackDto track = _all.First(t => t.AlbumId is not null && t.Artists.Count == 1 && !t.Missing);

@@ -204,6 +204,10 @@ internal sealed class ScanHarness : IDisposable
 
         public Task MarkMissingAsync(IReadOnlyList<long> ids, bool missing, CancellationToken ct = default) => inner.MarkMissingAsync(ids, missing, ct);
 
+        public Task<int> CountMissingAsync(long missingBefore, CancellationToken ct = default) => inner.CountMissingAsync(missingBefore, ct);
+
+        public Task<int> PurgeMissingAsync(long missingBefore, CancellationToken ct = default) => inner.PurgeMissingAsync(missingBefore, ct);
+
         public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) => inner.SnapshotAsync(folderId, ct);
 
         public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) => inner.UpdateTagsAsync(id, edit, ct);
