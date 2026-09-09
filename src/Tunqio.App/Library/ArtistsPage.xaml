@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Tunqio.App.Library.ArtistsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Tunqio.App.Controls"
+    xmlns:local="using:Tunqio.App.Library"
+    xmlns:lib="using:Tunqio.Core.Library"
+    NavigationCacheMode="Enabled">
+  <!-- Library › Artists (docs/ui-screens-and-flows.md): circle art, name, counts, an alphabet jump bar; a row opens the artist. -->
+  <Page.Resources>
+    <Style x:Key="LetterButton" TargetType="Button">
+      <Setter Property="MinWidth" Value="26" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Padding" Value="4,2" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+  </Page.Resources>
+
+  <Grid RowDefinitions="Auto,Auto,*">
+    <TextBlock Text="Artists" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,12,16,4" />
+
+    <ItemsRepeater x:Name="JumpBar" Grid.Row="1" Margin="14,0,16,6" TabFocusNavigation="Once" XYFocusKeyboardNavigation="Enabled">
+      <ItemsRepeater.Layout>
+        <StackLayout Orientation="Horizontal" Spacing="0" />
+      </ItemsRepeater.Layout>
+      <ItemsRepeater.ItemTemplate>
+        <DataTemplate x:DataType="x:String">
+          <Button Content="{x:Bind}" Style="{StaticResource LetterButton}" Click="OnLetterClick" />
+        </DataTemplate>
+      </ItemsRepeater.ItemTemplate>
+    </ItemsRepeater>
+
+    <ListView
+        x:Name="List"
+        Grid.Row="2"
+        ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
+        IsItemClickEnabled="True"
+        SelectionMode="None"
+        ItemClick="OnItemClick"
+        IncrementalLoadingTrigger="Edge"
+        IncrementalLoadingThreshold="2">
+      <ListView.ItemContainerStyle>
+        <Style TargetType="ListViewItem">
+          <Setter Property="MinHeight" Value="56" />
+          <Setter Property="Padding" Value="16,0" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+      </ListView.ItemContainerStyle>
+      <ListView.ItemTemplate>
+        <DataTemplate x:DataType="lib:ArtistDto">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" AutomationProperties.Name="{x:Bind Name}">
+            <Grid Width="40" Height="40" CornerRadius="20" Background="{x:Bind controls:PlaceholderArt.Brush(Name)}">
+              <TextBlock Text="{x:Bind controls:PlaceholderArt.Initials(Name)}" FontSize="13" FontWeight="SemiBold" Foreground="White"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+              <Ellipse Width="40" Height="40">
+                <Ellipse.Fill>
+                  <ImageBrush ImageSource="{x:Bind controls:AlbumArt.Thumbnail(ArtHash)}" Stretch="UniformToFill" />
+                </Ellipse.Fill>
+              </Ellipse>
+            </Grid>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{x:Bind local:ArtistsPage.Counts(AlbumCount, TrackCount)}" Opacity="0.7" FontSize="12" />
+            </StackPanel>
+          </Grid>
+        </DataTemplate>
+      </ListView.ItemTemplate>
+    </ListView>
+
+    <TextBlock Grid.Row="2" Text="No artists yet" Opacity="0.7" HorizontalAlignment="Center" VerticalAlignment="Center"
+               Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}" />
+  </Grid>
+</Page>

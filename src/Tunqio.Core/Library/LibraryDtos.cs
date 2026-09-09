@@ -61,6 +61,15 @@ public sealed record AlbumDto(
     long AddedAt,
     long? LastPlayedAt);
 
+/// <summary>
+/// What the Albums grid's chips can filter by: the decades (1990, 2000, ...) of albums with present tracks and
+/// the codecs (<see cref="AudioFormats"/> vocabulary) of present tracks, both ascending.
+/// </summary>
+public sealed record AlbumFacets(IReadOnlyList<int> Decades, IReadOnlyList<string> Codecs)
+{
+    public static AlbumFacets Empty { get; } = new([], []);
+}
+
 /// <summary>Album detail: tracks in disc/track order (the UI groups by <see cref="TrackDto.DiscNo"/>).</summary>
 public sealed record AlbumDetailDto(AlbumDto Album, IReadOnlyList<TrackDto> Tracks, IReadOnlyList<string> Genres);
 

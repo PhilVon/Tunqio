@@ -47,6 +47,9 @@ public interface IAlbumRepository
     Task<IReadOnlyList<AlbumDto>> ListAsync(AlbumQuery query, CancellationToken ct = default);
 
     Task<int> CountAsync(AlbumQuery query, CancellationToken ct = default);
+
+    /// <summary>The values the Albums grid's filter chips offer (E3-S8): decades and codecs present in the library.</summary>
+    Task<AlbumFacets> ListFacetsAsync(CancellationToken ct = default);
 }
 
 /// <summary>Artists list and detail.</summary>

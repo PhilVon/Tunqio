@@ -257,6 +257,8 @@ Close-to-tray, when enabled, only hides the window.
 | `ui.reactiveSmoothing` | float 0..1 | 0.15 |
 | `ui.closeToTray` / `ui.minimizeToTray` | bool | false / false |
 | `ui.toastOnTrackChange` | bool | false |
+| `ui.albumsSort` | `title` \| `artist` \| `year` \| `added` \| `played` | `title` |
+| `ui.tracksHiddenColumns` | comma-separated `TrackColumn` names | empty |
 | `viz.preset` | string | `spectrum-bars` |
 | `viz.quality` | `auto` \| `low` \| `medium` \| `high` | `auto` |
 | `viz.params.<preset>.<name>` | float | preset default |

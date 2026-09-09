@@ -12,24 +12,59 @@
     scroll position nears the end of the extent (and keeps asking until the viewport is full). A tile shows the
     art cache's 300 px rendering over the title-hash placeholder (E3-S7: AlbumArt.Tile gives a BitmapImage that
     XAML decodes off the UI thread; a hash with no file behind it leaves the placeholder showing).
+    E3-S8: each tile is a Button, so Tab reaches the grid once and the arrow keys move between tiles
+    (XYFocusKeyboardNavigation); click or Enter plays the album, Shift+Enter plays it next, Ctrl+Enter queues
+    it, and the tile menu (right-click, Shift+F10) carries the rest. The grid raises ActionRequested; the page
+    decides what an action means.
   -->
-  <ScrollViewer x:Name="Scroller" ViewChanged="OnViewChanged" SizeChanged="OnSizeChanged" Padding="16,8">
-    <ItemsRepeater x:Name="Repeater" ItemsSource="{x:Bind ItemsSource, Mode=OneWay}" ElementPrepared="OnElementPrepared">
+  <UserControl.Resources>
+    <Style x:Key="TileButton" TargetType="Button">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Top" />
+      <Setter Property="UseSystemFocusVisuals" Value="True" />
+    </Style>
+    <MenuFlyout x:Key="TileMenu" Opening="OnTileMenuOpening">
+      <MenuFlyoutItem Text="Play" Click="OnMenuPlay">
+        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
+      </MenuFlyoutItem>
+      <MenuFlyoutItem Text="Play next" Click="OnMenuPlayNext" />
+      <MenuFlyoutItem Text="Add to queue" Click="OnMenuEnqueue" />
+      <!-- Playlists arrive with E6-S1. -->
+      <MenuFlyoutItem Text="Add to playlist" IsEnabled="False" />
+      <MenuFlyoutSeparator />
+      <MenuFlyoutItem Text="Open album" Click="OnMenuOpen">
+        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A7;" /></MenuFlyoutItem.Icon>
+      </MenuFlyoutItem>
+      <MenuFlyoutItem Text="Show in folder" Click="OnMenuShowInFolder" />
+    </MenuFlyout>
+  </UserControl.Resources>
+
+  <ScrollViewer x:Name="Scroller" ViewChanged="OnViewChanged" SizeChanged="OnSizeChanged" Padding="16,8" IsTabStop="False" TabFocusNavigation="Once">
+    <ItemsRepeater x:Name="Repeater" ItemsSource="{x:Bind ItemsSource, Mode=OneWay}" ElementPrepared="OnElementPrepared"
+                   XYFocusKeyboardNavigation="Enabled" PreviewKeyDown="OnTileKeyDown">
       <ItemsRepeater.Layout>
         <UniformGridLayout MinItemWidth="200" MinItemHeight="252" MinRowSpacing="16" MinColumnSpacing="16" ItemsStretch="Fill" />
       </ItemsRepeater.Layout>
       <ItemsRepeater.ItemTemplate>
         <DataTemplate x:DataType="lib:AlbumDto">
-          <StackPanel Spacing="4">
-            <Grid Height="200" CornerRadius="6" Background="{x:Bind local:PlaceholderArt.Brush(Title)}">
-              <TextBlock Text="{x:Bind local:PlaceholderArt.Initials(Title)}" FontSize="48" FontWeight="SemiBold" Opacity="0.85"
-                         HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" />
-              <Image Source="{x:Bind local:AlbumArt.Tile(ArtHash)}" Stretch="UniformToFill" />
-            </Grid>
-            <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
-            <TextBlock Text="{x:Bind local:Format.OrEmpty(AlbumArtist)}" TextTrimming="CharacterEllipsis" Opacity="0.7" />
-            <TextBlock Text="{x:Bind local:Format.Year(Year)}" Opacity="0.5" FontSize="12" />
-          </StackPanel>
+          <Button Style="{StaticResource TileButton}" Click="OnTileClick" ContextFlyout="{StaticResource TileMenu}"
+                  AutomationProperties.Name="{x:Bind local:Format.AlbumName(Title, AlbumArtist, Year)}">
+            <StackPanel Spacing="4">
+              <Grid Height="200" CornerRadius="6" Background="{x:Bind local:PlaceholderArt.Brush(Title)}">
+                <TextBlock Text="{x:Bind local:PlaceholderArt.Initials(Title)}" FontSize="48" FontWeight="SemiBold" Opacity="0.85"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" />
+                <Image Source="{x:Bind local:AlbumArt.Tile(ArtHash)}" Stretch="UniformToFill" />
+              </Grid>
+              <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+              <TextBlock Text="{x:Bind local:Format.OrEmpty(AlbumArtist)}" TextTrimming="CharacterEllipsis" Opacity="0.7" />
+              <TextBlock Text="{x:Bind local:Format.Year(Year)}" Opacity="0.5" FontSize="12" />
+            </StackPanel>
+          </Button>
         </DataTemplate>
       </ItemsRepeater.ItemTemplate>
     </ItemsRepeater>

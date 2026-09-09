@@ -2,19 +2,26 @@
 <Window
     x:Class="Tunqio.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <Grid RowDefinitions="*,Auto">
-    <!-- The visualizer surface: the native core renders into this panel's composition swap chain (ADR-002). -->
-    <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
-    <!-- Start-up notices (E3-S1 database recovery). E2-S7 replaces this with the shell's error surfaces. -->
-    <InfoBar x:Name="NoticeBar" VerticalAlignment="Top" Margin="12" IsOpen="False" />
-    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
-      <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
-      <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />
-    </StackPanel>
-    <StackPanel Grid.Row="1" Padding="12" Spacing="4" Background="#A0101014">
-      <TextBlock x:Name="RenderText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap" />
-      <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
-    </StackPanel>
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:library="using:Tunqio.App.Library">
+  <!-- Two columns until E2-S1 builds the shell's three-panel layout: Now Playing (the visualizer) and the sidebar (the library pane). -->
+  <Grid ColumnDefinitions="3*,2*">
+    <Grid RowDefinitions="*,Auto">
+      <!-- The visualizer surface: the native core renders into this panel's composition swap chain (ADR-002). -->
+      <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
+      <!-- Start-up notices (E3-S1 database recovery). E2-S7 replaces this with the shell's error surfaces. -->
+      <InfoBar x:Name="NoticeBar" VerticalAlignment="Top" Margin="12" IsOpen="False" />
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+        <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
+        <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />
+      </StackPanel>
+      <StackPanel Grid.Row="1" Padding="12" Spacing="4" Background="#A0101014">
+        <TextBlock x:Name="RenderText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap" />
+        <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
+      </StackPanel>
+    </Grid>
+
+    <library:LibraryPane Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                         Background="{ThemeResource LayerFillColorDefaultBrush}" />
   </Grid>
 </Window>

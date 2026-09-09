@@ -25,6 +25,10 @@ public static class SettingsKeys
     public const string UiMinimizeToTray = "ui.minimizeToTray";
     public const string UiToastOnTrackChange = "ui.toastOnTrackChange";
 
+    /// <summary>Library views (E3-S8): the Albums grid's sort ("title" | "artist" | "year" | "added" | "played") and the Tracks table's hidden columns (comma-separated <c>TrackColumn</c> names).</summary>
+    public const string UiAlbumsSort = "ui.albumsSort";
+    public const string UiTracksHiddenColumns = "ui.tracksHiddenColumns";
+
     public const string VizPreset = "viz.preset";
     public const string VizQuality = "viz.quality"; // "auto" | "low" | "medium" | "high"
 
@@ -55,6 +59,8 @@ public static class SettingsKeys
         public const bool UiCloseToTray = false;
         public const bool UiMinimizeToTray = false;
         public const bool UiToastOnTrackChange = false;
+        public const string UiAlbumsSort = "title";
+        public const string UiTracksHiddenColumns = "";
         public const string VizPreset = "spectrum-bars";
         public const string VizQuality = "auto";
         public const bool DiagnosticsCrashReporting = false;

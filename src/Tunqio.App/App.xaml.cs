@@ -5,8 +5,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Serilog;
+using Tunqio.App.Library;
+using Tunqio.App.Playback;
 using Tunqio.Core;
 using Tunqio.Core.Library;
+using Tunqio.Core.Playback;
 using Tunqio.Library;
 using Tunqio.Library.Database;
 
@@ -61,6 +64,9 @@ public partial class App : Application
             {
                 services.AddSingleton<IAppPaths>(paths);
                 services.AddLibrary();
+                // The library views' play/enqueue actions (E3-S8) target the session; until E1-S10 the stand-in logs them.
+                services.AddSingleton<IPlaybackCommands, PendingPlaybackCommands>();
+                services.AddLibraryViews();
             })
             .Build();
         _host.Start();

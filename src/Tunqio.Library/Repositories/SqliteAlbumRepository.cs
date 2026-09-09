@@ -111,6 +111,36 @@ public sealed class SqliteAlbumRepository : IAlbumRepository
         return checked((int)(long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!);
     }
 
+    public async Task<AlbumFacets> ListFacetsAsync(CancellationToken ct = default)
+    {
+        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        var decades = new List<int>();
+        await using (SqliteCommand command = Sql.Command(connection, """
+            SELECT DISTINCT (al.year / 10) * 10 FROM album al
+            WHERE al.year IS NOT NULL AND EXISTS (SELECT 1 FROM track t WHERE t.album_id = al.id AND t.missing = 0)
+            ORDER BY 1
+            """))
+        {
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                decades.Add(reader.GetInt32(0));
+            }
+        }
+
+        var codecs = new List<string>();
+        await using (SqliteCommand command = Sql.Command(connection, "SELECT DISTINCT codec FROM track WHERE missing = 0 ORDER BY codec"))
+        {
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                codecs.Add(reader.GetString(0));
+            }
+        }
+
+        return new AlbumFacets(decades, codecs);
+    }
+
     /// <summary>Albums the artist is credited on without being the album artist ("Appears on").</summary>
     internal async Task<IReadOnlyList<AlbumDto>> AppearsOnAsync(long artistId, CancellationToken ct)
     {

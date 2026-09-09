@@ -30,7 +30,7 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
 
     /// <summary>Filters worth combining with every sort: none, each single filter, and two together.</summary>
     private static readonly string[] FilterNames =
-        ["none", "album", "artist", "artist-cocredit", "genre", "folder", "text-title", "text-artist", "text-album", "missing", "genre+text", "folder+album"];
+        ["none", "album", "artist", "artist-cocredit", "genre", "folder", "text-title", "text-artist", "text-album", "missing", "played", "genre+text", "folder+album"];
 
     public static TheoryData<TrackSort, bool, string> SortsByFilters()
     {
@@ -264,6 +264,7 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
             "text-artist" => query with { Text = _all[0].Artists[0].Name[1..4] },
             "text-album" => query with { Text = "tape" },
             "missing" => query with { IncludeMissing = true },
+            "played" => query with { PlayedOnly = true },
             "genre+text" => query with { GenreId = genre, Text = "e" },
             "folder+album" => query with { FolderId = LibrarySeed.FixtureFolderId, AlbumId = album },
             _ => throw new ArgumentOutOfRangeException(nameof(filter), filter, "unknown filter"),
@@ -277,6 +278,11 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
         if (!q.IncludeMissing)
         {
             rows = rows.Where(t => !t.Missing);
+        }
+
+        if (q.PlayedOnly)
+        {
+            rows = rows.Where(t => t.LastPlayedAt is not null);
         }
 
         if (q.AlbumId is { } album)

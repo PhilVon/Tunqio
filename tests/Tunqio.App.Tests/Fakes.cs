@@ -1,0 +1,353 @@
+using Tunqio.App.Library;
+using Tunqio.Core;
+using Tunqio.Core.Library;
+using Tunqio.Core.Playback;
+
+namespace Tunqio.App.Tests;
+
+/// <summary>Row builders with the many-argument DTOs' noise defaulted away.</summary>
+internal static class Rows
+{
+    public static TrackDto Track(
+        long id,
+        string title,
+        long? albumId = 1,
+        string? albumTitle = "Album",
+        string? albumArtist = "Artist",
+        ArtistRef[]? credits = null,
+        int? disc = 1,
+        int? trackNo = null,
+        string codec = "flac",
+        int? bitDepth = 16,
+        int? sampleRate = 44100,
+        int durationMs = 240_000,
+        long addedAt = 0,
+        long? lastPlayedAt = null,
+        int playCount = 0,
+        long folderId = 1,
+        bool missing = false,
+        string? path = null) =>
+        new(
+            Id: id,
+            FolderId: folderId,
+            Path: path ?? $@"D:\Music\{id}.{codec}",
+            Title: title,
+            Artists: credits ?? [new ArtistRef(10, albumArtist ?? "Artist")],
+            AlbumId: albumId,
+            AlbumTitle: albumTitle,
+            AlbumArtist: albumArtist,
+            TrackNo: trackNo ?? (int)id,
+            DiscNo: disc,
+            Year: 2001,
+            DurationMs: durationMs,
+            Codec: codec,
+            BitrateKbps: null,
+            SampleRate: sampleRate,
+            Channels: 2,
+            BitDepth: bitDepth,
+            FileSize: 1000,
+            FileMtime: 0,
+            Composer: null,
+            Comment: null,
+            ReplayGain: null,
+            ArtHash: null,
+            Mbid: null,
+            AddedAt: addedAt,
+            Rating: null,
+            PlayCount: playCount,
+            LastPlayedAt: lastPlayedAt,
+            Missing: missing);
+
+    public static AlbumDto Album(long id, string title, string? artist = "Artist", long? artistId = 10, int? year = 2001, int trackCount = 10, long addedAt = 0, long? lastPlayedAt = null) =>
+        new(id, title, artistId, artist, year, null, null, trackCount, 0, addedAt, lastPlayedAt);
+}
+
+/// <summary>Orders rows the way the SQL does: by the query's sort keys (text NOCASE, numbers by value), then id.</summary>
+internal sealed class KeyComparer<T> : IComparer<T>
+{
+    private readonly Func<T, object[]> _keys;
+    private readonly Func<T, long> _id;
+
+    public KeyComparer(Func<T, object[]> keys, Func<T, long> id)
+    {
+        _keys = keys;
+        _id = id;
+    }
+
+    public int Compare(T? x, T? y)
+    {
+        object[] a = _keys(x!);
+        object[] b = _keys(y!);
+        for (int i = 0; i < a.Length; i++)
+        {
+            int c = a[i] is string sa ? SortKeys.NoCase.Compare(sa, (string)b[i]) : ((long)a[i]).CompareTo((long)b[i]);
+            if (c != 0)
+            {
+                return c;
+            }
+        }
+
+        return _id(x!).CompareTo(_id(y!));
+    }
+}
+
+internal sealed class FakeTrackRepository : ITrackRepository
+{
+    public List<TrackDto> Rows { get; } = [];
+
+    public List<TrackQuery> Queries { get; } = [];
+
+    public Task<TrackDto?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Rows.FirstOrDefault(t => t.Id == id));
+
+    public Task<IReadOnlyList<TrackDto>> GetByIdsAsync(IReadOnlyList<long> ids, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<TrackDto>>(ids.Select(id => Rows.First(t => t.Id == id)).ToList());
+
+    public Task<IReadOnlyList<TrackDto>> ListAsync(TrackQuery query, CancellationToken ct = default)
+    {
+        Queries.Add(query);
+        IEnumerable<TrackDto> rows = Rows.Where(t => query.IncludeMissing || !t.Missing);
+        if (query.PlayedOnly)
+        {
+            rows = rows.Where(t => t.LastPlayedAt is not null);
+        }
+
+        if (query.AlbumId is { } album)
+        {
+            rows = rows.Where(t => t.AlbumId == album);
+        }
+
+        if (query.ArtistId is { } artist)
+        {
+            rows = rows.Where(t => t.Artists.Any(a => a.Id == artist));
+        }
+
+        if (query.FolderId is { } folder)
+        {
+            rows = rows.Where(t => t.FolderId == folder);
+        }
+
+        List<TrackDto> ordered = rows.OrderBy(t => t, new KeyComparer<TrackDto>(query.SortKeysOf, t => t.Id)).ToList();
+        if (query.Descending)
+        {
+            ordered.Reverse();
+        }
+
+        if (query.After is { } after)
+        {
+            ordered = ordered.SkipWhile(t => t.Id != after.Id).Skip(1).ToList();
+        }
+
+        return Task.FromResult<IReadOnlyList<TrackDto>>(ordered.Take(query.PageSize).ToList());
+    }
+
+    public async IAsyncEnumerable<TrackDto> StreamAsync(TrackQuery query, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        TrackDto? last = null;
+        while (true)
+        {
+            IReadOnlyList<TrackDto> page = await ListAsync(query with { After = last is null ? null : query.CursorAfter(last) }, ct);
+            foreach (TrackDto t in page)
+            {
+                yield return t;
+            }
+
+            if (page.Count < query.PageSize)
+            {
+                yield break;
+            }
+
+            last = page[^1];
+        }
+    }
+
+    public Task<int> CountAsync(TrackQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task UpsertBatchAsync(IReadOnlyList<ScannedTrack> tracks, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task MarkMissingAsync(IReadOnlyList<long> ids, bool missing, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) => throw new NotSupportedException();
+}
+
+internal sealed class FakeAlbumRepository : IAlbumRepository
+{
+    public List<AlbumDto> Rows { get; } = [];
+
+    /// <summary>Tracks per album id, in disc/track order, for <see cref="GetDetailAsync"/>.</summary>
+    public Dictionary<long, List<TrackDto>> Tracks { get; } = [];
+
+    public Dictionary<long, List<string>> Genres { get; } = [];
+
+    public AlbumFacets Facets { get; set; } = AlbumFacets.Empty;
+
+    public List<AlbumQuery> Queries { get; } = [];
+
+    public Task<AlbumDto?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Rows.FirstOrDefault(a => a.Id == id));
+
+    public Task<AlbumDetailDto?> GetDetailAsync(long id, CancellationToken ct = default)
+    {
+        AlbumDto? album = Rows.FirstOrDefault(a => a.Id == id);
+        return Task.FromResult(album is null ? null : new AlbumDetailDto(album, Tracks.GetValueOrDefault(id) ?? [], Genres.GetValueOrDefault(id) ?? []));
+    }
+
+    public Task<IReadOnlyList<AlbumDto>> ListAsync(AlbumQuery query, CancellationToken ct = default)
+    {
+        Queries.Add(query);
+        IEnumerable<AlbumDto> rows = Rows;
+        if (query.ArtistId is { } artist)
+        {
+            rows = rows.Where(a => a.AlbumArtistId == artist);
+        }
+
+        if (query.Decade is { } decade)
+        {
+            rows = rows.Where(a => a.Year is { } y && y / 10 * 10 == decade);
+        }
+
+        List<AlbumDto> ordered = rows.OrderBy(a => a, new KeyComparer<AlbumDto>(query.SortKeysOf, a => a.Id)).ToList();
+        if (query.Descending)
+        {
+            ordered.Reverse();
+        }
+
+        if (query.After is { } after)
+        {
+            ordered = ordered.SkipWhile(a => a.Id != after.Id).Skip(1).ToList();
+        }
+
+        return Task.FromResult<IReadOnlyList<AlbumDto>>(ordered.Take(query.PageSize).ToList());
+    }
+
+    public Task<int> CountAsync(AlbumQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task<AlbumFacets> ListFacetsAsync(CancellationToken ct = default) => Task.FromResult(Facets);
+}
+
+internal sealed class FakeArtistRepository : IArtistRepository
+{
+    public List<ArtistDto> Rows { get; } = [];
+
+    public Dictionary<long, ArtistDetailDto> Details { get; } = [];
+
+    public int Pages { get; private set; }
+
+    public Task<ArtistDto?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Rows.FirstOrDefault(a => a.Id == id));
+
+    public Task<ArtistDetailDto?> GetDetailAsync(long id, CancellationToken ct = default) => Task.FromResult(Details.GetValueOrDefault(id));
+
+    public Task<IReadOnlyList<ArtistDto>> ListAsync(ArtistQuery query, CancellationToken ct = default)
+    {
+        Pages++;
+        List<ArtistDto> ordered = Rows.OrderBy(a => a.SortName, SortKeys.NoCase).ThenBy(a => a.Id).ToList();
+        if (query.After is { } after)
+        {
+            ordered = ordered.SkipWhile(a => a.Id != after.Id).Skip(1).ToList();
+        }
+
+        return Task.FromResult<IReadOnlyList<ArtistDto>>(ordered.Take(query.PageSize).ToList());
+    }
+
+    public Task<int> CountAsync(ArtistQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+}
+
+internal sealed class FakeGenreRepository : IGenreRepository
+{
+    public List<GenreDto> Rows { get; } = [];
+
+    public Task<IReadOnlyList<GenreDto>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<GenreDto>>(Rows);
+}
+
+internal sealed class FakeFolderRepository : ILibraryFolderRepository
+{
+    public List<LibraryFolderDto> Rows { get; } = [];
+
+    public Task<IReadOnlyList<LibraryFolderDto>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<LibraryFolderDto>>(Rows);
+
+    public Task<LibraryFolderDto> AddAsync(string path, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task SetEnabledAsync(long id, bool enabled, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task RemoveAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task RecordScanAsync(long id, long scannedAt, string status, CancellationToken ct = default) => throw new NotSupportedException();
+}
+
+/// <summary>Records every request as the session would receive it.</summary>
+internal sealed class FakePlayback : IPlaybackCommands
+{
+    /// <summary>Value equality over the id sequence too (a record compares an array by reference).</summary>
+    public sealed record Request(string Kind, long[] Ids, int StartIndex, bool Shuffle)
+    {
+        public bool Equals(Request? other) =>
+            other is not null && Kind == other.Kind && StartIndex == other.StartIndex && Shuffle == other.Shuffle && Ids.SequenceEqual(other.Ids);
+
+        public override int GetHashCode() => HashCode.Combine(Kind, StartIndex, Shuffle, Ids.Length);
+
+        public override string ToString() => $"{Kind}[{string.Join(",", Ids)}] from {StartIndex}{(Shuffle ? " shuffled" : string.Empty)}";
+    }
+
+    public List<Request> Requests { get; } = [];
+
+    public Request Last => Requests[^1];
+
+    public Task PlayNowAsync(IReadOnlyList<long> trackIds, int startIndex = 0, bool shuffle = false, CancellationToken ct = default)
+    {
+        Requests.Add(new Request("play", [.. trackIds], startIndex, shuffle));
+        return Task.CompletedTask;
+    }
+
+    public Task PlayNextAsync(IReadOnlyList<long> trackIds, CancellationToken ct = default)
+    {
+        Requests.Add(new Request("next", [.. trackIds], 0, false));
+        return Task.CompletedTask;
+    }
+
+    public Task EnqueueAsync(IReadOnlyList<long> trackIds, CancellationToken ct = default)
+    {
+        Requests.Add(new Request("enqueue", [.. trackIds], 0, false));
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class FakeNavigator : ILibraryNavigator
+{
+    public List<object> Opened { get; } = [];
+
+    public void OpenAlbum(long albumId) => Opened.Add(("album", albumId));
+
+    public void OpenArtist(long artistId) => Opened.Add(("artist", artistId));
+
+    public void OpenTracks(TracksSpec spec) => Opened.Add(spec);
+}
+
+internal sealed class FakeRevealer : IFileRevealer
+{
+    public List<string> Revealed { get; } = [];
+
+    public void Reveal(string path) => Revealed.Add(path);
+}
+
+internal sealed class FakeSettings : ISettingsStore
+{
+    private readonly Dictionary<string, object?> _values = new(StringComparer.Ordinal);
+
+    public event EventHandler<string>? Changed;
+
+    public T GetValue<T>(string key, T defaultValue) => _values.TryGetValue(key, out object? value) && value is T typed ? typed : defaultValue;
+
+    public void SetValue<T>(string key, T value)
+    {
+        _values[key] = value;
+        Changed?.Invoke(this, key);
+    }
+
+    public bool Contains(string key) => _values.ContainsKey(key);
+
+    public void Flush()
+    {
+    }
+
+    public Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+}

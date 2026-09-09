@@ -85,6 +85,11 @@ internal static class TrackQueryBuilder
             sql.Append(" AND t.missing = 0");
         }
 
+        if (query.PlayedOnly)
+        {
+            sql.Append(" AND t.last_played_at IS NOT NULL");
+        }
+
         if (query.AlbumId is { } album)
         {
             sql.Append(" AND t.album_id = $album");

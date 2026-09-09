@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Tunqio.App.Library.AlbumDetailPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Tunqio.App.Controls"
+    xmlns:local="using:Tunqio.App.Library"
+    NavigationCacheMode="Disabled">
+  <!--
+    Album detail (docs/ui-screens-and-flows.md): header with the 1000 px art over the placeholder, the facts and
+    the actions; tracks grouped by disc (a single disc shows no group headers). Double-click, Enter, Shift+Enter
+    and Ctrl+Enter behave as in the Tracks table; a single row's Play plays the album from that row.
+  -->
+  <Page.Resources>
+    <CollectionViewSource x:Name="DiscsSource" IsSourceGrouped="True" ItemsPath="Rows" />
+    <MenuFlyout x:Name="RowMenu">
+      <MenuFlyoutItem Text="Play from here" Click="OnMenuPlay">
+        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
+      </MenuFlyoutItem>
+      <MenuFlyoutItem Text="Play next" Click="OnMenuPlayNext" />
+      <MenuFlyoutItem Text="Add to queue" Click="OnMenuEnqueue" />
+      <MenuFlyoutItem Text="Add to playlist" IsEnabled="False" />
+      <MenuFlyoutItem Text="Edit tags" IsEnabled="False" />
+      <MenuFlyoutSeparator />
+      <MenuFlyoutItem Text="Go to artist" Click="OnMenuOpenArtist" />
+      <MenuFlyoutItem Text="Show in folder" Click="OnMenuShowInFolder" />
+    </MenuFlyout>
+  </Page.Resources>
+
+  <Grid RowDefinitions="Auto,*">
+    <Grid Padding="16" ColumnDefinitions="Auto,*" ColumnSpacing="16">
+      <Grid Width="160" Height="160" CornerRadius="8" Background="{x:Bind controls:PlaceholderArt.Brush(ViewModel.Title), Mode=OneWay}">
+        <TextBlock Text="{x:Bind controls:PlaceholderArt.Initials(ViewModel.Title), Mode=OneWay}" FontSize="40" FontWeight="SemiBold" Opacity="0.85"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" />
+        <Image Source="{x:Bind controls:AlbumArt.Large(ViewModel.ArtHash), Mode=OneWay}" Stretch="UniformToFill" />
+      </Grid>
+      <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+        <TextBlock Text="{x:Bind ViewModel.Title, Mode=OneWay}" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" MaxLines="2" />
+        <HyperlinkButton Content="{x:Bind ViewModel.ArtistName, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.HasArtistLink, Mode=OneWay}" Click="OnArtistClick" Padding="0" />
+        <TextBlock Text="{x:Bind ViewModel.Subline, Mode=OneWay}" Opacity="0.7" />
+        <TextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Opacity="0.7" />
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+          <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlay" AutomationProperties.Name="Play album">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <FontIcon Glyph="&#xE768;" FontSize="14" />
+              <TextBlock Text="Play" />
+            </StackPanel>
+          </Button>
+          <Button Content="Shuffle" Click="OnShuffle" />
+          <Button Content="Play next" Click="OnPlayNext" />
+          <Button Content="Add to queue" Click="OnEnqueue" />
+          <DropDownButton Content="More">
+            <DropDownButton.Flyout>
+              <MenuFlyout>
+                <MenuFlyoutItem Text="Add to playlist" IsEnabled="False" />
+                <MenuFlyoutItem Text="Edit tags" IsEnabled="False" />
+                <MenuFlyoutItem Text="Show in folder" Click="OnShowInFolder" />
+              </MenuFlyout>
+            </DropDownButton.Flyout>
+          </DropDownButton>
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+
+    <ListView
+        x:Name="List"
+        Grid.Row="1"
+        SelectionMode="Extended"
+        IsItemClickEnabled="False"
+        DoubleTapped="OnDoubleTapped"
+        PreviewKeyDown="OnListKeyDown"
+        ContextRequested="OnContextRequested">
+      <ListView.GroupStyle>
+        <GroupStyle>
+          <GroupStyle.HeaderTemplate>
+            <DataTemplate x:DataType="local:DiscGroup">
+              <TextBlock Text="{x:Bind Title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+            </DataTemplate>
+          </GroupStyle.HeaderTemplate>
+        </GroupStyle>
+      </ListView.GroupStyle>
+      <ListView.ItemContainerStyle>
+        <Style TargetType="ListViewItem">
+          <Setter Property="MinHeight" Value="36" />
+          <Setter Property="Height" Value="36" />
+          <Setter Property="Padding" Value="16,0" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+      </ListView.ItemContainerStyle>
+      <ListView.ItemTemplate>
+        <DataTemplate x:DataType="local:AlbumTrackRow">
+          <Grid ColumnDefinitions="40,3*,2*,64,88">
+            <TextBlock Text="{x:Bind Number}" Opacity="0.7" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{x:Bind Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+            <TextBlock Grid.Column="2" Text="{x:Bind Artists}" Opacity="0.7" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+            <TextBlock Grid.Column="3" Text="{x:Bind Duration}" Opacity="0.7" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="4" Text="{x:Bind Rating}" Opacity="0.7" VerticalAlignment="Center" />
+          </Grid>
+        </DataTemplate>
+      </ListView.ItemTemplate>
+    </ListView>
+  </Grid>
+</Page>

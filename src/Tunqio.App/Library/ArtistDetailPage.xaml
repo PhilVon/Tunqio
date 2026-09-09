@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Tunqio.App.Library.ArtistDetailPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Tunqio.App.Controls"
+    NavigationCacheMode="Disabled">
+  <!-- Artist detail (docs/ui-screens-and-flows.md): the albums they front, then "Appears on". Tiles behave as in Library › Albums. -->
+  <ScrollViewer>
+    <StackPanel Padding="0,0,0,16">
+      <Grid Padding="16" ColumnDefinitions="Auto,*" ColumnSpacing="16">
+        <Grid Width="96" Height="96" CornerRadius="48" Background="{x:Bind controls:PlaceholderArt.Brush(ViewModel.Name), Mode=OneWay}">
+          <TextBlock Text="{x:Bind controls:PlaceholderArt.Initials(ViewModel.Name), Mode=OneWay}" FontSize="28" FontWeight="SemiBold" Foreground="White"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Ellipse Width="96" Height="96">
+            <Ellipse.Fill>
+              <ImageBrush ImageSource="{x:Bind controls:AlbumArt.Thumbnail(ViewModel.ArtHash), Mode=OneWay}" Stretch="UniformToFill" />
+            </Ellipse.Fill>
+          </Ellipse>
+        </Grid>
+        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+          <TextBlock Text="{x:Bind ViewModel.Name, Mode=OneWay}" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" MaxLines="2" />
+          <TextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Opacity="0.7" />
+          <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayAll" Margin="0,8,0,0" AutomationProperties.Name="Play all by this artist">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <FontIcon Glyph="&#xE768;" FontSize="14" />
+              <TextBlock Text="Play all" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </Grid>
+
+      <TextBlock Text="Albums" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,8,16,0" Visibility="{x:Bind ViewModel.HasAlbums, Mode=OneWay}" />
+      <controls:AlbumsGrid ItemsSource="{x:Bind ViewModel.Albums, Mode=OneWay}" ActionRequested="OnAlbumAction" Visibility="{x:Bind ViewModel.HasAlbums, Mode=OneWay}" />
+
+      <TextBlock Text="Appears on" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,8,16,0" Visibility="{x:Bind ViewModel.HasAppearsOn, Mode=OneWay}" />
+      <controls:AlbumsGrid ItemsSource="{x:Bind ViewModel.AppearsOn, Mode=OneWay}" ActionRequested="OnAlbumAction" Visibility="{x:Bind ViewModel.HasAppearsOn, Mode=OneWay}" />
+    </StackPanel>
+  </ScrollViewer>
+</Page>

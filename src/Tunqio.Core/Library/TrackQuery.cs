@@ -97,6 +97,7 @@ public static class SortKeys
 /// <param name="FolderId">Only tracks under this library folder.</param>
 /// <param name="Text">Case-insensitive substring of title, album title or any credited artist (chip filters; search proper is FTS).</param>
 /// <param name="IncludeMissing">Include tracks whose file was absent at the last scan (hidden by default).</param>
+/// <param name="PlayedOnly">Only tracks with a completed play. The Recently and Most played views need it: a never-played track's last-played key is the "after everything" sentinel, so it would lead a descending list.</param>
 /// <param name="After">Resume after this row (keyset paging); <c>null</c> starts at the top.</param>
 /// <param name="PageSize">Rows per page.</param>
 /// <param name="Take">Hard cap on rows across all pages (the Recent/Most played views use 500); <c>null</c> for no cap.</param>
@@ -109,6 +110,7 @@ public sealed record TrackQuery(
     long? FolderId = null,
     string? Text = null,
     bool IncludeMissing = false,
+    bool PlayedOnly = false,
     PageCursor? After = null,
     int PageSize = 200,
     int? Take = null)
