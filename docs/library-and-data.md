@@ -8,7 +8,7 @@ The library subsystem turns folders of audio files into a browsable, searchable 
 %LocalAppData%\Tunqio\
   library.db              SQLite, WAL mode. Catalogue, playlists, history, settings.
   library.db-wal / -shm   SQLite journal files.
-  settings.json           Settings (E0-S6 JsonSettingsStore; atomic replace). Moving them into the setting table is an open card, not part of E3-S1.
+  settings.json           Settings (E0-S6 JsonSettingsStore; atomic replace). Stays JSON by decision Q-15 (T-89): settings survive a database reset and are readable without SQLite.
   library.corrupt-<ts>.db An unusable database moved aside by E3-S1 recovery (kept, never deleted by the app).
   art\
     ab\abcdef0123...\      Album art keyed by SHA-256 of the source image bytes.
@@ -159,7 +159,7 @@ CREATE TABLE queue_state (                    -- single row; restored on launch
 
 CREATE TABLE setting (
   key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL                          -- JSON
+  value TEXT NOT NULL                          -- JSON. Reserved: settings live in settings.json (Q-15); this table is for per-library state such as scan cursors
 );
 
 -- Full-text search. External-content table so the row is never duplicated.

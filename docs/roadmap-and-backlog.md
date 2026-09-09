@@ -78,7 +78,7 @@ WinUI window whose `SwapChainPanel` native pointer is handed to a C++ renderer i
 - [ ] Spike doc states whether WARP fallback renders at ≥ 30 fps for the same scene
 
 ### E0-S6 · Logging, DI host, settings store · **S** · `infra`
-Generic host in `App`, Serilog rolling file, `ISettingsStore` over the `setting` table (or JSON file until E3 lands the database).
+Generic host in `App`, Serilog rolling file, `ISettingsStore` over `settings.json` (kept as the settings store by Q-15; the `setting` table is reserved).
 - [ ] Log file appears under the documented path with session ID on first line
 - [ ] A setting written before exit is read back on next launch
 

@@ -236,7 +236,7 @@ Close-to-tray, when enabled, only hides the window.
 - Native crash: the SEH guards convert what they can; a genuine access violation triggers the minidump writer (E8-S5). The soak and interop tests exist to make this rare.
 - Every `async void` event handler goes through a `SafeFireAndForget` helper that logs.
 
-## Settings keys (JSON in `setting` table)
+## Settings keys (JSON values in `settings.json`; Q-15 kept the file over the `setting` table)
 
 | Key | Type | Default |
 |-----|------|---------|

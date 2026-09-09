@@ -13,7 +13,7 @@ public interface IAppPaths
     /// <summary><c>library.db</c> under the data root.</summary>
     string DatabasePath { get; }
 
-    /// <summary><c>settings.json</c> under the data root (until E3 moves settings into the database).</summary>
+    /// <summary><c>settings.json</c> under the data root. Settings stay in the file, not the database (decision Q-15).</summary>
     string SettingsPath { get; }
 
     /// <summary>Rolling Serilog files, <c>tunqio-yyyyMMdd.log</c>.</summary>

@@ -8,8 +8,8 @@ using Tunqio.Core;
 namespace Tunqio.Library;
 
 /// <summary>
-/// <see cref="ISettingsStore"/> over a JSON file (docs/solution-structure.md: JSON until E3 lands the
-/// <c>setting</c> table). Whole-file atomic writes: serialise to <c>settings.json.tmp</c>, then replace.
+/// <see cref="ISettingsStore"/> over a JSON file: the settings store for good (decision Q-15: settings survive a
+/// database reset and are readable without SQLite). Whole-file atomic writes: serialise to <c>settings.json.tmp</c>, then replace.
 /// A corrupt file is renamed aside and treated as empty, so a bad write never blocks start-up.
 /// </summary>
 public sealed class JsonSettingsStore : ISettingsStore, IAsyncDisposable, IDisposable
