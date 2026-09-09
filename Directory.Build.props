@@ -41,6 +41,9 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath>$(TunqioRepoRoot)artifacts</ArtifactsPath>
+    <!-- Solution-level dependencies on the C++ projects only order the build; without this MSBuild turns them into
+         ProjectReferences and fails with MSB3851 (mpcore.dll "targets" the Windows SDK version, not the TFM). -->
+    <AddSyntheticProjectReferencesForSolutionDependencies>false</AddSyntheticProjectReferencesForSolutionDependencies>
 
     <Version>$(TunqioVersion)</Version>
     <AssemblyVersion>$(TunqioVersion).0</AssemblyVersion>
