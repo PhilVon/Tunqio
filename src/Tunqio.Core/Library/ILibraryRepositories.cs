@@ -100,6 +100,9 @@ public interface ILibraryService
 
     ILibraryFolderRepository Folders { get; }
 
+    /// <summary>As-you-type search over the FTS index the track repository maintains (E3-S9).</summary>
+    ISearchService Search { get; }
+
     ILibraryScanner Scanner { get; }
 
     /// <summary>Live updates over the same scanner (E3-S6); started by the shell.</summary>

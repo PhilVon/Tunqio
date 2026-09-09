@@ -1,39 +1,24 @@
 using System.Diagnostics;
-using Microsoft.Data.Sqlite;
 using Tunqio.Core.Library;
-using Tunqio.FixtureGen;
-using Tunqio.Library.Database;
 using Tunqio.Library.Repositories;
 
 namespace Tunqio.Library.Tests.Repositories;
 
-/// <summary>
-/// E3-S2 gate: an upsert of 500 tracks in one transaction completes in under 150 ms on the 100k database.
-/// The database is generated here (about ten seconds), which is why this class stands alone.
-/// </summary>
-public sealed class UpsertPerformanceTests : IDisposable
+/// <summary>E3-S2 gate: an upsert of 500 tracks in one transaction completes in under 150 ms on the 100k database.</summary>
+[Collection(Library100kFixture.Collection)]
+public sealed class UpsertPerformanceTests
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "tunqio-perf-" + Guid.NewGuid().ToString("N"));
+    private readonly Library100kFixture _fixture;
 
-    public void Dispose()
+    public UpsertPerformanceTests(Library100kFixture fixture)
     {
-        SqliteConnection.ClearAllPools();
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, recursive: true);
-        }
+        _fixture = fixture;
     }
 
     [Fact]
     public async Task Upsert_of_500_tracks_in_one_transaction_stays_under_150ms_on_the_100k_database_Async()
     {
-        var paths = new AppPaths(_root);
-        paths.EnsureCreated();
-        Library100kBuilder.Build(paths.DatabasePath, 100_000, FixtureLibraryBuilder.Seed, TextWriter.Null);
-        SqliteConnection.ClearAllPools();
-
-        using LibraryDatabase db = LibraryDatabase.Open(paths);
-        var tracks = new SqliteTrackRepository(db);
+        var tracks = new SqliteTrackRepository(_fixture.Db);
         int before = await tracks.CountAsync(new TrackQuery());
 
         // First batch warms the file cache and the prepared statements; the gate is the second batch.

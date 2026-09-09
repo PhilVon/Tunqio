@@ -90,8 +90,9 @@ The eight library views and the two detail pages live in `Tunqio.App.Library`: `
 - Now-playing item pinned at top, upcoming items below with drag reorder, remove, "clear upcoming", "save as playlist". Shows total remaining time. Reflects shuffle order.
 
 ### Search
-- Search box in sidebar header. Results grouped: Tracks (top 20), Albums (top 10), Artists (top 10), with "show all" per group. Enter plays the first track result; arrow keys move; Ctrl+Enter enqueues.
-- Binds: `ISearchService.SearchAsync` debounced 120 ms, cancels the previous query.
+- Search box in the sidebar header, above the library pane's page frame (E3-S9: `LibraryPane` hosts an `AutoSuggestBox` over the `NavigationView`). While it has text, `SearchResultsView` replaces the page: one grouped list, Tracks (top 20), Albums (top 10), Artists (top 10), each group with "Show all" (500) / "Show fewer" in its header, empty groups omitted, "No results" when all are.
+- Keys: Ctrl+F or `/` focuses the box; Down moves into the results and Up from the first row returns; Enter in the box plays the first track result, Shift+Enter plays it next, Ctrl+Enter queues it; the same keys on a track or album row act on that row; Enter on an artist opens it; Esc (in the box or the list) clears the search and restores the page. Any page navigation (a result opened, a pane item chosen) clears the search too.
+- Binds: `SearchViewModel` over `ISearchService.SearchAsync`, debounced 120 ms; a new keystroke cancels the query in flight and a cancelled query's answer is never shown, whether the backend honoured the cancellation or not.
 
 ### Settings
 - Playback: gapless, crossfade slider, ReplayGain mode and preamp, resume on launch, previous-track threshold.

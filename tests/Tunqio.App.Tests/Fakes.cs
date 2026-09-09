@@ -351,3 +351,58 @@ internal sealed class FakeSettings : ISettingsStore
 
     public Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
+
+/// <summary>
+/// Records every query with its token and lets the test answer it whenever it likes, cancelled or not: a slow
+/// backend that never observes cancellation, which is what the view model must cope with.
+/// </summary>
+internal sealed class FakeSearchService : ISearchService
+{
+    public sealed class Call
+    {
+        public Call(string text, SearchLimits limits, CancellationToken token)
+        {
+            Text = text;
+            Limits = limits;
+            Token = token;
+        }
+
+        public string Text { get; }
+
+        public SearchLimits Limits { get; }
+
+        public CancellationToken Token { get; }
+
+        /// <summary>Continuations run inline, so the view model has dealt with an answer by the time <see cref="Answer"/> returns.</summary>
+        public TaskCompletionSource<SearchResults> Completion { get; } = new();
+
+        public void Answer(SearchResults results) => Completion.SetResult(results);
+    }
+
+    public List<Call> Calls { get; } = [];
+
+    /// <summary>When set, every query is answered synchronously from this.</summary>
+    public Func<string, SearchLimits, SearchResults>? AnswerImmediately { get; set; }
+
+    public int Rebuilds { get; private set; }
+
+    public Task<SearchResults> SearchAsync(string text, SearchLimits limits, CancellationToken ct = default)
+    {
+        var call = new Call(text, limits, ct);
+        Calls.Add(call);
+        if (AnswerImmediately is { } answer)
+        {
+            call.Answer(answer(text, limits));
+        }
+
+#pragma warning disable VSTHRD003 // the test hands the answer over; nothing here blocks on it
+        return call.Completion.Task;
+#pragma warning restore VSTHRD003
+    }
+
+    public Task<int> RebuildIndexAsync(CancellationToken ct = default)
+    {
+        Rebuilds++;
+        return Task.FromResult(0);
+    }
+}

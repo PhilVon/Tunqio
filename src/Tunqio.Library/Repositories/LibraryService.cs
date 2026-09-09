@@ -33,6 +33,7 @@ public sealed class LibraryService : ILibraryService
         Artists = new SqliteArtistRepository(db, albums);
         Genres = new SqliteGenreRepository(db);
         Folders = folders;
+        Search = new SqliteSearchService(db);
         Scanner = new LibraryScanner(
             tracks,
             folders,
@@ -53,6 +54,8 @@ public sealed class LibraryService : ILibraryService
     public IGenreRepository Genres { get; }
 
     public ILibraryFolderRepository Folders { get; }
+
+    public ISearchService Search { get; }
 
     public ILibraryScanner Scanner { get; }
 

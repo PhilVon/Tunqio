@@ -176,6 +176,8 @@ CREATE VIRTUAL TABLE track_fts USING fts5(
 
 **FTS maintenance.** `track_fts` is contentless and is updated by the repository in the same transaction as the track write, using `INSERT INTO track_fts(rowid, ...)` and the `'delete'` command. A full rebuild command exists for repair. Trigram tokenizer gives substring matching for "as you type" search with no prefix-index tuning.
 
+**Search (E3-S9).** `Tunqio.Library.Repositories.SqliteSearchService` splits the text on whitespace. A term of three or more characters is a quoted trigram phrase (substring, case-insensitive, all terms AND-ed across the row's columns); a shorter term is a `LIKE`, beside the MATCH or on its own when no term is long enough, so the first keystrokes still answer. Each group is three layers: a candidate set (present tracks only, cut at 1000 track rows, or 2000 rows behind albums and artists), a ranking of those ids on cheap columns (a title or name starting with the text first, then alphabetical), and the full row select for the winners plus one, which sets the group's more-flag. Albums come from tracks whose `{album album_artist}` columns matched, with per-album aggregates correlated for the winners only (the Albums grid's whole-table aggregate join costs 42 ms on 100k); artists are the names containing every term among the artists of tracks whose `{artists album_artist}` columns matched (the `artists` column is a joined list, so a column match alone would leak co-credits). Ranking every match with `bm25()` was measured at 47 ms p95 for a three-character term on the 100k database (41k matches); the capped shape measures a few milliseconds per group. `RebuildIndexAsync` (Settings › Library › Rebuild search index) issues `'delete-all'` then one `INSERT ... SELECT` over every track row from the same derivation the maintenance uses (`FtsSql`), under the writer lease in one transaction: about 1.2 s for 100k rows.
+
 **Artist splitting.** Tag values are split on `;`, `/`, ` feat. `, ` ft. ` and `,` only when the `ARTISTS` multi-value tag is absent. Splitting rules are a settings toggle because some artist names contain those separators.
 
 **Album identity.** An album is `(title, album artist, year)`. Album artist falls back to the first track artist; a folder containing tracks with three or more distinct artists and no album-artist tag is treated as a compilation with album artist "Various Artists". Tracks with no album tag go to a per-folder pseudo-album titled after the folder name.
@@ -202,11 +204,11 @@ public interface IAlbumRepository { /* Get, GetDetail (tracks in disc/track orde
 public interface IArtistRepository { /* Get, GetDetail (own albums + "appears on"), List(ArtistQuery), Count */ }
 public interface IGenreRepository { /* List: every genre with its present-track count */ }
 public interface ILibraryFolderRepository { /* List, Add (normalised path, idempotent), SetEnabled, Remove (cascades tracks), RecordScan */ }
-public interface ILibraryService { ITrackRepository Tracks; IAlbumRepository Albums; IArtistRepository Artists; IGenreRepository Genres; ILibraryFolderRepository Folders; ILibraryScanner Scanner; }
+public interface ILibraryService { ITrackRepository Tracks; IAlbumRepository Albums; IArtistRepository Artists; IGenreRepository Genres; ILibraryFolderRepository Folders; ISearchService Search; ILibraryScanner Scanner; }
 public interface ILibraryScanner { bool IsScanning; Task<ScanReport> ScanAsync(ScanRequest request, IProgress<ScanProgress>? progress, CancellationToken ct); }   // E3-S5
 public interface IPlaylistRepository { /* CRUD, reorder as (from, to) moves, bulk add (E6-S1) */ }
 public interface IPlayHistoryRepository { /* record event, recently played, most played, per-track stats (E3-S11) */ }
-public interface ISearchService { Task<SearchResults> SearchAsync(string text, int limit, CancellationToken ct); }   // E3-S9
+public interface ISearchService { Task<SearchResults> SearchAsync(string text, SearchLimits limits, CancellationToken ct); Task<int> RebuildIndexAsync(CancellationToken ct); }   // E3-S9: groups of tracks, albums and artists with a more-flag each
 ```
 
 The contracts and DTOs live in `Tunqio.Core.Library` (no SQLite); the SQL implementations in `Tunqio.Library.Repositories` (E3-S2).

@@ -11,27 +11,13 @@ namespace Tunqio.Library.Repositories;
 /// <see cref="ITrackRepository"/> over <see cref="LibraryDatabase"/>. Reads take a pooled connection each;
 /// writes take the writer lease and one transaction. The contentless <c>track_fts</c> table is kept in step
 /// inside that transaction: its rows can only be deleted by re-supplying the indexed values, so every write
-/// re-derives them from the row with <see cref="FtsRowSql"/> before and after the change. The batch upsert does
+/// re-derives them from the row with <see cref="FtsSql.Row"/> before and after the change. The batch upsert does
 /// all of its FTS writes after the last track write: a track statement that follows an FTS insert in the same
 /// transaction makes FTS5 flush its pending terms (measured: 500 interleaved upserts cost 280 ms on the 100k
 /// database against 10 ms with the FTS writes gathered at the end).
 /// </summary>
 public sealed class SqliteTrackRepository : ITrackRepository
 {
-    /// <summary>The four values indexed for a track, derived from the row so a later delete can reproduce them exactly.</summary>
-    private const string FtsRowSql = """
-        SELECT t.title,
-               COALESCE((SELECT group_concat(a.name, ', ' ORDER BY ta.position, a.id) FROM track_artist ta JOIN artist a ON a.id = ta.artist_id WHERE ta.track_id = t.id AND ta.role = 'artist'), ''),
-               COALESCE(al.title, ''), COALESCE(aa.name, '')
-        FROM track t
-        LEFT JOIN album al ON al.id = t.album_id
-        LEFT JOIN artist aa ON aa.id = al.album_artist_id
-        WHERE t.id = $id
-        """;
-
-    private const string FtsDeleteSql = "INSERT INTO track_fts(track_fts, rowid, title, artists, album, album_artist) VALUES ('delete', $id, $title, $artists, $album, $album_artist)";
-    private const string FtsInsertSql = "INSERT INTO track_fts(rowid, title, artists, album, album_artist) VALUES ($id, $title, $artists, $album, $album_artist)";
-
     private const string UpsertSql = """
         INSERT INTO track(folder_id, path, file_size, file_mtime, title, album_id, track_no, disc_no, year, duration_ms,
                           bitrate_kbps, sample_rate, channels, bit_depth, codec, composer, comment,
@@ -381,7 +367,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
         await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
 
-    /// <summary>The values indexed for one track, as <see cref="FtsRowSql"/> derives them.</summary>
+    /// <summary>The values indexed for one track, as <see cref="FtsSql.Row"/> derives them.</summary>
     private sealed record FtsRow(long Id, string Title, string Artists, string Album, string AlbumArtist);
 
     /// <summary>Re-derives a track's FTS values from its row and issues the contentless delete / insert.</summary>
@@ -393,10 +379,10 @@ public sealed class SqliteTrackRepository : ITrackRepository
 
         public FtsMaintainer(SqliteConnection connection, SqliteTransaction transaction)
         {
-            _row = Sql.Command(connection, FtsRowSql, transaction);
+            _row = Sql.Command(connection, FtsSql.Row, transaction);
             _row.Add("$id", 0L);
-            _delete = Prepare(connection, FtsDeleteSql, transaction);
-            _insert = Prepare(connection, FtsInsertSql, transaction);
+            _delete = Prepare(connection, FtsSql.Delete, transaction);
+            _insert = Prepare(connection, FtsSql.Insert, transaction);
         }
 
         /// <summary>What the index currently holds for the track (read before the row changes), or null if the track does not exist.</summary>

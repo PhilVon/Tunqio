@@ -27,3 +27,5 @@ tests/fixtures/*.db
 
 # Kanban board runtime state (server pid/port/token and the local SQLite board)
 .kanban/
+tests/fixtures/library-100k.db-wal
+tests/fixtures/library-100k.db-shm

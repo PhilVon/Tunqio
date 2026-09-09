@@ -19,6 +19,7 @@ public static class LibraryViewServices
         services.AddTransient<TracksViewModel>();
         services.AddTransient<GenresViewModel>();
         services.AddTransient<FoldersViewModel>();
+        services.AddTransient<SearchViewModel>();
         return services;
     }
 }

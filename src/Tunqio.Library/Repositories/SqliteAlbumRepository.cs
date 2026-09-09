@@ -12,7 +12,7 @@ namespace Tunqio.Library.Repositories;
 public sealed class SqliteAlbumRepository : IAlbumRepository
 {
     /// <summary>Album row plus per-album aggregates over present tracks; the mapper reads these ordinals.</summary>
-    private const string Select = """
+    internal const string Select = """
         SELECT al.id, al.title, al.album_artist_id, aa.name AS album_artist, al.year, al.disc_count, al.art_hash,
                s.track_count, s.total_ms, s.added_at, s.last_played_at
         """;
@@ -216,7 +216,7 @@ public sealed class SqliteAlbumRepository : IAlbumRepository
         return rows;
     }
 
-    private static AlbumDto Read(SqliteDataReader r) => new(
+    internal static AlbumDto Read(SqliteDataReader r) => new(
         Id: r.GetInt64(0),
         Title: r.GetString(1),
         AlbumArtistId: r.Long(2),

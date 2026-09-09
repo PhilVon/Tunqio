@@ -36,9 +36,14 @@ internal static class Sql
     public static void Set(this SqliteCommand command, string name, object? value) => command.Parameters[name].Value = value ?? DBNull.Value;
 
     /// <summary>A <c>%text%</c> pattern with <c>%</c>, <c>_</c> and <c>\</c> escaped; pair with <c>ESCAPE '\'</c>.</summary>
-    public static string Like(string text)
+    public static string Like(string text) => Pattern(text, leading: "%");
+
+    /// <summary>A <c>text%</c> pattern (escaped as <see cref="Like"/>): "starts with", for ranking.</summary>
+    public static string StartsWith(string text) => Pattern(text, leading: string.Empty);
+
+    private static string Pattern(string text, string leading)
     {
-        var pattern = new StringBuilder("%", text.Length + 2);
+        var pattern = new StringBuilder(leading, text.Length + 2);
         foreach (char c in text)
         {
             if (c is '%' or '_' or '\\')

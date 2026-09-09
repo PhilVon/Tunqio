@@ -11,7 +11,7 @@ namespace Tunqio.Library.Repositories;
 /// </summary>
 public sealed class SqliteArtistRepository : IArtistRepository
 {
-    private const string Select = """
+    internal const string Select = """
         SELECT a.id, a.name, a.sort_name, a.mbid,
                (SELECT COUNT(*) FROM album al WHERE al.album_artist_id = a.id
                   AND EXISTS (SELECT 1 FROM track t WHERE t.album_id = al.id AND t.missing = 0)) AS album_count,
@@ -19,7 +19,7 @@ public sealed class SqliteArtistRepository : IArtistRepository
                (SELECT al.art_hash FROM album al WHERE al.album_artist_id = a.id AND al.art_hash IS NOT NULL ORDER BY al.year, al.id LIMIT 1) AS art_hash
         """;
 
-    private const string From = """
+    internal const string From = """
          FROM artist a
          WHERE (EXISTS (SELECT 1 FROM track_artist ta JOIN track t ON t.id = ta.track_id WHERE ta.artist_id = a.id AND t.missing = 0)
              OR EXISTS (SELECT 1 FROM album al JOIN track t ON t.album_id = al.id WHERE al.album_artist_id = a.id AND t.missing = 0))
@@ -120,7 +120,7 @@ public sealed class SqliteArtistRepository : IArtistRepository
         }
     }
 
-    private static ArtistDto Read(SqliteDataReader r) => new(
+    internal static ArtistDto Read(SqliteDataReader r) => new(
         Id: r.GetInt64(0),
         Name: r.GetString(1),
         SortName: r.GetString(2),

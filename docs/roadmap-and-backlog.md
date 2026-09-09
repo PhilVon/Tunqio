@@ -270,9 +270,9 @@ Depends on: E3-S2, E3-S3, E3-S7. Sidebar pages, detail pages, sort/filter chips,
 
 ### E3-S9 · Search · **M** · `library` `ui`
 FTS5 trigram table maintained in-transaction; `ISearchService`; search UI with grouped results and keyboard flow.
-- [ ] 3-character query on the 100k database returns in < 50 ms p95 (benchmark in PR gate)
-- [ ] Typing continuously never shows stale results (cancellation verified by test)
-- [ ] Rebuild search index action repairs a deliberately desynchronised FTS table
+- [x] 3-character query on the 100k database returns in < 50 ms p95 (benchmark in PR gate)
+- [x] Typing continuously never shows stale results (cancellation verified by test)
+- [x] Rebuild search index action repairs a deliberately desynchronised FTS table
 
 ### E3-S10 · Tag writer and editor · **L** · `library` `ui`
 Single and batch tag editing, temp-write-verify-replace, undo stack, active-track deferral.
