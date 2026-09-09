@@ -21,9 +21,10 @@ as JSON. Exit code 0 requires no device loss, no missed refresh during the stead
 | WARP (`--warp`) | Microsoft Basic Render Driver | **144.0** | **0** | 18.4 ms | 101 / 100 requested | no | 2388, 18, 1, 0, 0, 0 |
 
 Every frame interval in both runs was under 20 ms; the 11 and 18 intervals between 8.4 and 16.7 ms fall inside
-the resize storm. `DxgiMissedRefreshes` over the whole run (233 on hardware) is dominated by the storm: DWM
-holds frames while the window is being resized, which is expected and not a rendering stall. The steady phase
-counted zero.
+the resize storm. `DxgiMissedRefreshes` under `FinalStats` covers the whole run (233 on hardware, 302 on a later run) and is
+dominated by the storm: DWM holds frames while the window is being resized, which is expected and not a rendering
+stall. The steady phase counted zero. The report's `Verdict` line and the separate `StormMissedRefreshes` field
+say so, because the whole-run counter was once read as a failure.
 
 **The reference iGPU figure is still open.** The development machine has a discrete GPU; AC-19 asks for the
 reference iGPU, which needs the reference machine. WARP on this 24-thread CPU rendering the 64-bar scene at

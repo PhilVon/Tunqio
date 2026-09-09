@@ -98,6 +98,7 @@ internal sealed class RenderSpikeRunner
             ? (steadyEnd.Stats.Frames - steadyStart.Stats.Frames) / (steadyEnd.Elapsed - steadyStart.Elapsed).TotalSeconds
             : 0;
         long steadyMissed = steadyStart is not null && steadyEnd is not null ? steadyEnd.Stats.DxgiMissedRefreshes - steadyStart.Stats.DxgiMissedRefreshes : -1;
+        long stormMissed = final is not null && steadyEnd is not null ? final.Stats.DxgiMissedRefreshes - steadyEnd.Stats.DxgiMissedRefreshes : -1;
         bool pass = final is not null && !final.Stats.DeviceLost && steadyFps >= 59.0 && steadyMissed == 0;
 
         var report = new
@@ -105,12 +106,16 @@ internal sealed class RenderSpikeRunner
             Machine = Environment.MachineName,
             Adapter = final?.Stats.Adapter,
             Warp = final?.Stats.Warp,
+            Verdict = pass
+                ? "PASS: no missed refresh and at least 59 fps in the steady phase; FinalStats counts the whole run including the resize storm, where DWM holds frames while the window changes size"
+                : "FAIL: see SteadyFps, SteadyMissedRefreshes and DeviceLost; FinalStats counts the whole run including the resize storm",
             SteadySeconds = _seconds,
             SteadyFps = Math.Round(steadyFps, 2),
             SteadyMissedRefreshes = steadyMissed,
             SteadyFrameMaxMs = steadyEnd is null ? 0 : Math.Round(steadyEnd.Stats.FrameMax.TotalMilliseconds, 2),
             Resizes = _resizes,
             ResizesApplied = final?.Stats.Resizes,
+            StormMissedRefreshes = stormMissed,
             DeviceLost = final?.Stats.DeviceLost,
             FinalStats = final?.Stats,
             HistogramEdgesMs = RenderStats.HistogramEdgesMs,
