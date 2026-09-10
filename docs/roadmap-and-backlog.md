@@ -167,7 +167,7 @@ Immutable `PlayQueue` per library-and-data.md. Shuffle is a second ordering rath
 ### E1-S10 · PlaybackSession · **L** · `core`
 Depends on: E1-S1, E1-S3, E1-S9. C# single owner of state; drives `IAudioEngine`; snapshots at 10 Hz; queue persistence; history events.
 - [ ] Sequence play/next/previous/seek/pause through a fake engine matches a scripted expectation table
-- [ ] Previous within 3 s restarts, otherwise goes back
+- [ ] Previous within 3 s goes to the previous track, otherwise restarts the current one (`PlayQueue.Back`, E1-S9; the earlier wording here had the rule the wrong way round, Q-21)
 - [ ] Queue and position are captured on stop and restored on start (integration test with real engine paused)
 - [ ] A `play_event` is emitted with correct heard time and `completed` flag per the 50%/4-minute rule
 
