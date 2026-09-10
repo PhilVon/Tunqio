@@ -76,6 +76,8 @@ internal sealed class NowPlayingSpikeRunner
     private double _burstWorkMs;
     private int _burstOpened;
     private List<string> _visibleText = [];
+    private List<string> _emptyStateButtons = [];
+    private bool _windowAcceptsDrop;
     private string _panelAutomationName = string.Empty;
     private int _burstFailed;
 
@@ -103,6 +105,7 @@ internal sealed class NowPlayingSpikeRunner
             // A window that has just been activated is still doing first-frame work; the idle window is both the
             // warm-up and the baseline the burst's gaps are read against.
             _idleFrames = await MeasureFramesAsync(TimeSpan.FromMilliseconds(1500), null).ConfigureAwait(true);
+            ReadEmptyState();
             await RunSequentialAsync().ConfigureAwait(true);
             _burstFrames = await MeasureFramesAsync(TimeSpan.FromMilliseconds(1500), RunBurstAsync).ConfigureAwait(true);
             Finish();
@@ -156,6 +159,25 @@ internal sealed class NowPlayingSpikeRunner
         _panelAutomationName = Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(_panel.Content as UIElement ?? _panel);
         _logger.LogInformation("now playing spike: the panel is showing {Text}", string.Join(" | ", _visibleText));
         vm.Dispose();
+    }
+
+    /// <summary>
+    /// The empty state, before anything has been shown (E2-S4). Two buttons and a window that accepts a drop are
+    /// the whole of "there is a way in from here", and all three fail silently: a button nobody wired does
+    /// nothing when pressed, and <c>AllowDrop</c> left off means a drag is simply refused with no error anywhere.
+    /// </summary>
+    private void ReadEmptyState()
+    {
+        _emptyStateButtons =
+        [
+            .. VisualTree.Descendants<Button>(_panel)
+                .Select(b => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(b))
+                .Where(name => !string.IsNullOrWhiteSpace(name)),
+        ];
+        _windowAcceptsDrop = _window.RootAcceptsDrop;
+        _logger.LogInformation(
+            "now playing spike: empty state offers {Buttons}; the window accepts drops: {AcceptsDrop}",
+            string.Join(", ", _emptyStateButtons), _windowAcceptsDrop);
     }
 
     // ---- the burst pass: is the decode on this thread? -------------------------------------------------------------
@@ -288,6 +310,11 @@ internal sealed class NowPlayingSpikeRunner
 
         // Title, artist, album line and format badge, each as its own visible TextBlock in the panel.
         bool metadataShown = _visibleText.Count >= 4 && _panelAutomationName.StartsWith("Now playing:", StringComparison.Ordinal);
+
+        // E2-S4's way in from an empty window: the two pickers, named, and a root that will take a drag.
+        bool wayIn = _windowAcceptsDrop
+            && _emptyStateButtons.Contains("Open files", StringComparer.Ordinal)
+            && _emptyStateButtons.Contains("Open folder", StringComparer.Ordinal);
         bool burstLoaded = _burstOpened == _art.Count && _burstFailed == 0;
         bool withinBudget = _burstFrames.Frames > 20 && _burstFrames.WorstGapMs > 0 && _burstFrames.WorstGapMs <= FrameBudgetMs;
 
@@ -297,7 +324,7 @@ internal sealed class NowPlayingSpikeRunner
         double concurrency = _burstWallMs > 0 ? Math.Round(_burstWorkMs / _burstWallMs, 2) : 0;
         bool overlapped = concurrency >= WorkToStallRatio;
         bool offThread = withinBudget && overlapped;
-        bool pass = arrived && metadataShown && burstLoaded && offThread;
+        bool pass = arrived && metadataShown && wayIn && burstLoaded && offThread;
 
         string verdict = pass
             ? string.Create(
@@ -309,6 +336,11 @@ internal sealed class NowPlayingSpikeRunner
                 $"window idle — the thread that paints is not the thread that decoded")
             : !arrived
                 ? "FAIL: art did not reach the panel at the size the cache stores; see Sequential"
+                : !wayIn
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"FAIL: an empty window offers no way in — buttons [{string.Join(", ", _emptyStateButtons)}], " +
+                    $"accepts drops: {_windowAcceptsDrop}")
                 : !metadataShown
                 ? string.Create(
                     CultureInfo.InvariantCulture,
@@ -343,6 +375,8 @@ internal sealed class NowPlayingSpikeRunner
             ArtDirectory = _artDirectory,
             PanelAutomationName = _panelAutomationName,
             PanelVisibleText = _visibleText,
+            EmptyStateButtons = _emptyStateButtons,
+            WindowAcceptsDrop = _windowAcceptsDrop,
             Sequential = _sequential,
             IdleFrames = _idleFrames,
             BurstFrames = _burstFrames,
@@ -353,6 +387,7 @@ internal sealed class NowPlayingSpikeRunner
             BurstFailed = _burstFailed,
             ArtArrived = arrived,
             MetadataShown = metadataShown,
+            WayIn = wayIn,
             DecodedOffThread = offThread,
             Pass = pass,
         };

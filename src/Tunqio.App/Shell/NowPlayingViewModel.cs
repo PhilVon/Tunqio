@@ -93,8 +93,11 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     /// <summary>Whether there is an artist to show at all; an untagged file has none.</summary>
     public bool HasArtists => ArtistNames.Length > 0;
 
-    /// <summary>Whether the artist name is a link: it needs a library row to navigate to.</summary>
-    public bool HasArtistLink => _navigator is not null && Track?.Artists.Count > 0;
+    /// <summary>
+    /// Whether the artist name is a link: it needs a library row to navigate to. A track opened from a picker
+    /// or a drop has artist names and no rows behind them (E2-S4), so it reads as text.
+    /// </summary>
+    public bool HasArtistLink => _navigator is not null && Track?.Artists is [{ Id: > 0 }, ..];
 
     /// <summary>Whether there is an album line to show.</summary>
     public bool HasAlbumLine => AlbumLine.Length > 0;
@@ -152,7 +155,7 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     /// <summary>Opens the first credited artist in the sidebar; does nothing when there is no row behind the name.</summary>
     public void OpenArtist()
     {
-        if (Track?.Artists is [{ } first, ..])
+        if (Track?.Artists is [{ Id: > 0 } first, ..])
         {
             _navigator?.OpenArtist(first.Id);
         }

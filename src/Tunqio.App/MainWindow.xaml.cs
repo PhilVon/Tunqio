@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     private readonly ISettingsStore? _settings;
     private readonly TransportViewModel? _transport;
     private readonly NowPlayingViewModel? _nowPlaying;
+    private readonly OpenCoordinator? _open;
     private NativeRenderer? _renderer;
     private DispatcherQueueTimer? _statsTimer;
 
@@ -39,14 +40,17 @@ public sealed partial class MainWindow : Window
     /// <param name="settings">Read for <c>ui.theme</c>; the system theme is used when it is not supplied.</param>
     /// <param name="audio">Where the transport finds the session; it may not exist yet, and may never.</param>
     /// <param name="navigator">The sidebar, for Now Playing's artist and album links; null leaves them inert.</param>
+    /// <param name="open">Files and folders opened or dropped (E2-S4); null leaves the window inert to drops.</param>
     public MainWindow(
         bool forceWarp = false,
         ISettingsStore? settings = null,
         IPlaybackSessionSource? audio = null,
-        Library.ILibraryNavigator? navigator = null)
+        Library.ILibraryNavigator? navigator = null,
+        OpenCoordinator? open = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
+        _open = open;
         InitializeComponent();
         Title = Identity.WindowTitle(null, null);
 
@@ -70,6 +74,11 @@ public sealed partial class MainWindow : Window
             NowPlaying.ViewModel = _nowPlaying;
         }
 
+        if (_open is not null)
+        {
+            NowPlaying.OpenRequested += OnOpenRequested;
+        }
+
         VisualizerPanel.Loaded += OnPanelLoaded;
         VisualizerPanel.SizeChanged += (_, _) => ForwardPanelSize();
         VisualizerPanel.CompositionScaleChanged += (_, _) => ForwardPanelSize();
@@ -86,6 +95,9 @@ public sealed partial class MainWindow : Window
 
     /// <summary>The shape the shell is in, for the tests that drive the window and for the diagnostics overlay.</summary>
     public ShellLayoutMode? LayoutMode => _chrome.Mode;
+
+    /// <summary>Whether the window will take a drag (E2-S4), read off the live tree for the spike.</summary>
+    internal bool RootAcceptsDrop => Root.AllowDrop;
 
     /// <summary>The Now Playing panel, for the E2-S3 spike, which drives it without a session.</summary>
     internal NowPlayingPanel NowPlayingPanelControl => NowPlaying;
@@ -248,6 +260,114 @@ public sealed partial class MainWindow : Window
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             Serilog.Log.Error(e, "A transport shortcut failed");
+        }
+    }
+
+    // ---- open files and drop (E2-S4) ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// What the window accepts. Storage items only: a drag of text or an image has nothing to play, and saying
+    /// so by declining the drag is better than accepting it and then explaining.
+    /// </summary>
+    private void OnDragOver(object sender, DragEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        if (_open is null || !e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            return;
+        }
+
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "Play";
+        e.DragUIOverride.IsGlyphVisible = true;
+        DropHint.Visibility = Visibility.Visible;
+    }
+
+    private void OnDragLeave(object sender, DragEventArgs e) => DropHint.Visibility = Visibility.Collapsed;
+
+    /// <summary>
+    /// Takes the drop. The deferral is what makes reading the data package legal: <c>GetStorageItemsAsync</c> is
+    /// asynchronous and the drag is over the moment this handler returns, so without one the items are gone
+    /// before they arrive. It is taken here, synchronously, and completed by the continuation.
+    /// </summary>
+    private void OnDrop(object sender, DragEventArgs e)
+    {
+        DropHint.Visibility = Visibility.Collapsed;
+        if (_open is null || e is null || !e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+
+        var deferral = e.GetDeferral();
+        Windows.ApplicationModel.DataTransfer.DataPackageView data = e.DataView;
+        _ = OpenDroppedAsync();
+
+        async Task OpenDroppedAsync()
+        {
+            try
+            {
+                IReadOnlyList<Windows.Storage.IStorageItem> items;
+                try
+                {
+                    items = await data.GetStorageItemsAsync();
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+
+                string[] paths = [.. items.Select(i => i.Path).Where(p => !string.IsNullOrEmpty(p))];
+                if (paths.Length == 0)
+                {
+                    return;
+                }
+
+                await _open.OpenDroppedAsync(paths).ConfigureAwait(true);
+                ShowOpenNotice();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Serilog.Log.Error(ex, "A drop could not be opened");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The empty state's two buttons (E2-S4). Void over a task, which is the shape XAML gives; the exception is
+    /// logged rather than lost, per the error-handling policy in docs/solution-structure.md.
+    /// </summary>
+    private void OnOpenRequested(object? sender, OpenRequest request)
+    {
+        if (_open is null)
+        {
+            return;
+        }
+
+        _ = PickAsync();
+
+        async Task PickAsync()
+        {
+            try
+            {
+                _ = request == OpenRequest.Files
+                    ? await _open.OpenFilesAsync().ConfigureAwait(true)
+                    : await _open.OpenFolderAsync().ConfigureAwait(true);
+                ShowOpenNotice();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Serilog.Log.Error(ex, "An open request failed");
+            }
+        }
+    }
+
+    /// <summary>Shows whatever the last open had to say, and nothing when it had nothing.</summary>
+    private void ShowOpenNotice()
+    {
+        if (_open?.LastNotice is { } notice)
+        {
+            ShowNotice(notice);
         }
     }
 

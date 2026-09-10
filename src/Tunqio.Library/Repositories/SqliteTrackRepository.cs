@@ -57,6 +57,19 @@ public sealed class SqliteTrackRepository : ITrackRepository
         return await reader.ReadAsync(ct).ConfigureAwait(false) ? TrackRowMapper.Read(reader, _pool) : null;
     }
 
+    public async Task<TrackDto?> GetByPathAsync(string path, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        // Exact match on the unique path column: the scanner writes the path it walked, so a lookup for a file
+        // the user opened finds the row only when it is the same file, which is what "already in the library"
+        // has to mean here.
+        await using SqliteCommand command = Sql.Command(connection, TrackQueryBuilder.Select + TrackQueryBuilder.From + " WHERE t.path = $path");
+        command.Add("$path", path);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        return await reader.ReadAsync(ct).ConfigureAwait(false) ? TrackRowMapper.Read(reader, _pool) : null;
+    }
+
     public async Task<IReadOnlyList<TrackDto>> GetByIdsAsync(IReadOnlyList<long> ids, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(ids);

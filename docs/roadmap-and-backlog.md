@@ -228,7 +228,21 @@ already there, and the tile the user saw in the grid is still the tile they see 
 
 ### E2-S4 · Open files and drop · **S** · `ui` `windows`
 File picker, folder picker, drag-and-drop of files/folders onto the window; builds a queue in file-name order.
-- [ ] Dropping a folder of 200 files starts playback of the first within 500 ms and enqueues the rest
+- [x] Dropping a folder of 200 files starts playback of the first within 500 ms and enqueues the rest (one tag read, not two hundred; the test gives the reader a deliberate 12 ms a file, so a design that read them all before starting could not pass on any machine)
+- [x] Files chosen in the picker and files dropped on the window build a queue in file-name order (a folder is walked in full and sorted, so disc sub-folders stay in order; a picker's selection keeps the order the user gave it)
+- [x] A dropped file outside every library folder plays without being added to the library (flow 2) (it becomes a transient track; a file that *is* indexed plays as its own row instead, with its play count and art)
+- [x] A drop with nothing playable in it leaves the queue alone and says so (an `InfoBar`; the ordinary case says nothing, because the music starting is the feedback)
+- [x] An ad-hoc track's id never collides with a library row's, and playing one records no play_event (ids count down from -1 against SQLite's positive rowids; the history repository's existing `WHERE EXISTS` guard does the second half without a line of new code)
+
+Every playback command in the app is by track id, so a file with no row still needs one. The alternative was
+path-based overloads all the way down, and the queue, the snapshot, the queue-state store and the play history
+are all keyed by id — that would have put the same vocabulary in the app twice. `TransientTrackStore` mints
+negative ids instead and a decorator over `ITrackRepository` answers for them, so `PlaybackSession` never learns
+there are two kinds. The sign is the discriminator rather than a flag, and a saved queue holding one restores as a
+queue whose items skip, which is what a purged track already does.
+
+`OpenFilesService` lives in `Tunqio.Library` and not in Core, which is not where it was first written: it walks
+the disk, and `ArchitectureTests` forbids Core `System.IO.File`. The rule was right and the first home was wrong.
 
 ### E2-S5 · Queue panel · **M** · `ui`
 Now-playing pinned, upcoming with drag reorder, remove, clear upcoming, remaining time.

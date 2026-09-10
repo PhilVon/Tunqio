@@ -61,6 +61,9 @@ internal sealed class FakeTrackRepository : ITrackRepository
     public Task<TrackDto?> GetAsync(long id, CancellationToken ct = default) =>
         Task.FromResult(_tracks.TryGetValue(id, out TrackDto? track) ? track : null);
 
+    public Task<TrackDto?> GetByPathAsync(string path, CancellationToken ct = default) =>
+        Task.FromResult(_tracks.Values.FirstOrDefault(t => string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase)));
+
     public Task<IReadOnlyList<TrackDto>> ListAsync(TrackQuery query, CancellationToken ct = default) => throw new NotSupportedException();
 
     public IAsyncEnumerable<TrackDto> StreamAsync(TrackQuery query, CancellationToken ct = default) => throw new NotSupportedException();

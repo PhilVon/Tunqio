@@ -105,6 +105,9 @@ internal sealed class FakeTrackRepository : ITrackRepository
     public Task<IReadOnlyList<TrackDto>> GetByIdsAsync(IReadOnlyList<long> ids, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<TrackDto>>(ids.Select(id => Rows.First(t => t.Id == id)).ToList());
 
+    public Task<TrackDto?> GetByPathAsync(string path, CancellationToken ct = default) =>
+        Task.FromResult(Rows.FirstOrDefault(t => string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase)));
+
     public Task<IReadOnlyList<TrackDto>> ListAsync(TrackQuery query, CancellationToken ct = default)
     {
         Queries.Add(query);

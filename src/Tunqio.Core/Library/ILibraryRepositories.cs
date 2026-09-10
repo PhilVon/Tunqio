@@ -13,6 +13,14 @@ public interface ITrackRepository
     /// <summary>Tracks in the order of <paramref name="ids"/>; unknown ids are skipped.</summary>
     Task<IReadOnlyList<TrackDto>> GetByIdsAsync(IReadOnlyList<long> ids, CancellationToken ct = default);
 
+    /// <summary>
+    /// The track indexed at <paramref name="path"/>, or null when the library does not have it. Paths are unique
+    /// in the schema, so this is a lookup and not a query. It is what lets a file opened from a picker or dropped
+    /// on the window (E2-S4) play as the row the user already owns — with their play count, rating and art —
+    /// rather than as a stranger's copy of the same file.
+    /// </summary>
+    Task<TrackDto?> GetByPathAsync(string path, CancellationToken ct = default);
+
     /// <summary>One page (<see cref="TrackQuery.PageSize"/> rows at most) after <see cref="TrackQuery.After"/>.</summary>
     Task<IReadOnlyList<TrackDto>> ListAsync(TrackQuery query, CancellationToken ct = default);
 

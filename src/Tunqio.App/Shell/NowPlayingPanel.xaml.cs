@@ -16,6 +16,13 @@ namespace Tunqio.App.Shell;
 /// </summary>
 internal sealed record ArtLoad(string? Hash, bool Opened, double ElapsedMs, int PixelWidth, int PixelHeight, string Note);
 
+/// <summary>Which picker the empty state asked for (E2-S4).</summary>
+public enum OpenRequest
+{
+    Files,
+    Folder,
+}
+
 /// <summary>
 /// The Now Playing panel (E2-S3): art, title, artists, album, year and format badge over the visualizer surface.
 /// Everything it says comes from <see cref="NowPlayingViewModel"/>; what is here is the art layering, the two
@@ -62,6 +69,17 @@ public sealed partial class NowPlayingPanel : UserControl
 
     /// <summary>Raised on the UI thread when an art load finishes, opened or failed.</summary>
     internal event EventHandler<ArtLoad>? ArtLoadCompleted;
+
+    /// <summary>
+    /// Raised when the empty state's Open files / Open folder is pressed (E2-S4). An event rather than a
+    /// dependency on the coordinator: the panel's job is the gesture, and the shell owns what happens next —
+    /// which includes showing a notice on the window, something this control cannot reach.
+    /// </summary>
+    public event EventHandler<OpenRequest>? OpenRequested;
+
+    private void OnOpenFiles(object sender, RoutedEventArgs e) => OpenRequested?.Invoke(this, OpenRequest.Files);
+
+    private void OnOpenFolder(object sender, RoutedEventArgs e) => OpenRequested?.Invoke(this, OpenRequest.Folder);
 
     private void OnArtistClick(object sender, RoutedEventArgs e) => ViewModel?.OpenArtist();
 

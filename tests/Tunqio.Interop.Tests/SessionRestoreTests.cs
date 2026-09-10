@@ -101,6 +101,19 @@ public class SessionRestoreTests
         public Task<TrackDto?> GetAsync(long id, CancellationToken ct = default) =>
             Task.FromResult(_paths.ContainsKey(id) ? Dto(id) : null);
 
+        public Task<TrackDto?> GetByPathAsync(string path, CancellationToken ct = default)
+        {
+            foreach ((long id, string known) in _paths)
+            {
+                if (string.Equals(known, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Task.FromResult<TrackDto?>(Dto(id));
+                }
+            }
+
+            return Task.FromResult<TrackDto?>(null);
+        }
+
         private TrackDto Dto(long id) => new(
             id, 1, _paths[id], "Track " + id, [], 1, "Album", "Artist", (int)id, 1, 2020, 2000,
             "flac", null, Rate, 2, 16, 1, 0, null, null, null, null, null, 0, null, 0, null, false);

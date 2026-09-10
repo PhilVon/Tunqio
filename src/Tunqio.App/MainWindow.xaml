@@ -12,7 +12,11 @@
     ApplyBackdrop decides its background: transparent so Mica or acrylic shows through the layered surfaces, opaque
     on a machine with neither, where something has to be painted or the theme change has nothing to repaint (AC-69).
   -->
-  <Grid x:Name="Root">
+  <!--
+    AllowDrop on the root, not on a panel: anywhere on the window is the drop target (E2-S4), because a user
+    dragging an album onto a music player is not aiming at a region.
+  -->
+  <Grid x:Name="Root" AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" DragLeave="OnDragLeave">
     <Grid x:Name="ShellGrid">
 
       <!-- Now Playing: the visualizer surface with the metadata block over it (E2-S3). -->
@@ -42,5 +46,13 @@
 
     <!-- Start-up notices (E3-S1 database recovery, E1-S10e audio). E2-S7 replaces this with the error surfaces. -->
     <InfoBar x:Name="NoticeBar" VerticalAlignment="Top" Margin="12" IsOpen="False" />
+
+    <!-- What a drag looks like while it is over the window. Hit-testing off, or it would steal its own drop. -->
+    <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"
+            Margin="8" CornerRadius="8" BorderThickness="2" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+            Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}">
+      <TextBlock Text="Drop to play" Style="{StaticResource SubtitleTextBlockStyle}"
+                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Border>
   </Grid>
 </Window>

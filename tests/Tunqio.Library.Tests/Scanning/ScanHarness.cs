@@ -189,6 +189,8 @@ internal sealed class ScanHarness : IDisposable
 
         public Task<IReadOnlyList<TrackDto>> GetByIdsAsync(IReadOnlyList<long> ids, CancellationToken ct = default) => inner.GetByIdsAsync(ids, ct);
 
+        public Task<TrackDto?> GetByPathAsync(string path, CancellationToken ct = default) => inner.GetByPathAsync(path, ct);
+
         public Task<IReadOnlyList<TrackDto>> ListAsync(TrackQuery query, CancellationToken ct = default) => inner.ListAsync(query, ct);
 
         public IAsyncEnumerable<TrackDto> StreamAsync(TrackQuery query, CancellationToken ct = default) => inner.StreamAsync(query, ct);
