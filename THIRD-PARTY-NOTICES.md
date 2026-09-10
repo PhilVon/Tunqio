@@ -15,16 +15,24 @@ revisited and a BASS licence purchased before release.
 
 | Package | Version | Source | Licence | Licence text |
 |---------|---------|--------|---------|--------------|
-| `bass` | 2.4 | https://www.un4seen.com/files/bass24.zip | Free for non-commercial use (Un4seen Developments Ltd.) | `licenses/bass.txt` |
-| `bassmix` | 2.4 | https://www.un4seen.com/files/bassmix24.zip | Free to use with BASS | `licenses/bassmix.txt` |
-| `basswasapi` | 2.4 | https://www.un4seen.com/files/basswasapi24.zip | Free to use with BASS | `licenses/basswasapi.txt` |
-| `bassflac` | 2.4 | https://www.un4seen.com/files/bassflac24.zip | Free to use with BASS; FLAC decoding based on libFLAC (BSD) | `licenses/bassflac.txt` |
-| `bassopus` | 2.4 | https://www.un4seen.com/files/bassopus24.zip | Free to use with BASS; Opus decoding based on libopus (BSD) | `licenses/bassopus.txt` |
-| `basswv` | 2.4 | https://www.un4seen.com/files/basswv24.zip | Free to use with BASS; WavPack decoding based on libwavpack (BSD) | `licenses/basswv.txt` |
-| `bass_ape` | 2.4 | https://www.un4seen.com/files/z/2/bass_ape24.zip | Third-party add-on by Sebastian Andersson; Monkey's Audio SDK by Matthew T. Ashland | `licenses/bass_ape.txt` |
+| `bass` | 2.4.18 | https://www.un4seen.com/files/bass24.zip | Free for non-commercial use (Un4seen Developments Ltd.) | `licenses/bass.txt` |
+| `bassmix` | 2.4.13 | https://www.un4seen.com/files/bassmix24.zip | Free to use with BASS | `licenses/bassmix.txt` |
+| `basswasapi` | 2.4.4 | https://www.un4seen.com/files/basswasapi24.zip | Free to use with BASS | `licenses/basswasapi.txt` |
+| `bassflac` | 2.4.6 | https://www.un4seen.com/files/bassflac24.zip | Free to use with BASS; FLAC decoding based on libFLAC (BSD) | `licenses/bassflac.txt` |
+| `bassopus` | 2.4.3 | https://www.un4seen.com/files/bassopus24.zip | Free to use with BASS; Opus decoding based on libopus (BSD) | `licenses/bassopus.txt` |
+| `basswv` | 2.4.7 | https://www.un4seen.com/files/basswv24.zip | Free to use with BASS; WavPack decoding based on libwavpack (BSD) | `licenses/basswv.txt` |
+| `bass_ape` | 2.4.2 | https://www.un4seen.com/files/z/2/bass_ape24.zip | Third-party add-on by Sebastian Andersson; Monkey's Audio SDK by Matthew T. Ashland | `licenses/bass_ape.txt` |
 
 The exact SHA-256 of every package is pinned in `tools/native-deps.json`; the fetch script refuses a
 package whose hash differs. Binaries are not committed (`native/bass/` is gitignored).
+
+Un4seen publish each package at a stable URL and re-release **in place**, so a pin goes stale whenever they
+push a new build and `tools/fetch-native.ps1` then fails with a hash mismatch. That is the pin working, not a
+bug: treat it as a dependency update. Before changing a hash, confirm the new archive is a genuine re-release —
+its version resource and the version history in the package's text file should agree and name a new release,
+the file set should not have gained entries, and the DLLs should carry a valid Un4seen Developments Authenticode
+signature. Bump the version in the table above in the same commit. Note that CI caches `native/bass/.cache`
+keyed on `tools/native-deps.json`, so a stale pin stays invisible on CI until the file changes.
 
 **BASS_AAC is not used.** The Windows BASS_AAC add-on ships under the GPL (its archive carries `gpl.txt`),
 which the build's licence policy excludes. AAC, M4A, ALAC and WMA decode through BASS's built-in Media
