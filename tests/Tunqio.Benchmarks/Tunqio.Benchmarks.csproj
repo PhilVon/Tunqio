@@ -2,6 +2,7 @@
 
   <!-- BenchmarkDotNet gates (docs/build-test-release.md, "Performance verification"): interop call cost (E0-S9) and library search (E3-S9). Run in Release:
          dotnet run -c Release -p:Platform=x64 -project tests/Tunqio.Benchmarks (then pass the BenchmarkDotNet filter)
+       Passing the gate switch (see Program.cs) asserts every [Budget] in the run and exits non-zero on a breach; that form is the PR step.
        Needs mpcore.dll and the BASS runtime next to the binary (copied below), like Tunqio.Interop.Tests. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

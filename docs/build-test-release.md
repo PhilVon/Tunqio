@@ -59,6 +59,22 @@ Coverage target: 80% line coverage on `mpcore` (via `OpenCppCoverage`), Core, In
 
 The reference machine is a self-hosted GitHub runner; results are posted as a check with trends kept in the wiki.
 
+**A latency budget is asserted where the measurement owns the machine.** `dotnet test Tunqio.Managed.slnf` runs
+four test projects at once, each parallelising over the same eight cores, and a p95 taken there is the
+scheduler's tail rather than the query's: the search gate measured p95 15–22 ms alone and 36–58 ms during a
+full run of the suite, on identical code, failing about half the time (2026-09-10). Percentiles above the
+median therefore belong to the BenchmarkDotNet gate, which runs alone as its own CI step:
+
+```
+dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks -- --gate --filter '*SearchBenchmarks*'
+```
+
+It samples one invocation per iteration, so the percentile is of a single call rather than of a batch mean;
+it keeps the outliers, because discarding them would discard the claim; and it exits non-zero when a
+`[Budget]` is missed. A timing assertion that stays in `dotnet test` holds the claim's budget against a
+statistic contention cannot move (`Library.Tests` asserts the search *median* against the same 50 ms), so a
+regression still fails the ordinary run.
+
 ## Continuous integration
 
 GitHub Actions, `windows-2025-vs2026` runners (Visual Studio 2026 with MSVC v145, Windows SDK 10.0.26100 and LLVM, matching the local pins).
@@ -70,7 +86,7 @@ GitHub Actions, `windows-2025-vs2026` runners (Visual Studio 2026 with MSVC v145
 4. `msbuild Tunqio.sln -p:Configuration=Release -p:Platform=x64 -warnaserror` (also builds `mpcore.tests`).
 5. Run `mpcore.tests` (Release) and `mpcore.tests` (ASan); upload Catch2 JUnit output.
 6. `dotnet test` for Core, Interop, Library, App view-model tests with Coverlet; `OpenCppCoverage` for native.
-7. Benchmarks tagged `Gate` (Catch2 and BenchmarkDotNet) with threshold assertions.
+7. Gated benchmarks: `Tunqio.Benchmarks --gate` fails the build when a `[Budget]` is missed (E3-S9's search p95 today; E3-S13 adds library open, and Catch2's gated benchmarks join with their own stories).
 8. `dxc` validation of every preset shader.
 9. Build unpackaged Debug and packaged Release MSIX (self-signed CI cert) as artifacts, with `mpcore.pdb`.
 
