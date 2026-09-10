@@ -75,6 +75,7 @@
     <ClCompile Include="src\test_mp4_gapless.cpp" />
     <ClCompile Include="src\test_transport.cpp" />
     <ClCompile Include="src\test_renderer.cpp" />
+    <ClCompile Include="src\test_replaygain.cpp" />
     <ClCompile Include="src\test_spsc_ring.cpp" />
     <!-- Catch2 amalgamated: third-party, compiled at a lower warning level. -->
     <ClCompile Include="$(TunqioNativeRoot)third_party\catch2\catch_amalgamated.cpp">

@@ -354,7 +354,9 @@ TEST_CASE("every engine export rejects NULL handles and unknown struct sizes", "
     CHECK(mp_engine_stop(e, static_cast<mp_fade_mode>(7)) == MP_E_INVALID_ARG);
     CHECK(mp_engine_seek(nullptr, 0) == MP_E_INVALID_ARG);
     CHECK(mp_engine_set_volume(nullptr, 1.0f) == MP_E_INVALID_ARG);
-    CHECK(mp_engine_set_replaygain(nullptr, 0.0f, 1.0f) == MP_E_INVALID_ARG);
+    CHECK(mp_track_set_replaygain(nullptr, 0.0f, 1.0f) == MP_E_INVALID_ARG);
+    CHECK(mp_track_set_replaygain(t, NAN, 1.0f) == MP_E_INVALID_ARG);
+    CHECK(mp_track_set_replaygain(t, 0.0f, INFINITY) == MP_E_INVALID_ARG);
     CHECK(mp_engine_set_crossfade(nullptr, 0) == MP_E_INVALID_ARG);
     CHECK(mp_engine_get_clock(nullptr, &clock) == MP_E_INVALID_ARG);
     CHECK(mp_engine_get_clock(e, nullptr) == MP_E_INVALID_ARG);

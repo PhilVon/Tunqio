@@ -8,6 +8,7 @@
 #include "common/version.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -252,12 +253,19 @@ MP_API mp_result MP_CALL mp_engine_set_volume(mp_engine* e, float linear) {
     });
 }
 
-MP_API mp_result MP_CALL mp_engine_set_replaygain(mp_engine* e, float /*gain_db*/, float /*peak*/) {
+MP_API mp_result MP_CALL mp_track_set_replaygain(mp_track* t, float gain_db, float peak) {
     return mp::abi::guard([&]() -> mp_result {
-        if (e == nullptr) {
-            return invalid("mp_engine_set_replaygain: NULL engine");
+        if (t == nullptr) {
+            return invalid("mp_track_set_replaygain: NULL track");
         }
-        return not_implemented("mp_engine_set_replaygain", "E1-S5");
+        if (!std::isfinite(gain_db) || !std::isfinite(peak)) {
+            return invalid("mp_track_set_replaygain: gain_db and peak must be finite");
+        }
+        auto* track = as_track(t);
+        if (track->owner == nullptr || !track->owner->owns(track)) {
+            return invalid("mp_track_set_replaygain: unknown track handle");
+        }
+        return track->owner->set_replaygain(track, gain_db, peak);
     });
 }
 

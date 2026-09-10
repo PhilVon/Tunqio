@@ -152,7 +152,6 @@ TEST_CASE("unimplemented exports say which story implements them", "[engine][abi
     engine_fixture fx;
     CHECK(mp_engine_set_crossfade(fx.engine, 100) == MP_E_STATE);
     CHECK(last_error().find("E1-S4") != std::string::npos);
-    CHECK(mp_engine_set_replaygain(fx.engine, 0.0f, 1.0f) == MP_E_STATE);
     mp_analysis_frame frame{};
     frame.struct_size = sizeof frame;
     CHECK(mp_analysis_try_get_latest(fx.engine, &frame) == MP_E_STATE);

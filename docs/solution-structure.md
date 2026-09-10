@@ -93,7 +93,7 @@ mp_result mp_engine_pause(mp_engine*); mp_result mp_engine_resume(mp_engine*);
 mp_result mp_engine_stop(mp_engine*, mp_fade_mode);
 mp_result mp_engine_seek(mp_engine*, int64_t position_ms);
 mp_result mp_engine_set_volume(mp_engine*, float linear);
-mp_result mp_engine_set_replaygain(mp_engine*, float gain_db, float peak);
+mp_result mp_track_set_replaygain(mp_track*, float gain_db, float peak); // per track: tag gain + preamp, tagged peak (<= 0 unknown); limited to 1/peak; exact at a gapless join
 mp_result mp_engine_set_crossfade(mp_engine*, uint32_t ms);
 mp_result mp_engine_get_clock(mp_engine*, mp_clock*);                      // position ms, mixer byte pos, output latency ms; lock-free
 mp_result mp_engine_get_stats(mp_engine*, mp_engine_stats*);               // underruns, callback max µs
@@ -142,7 +142,7 @@ public interface IAudioEngine : IAsyncDisposable
     Task PreloadNextAsync(TrackHandle? next, CancellationToken ct);
     Task PauseAsync(); Task ResumeAsync(); Task StopAsync(FadeMode fade);
     Task SeekAsync(TimeSpan position);
-    void SetVolume(float linear); void SetReplayGain(float gainDb, float peak);
+    void SetVolume(float linear); void SetReplayGain(TrackHandle track, float gainDb, float peak);  // ReplayGainPolicy.Resolve gives the pair
     void SetCrossfade(TimeSpan duration);
     Task StartPreviewAsync(TrackHandle track, float gainDb); Task StopPreviewAsync();
     IObservable<EngineEvent> Events { get; }   // TrackStarted, TrackEnded(natural), DeviceLost, DeviceChanged, Underrun, Error

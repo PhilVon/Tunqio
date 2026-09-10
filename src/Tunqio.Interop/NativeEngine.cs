@@ -173,8 +173,13 @@ public sealed unsafe class NativeEngine : IDisposable
     public void SetVolume(float linear) =>
         NativeException.ThrowIfFailed(NativeMethods.EngineSetVolume(RequireHandle(), linear), "mp_engine_set_volume");
 
-    public void SetReplayGain(float gainDb, float peak) =>
-        NativeException.ThrowIfFailed(NativeMethods.EngineSetReplayGain(RequireHandle(), gainDb, peak), "mp_engine_set_replaygain");
+    /// <summary>Per-track ReplayGain (<c>mp_track_set_replaygain</c>): the whole gain in dB and the tagged peak (0 = unknown).</summary>
+    public void SetReplayGain(NativeTrack track, float gainDb, float peak)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        RequireHandle();
+        NativeException.ThrowIfFailed(NativeMethods.TrackSetReplayGain(track.RequireHandle(), gainDb, peak), "mp_track_set_replaygain");
+    }
 
     public void SetCrossfade(TimeSpan duration) =>
         NativeException.ThrowIfFailed(NativeMethods.EngineSetCrossfade(RequireHandle(), (uint)Math.Max(0, duration.TotalMilliseconds)), "mp_engine_set_crossfade");

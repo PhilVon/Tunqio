@@ -44,8 +44,14 @@ public interface IAudioEngine : IAsyncDisposable
     /// <summary>Slider position 0..1 on an audio taper; 0 mutes within one output buffer.</summary>
     void SetVolume(float slider);
 
-    /// <summary>Not implemented until E1-S5.</summary>
-    void SetReplayGain(float gainDb, float peak);
+    /// <summary>
+    /// ReplayGain for one opened track (E1-S5): <paramref name="gainDb"/> is the whole gain to apply (tag gain plus preamp,
+    /// see <c>ReplayGainPolicy.Resolve</c>), <paramref name="peak"/> the tagged linear peak (1 = full scale; 0 or less
+    /// = unknown). The core limits the gain to 1/peak so a known peak never clips. The gain belongs to the track: set it
+    /// before <see cref="PreloadNextAsync"/> and it takes effect on the exact frame of the gapless join; set it on the
+    /// playing track and the change is ramped. Immediate, like <see cref="SetVolume"/>.
+    /// </summary>
+    void SetReplayGain(TrackHandle track, float gainDb, float peak);
 
     /// <summary>Not implemented until E1-S4.</summary>
     void SetCrossfade(TimeSpan duration);

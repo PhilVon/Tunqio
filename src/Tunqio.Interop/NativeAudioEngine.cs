@@ -92,11 +92,7 @@ public sealed class NativeAudioEngine : IAudioEngine
         Native.SetVolume(slider);
     }
 
-    public void SetReplayGain(float gainDb, float peak)
-    {
-        ThrowIfDisposed();
-        Native.SetReplayGain(gainDb, peak);
-    }
+    public void SetReplayGain(TrackHandle track, float gainDb, float peak) => Native.SetReplayGain(Resolve(track), gainDb, peak);
 
     public void SetCrossfade(TimeSpan duration)
     {

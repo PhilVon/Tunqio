@@ -34,6 +34,13 @@ struct track {
     uint64_t trim_delivered = 0;
     uint64_t trim_origin = 0;
     uint32_t frame_bytes = 0;
+
+    // ReplayGain (E1-S5): what mp_track_set_replaygain was given and the linear gain it resolved to after clipping
+    // prevention. The gain lives on the source channel (BASS_ATTRIB_VOL, applied by the mixer), so it follows the
+    // track through seeks, re-attachment and the gapless join; these are for get-style reads and the tests.
+    float gain_db = 0.0f;
+    float peak = 0.0f; // <= 0: unknown
+    float gain = 1.0f; // linear, as applied
 };
 
 class engine {
@@ -64,6 +71,12 @@ public:
     mp_result stop(mp_fade_mode fade);
     mp_result seek(int64_t position_ms);
     void set_volume(float slider);
+    // Per-track ReplayGain (see mp_track_set_replaygain): the resolved gain becomes the source's mixer volume,
+    // which the mixer ramps when the source is being heard.
+    mp_result set_replaygain(track* t, float gain_db, float peak);
+    // The linear gain mp_track_set_replaygain resolves for (gain_db, peak): 10^(gain_db/20), reduced to 1/peak when a
+    // known peak would exceed full scale. Exposed for the tests.
+    static float replaygain_linear(float gain_db, float peak) noexcept;
 
     mp_result get_clock(mp_clock& out) const;
     mp_result get_stats(mp_engine_stats& out) const;

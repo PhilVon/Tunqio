@@ -713,6 +713,35 @@ void engine::set_volume(float slider) {
     volume_target_.store(volume_taper(slider), std::memory_order_release);
 }
 
+float engine::replaygain_linear(float gain_db, float peak) noexcept {
+    float gain = std::pow(10.0f, gain_db / 20.0f);
+    if (peak > 0.0f && gain * peak > 1.0f) {
+        gain = 1.0f / peak; // the loudest sample lands exactly on full scale
+    }
+    return gain;
+}
+
+// The gain is the source channel's own volume, which BASSmix applies as it mixes that source: a preloaded track
+// carries its gain into the join, and the value stays with the stream through seeks and re-attachment. A change
+// to the source being heard is ramped by the mixer itself (BASS ramps volume changes on channels it plays unless
+// BASS_ATTRIB_NORAMP is set; only the start ramp is turned off by BASS_MIXER_CHAN_NORAMPIN), so it is heard as a
+// level change, not a step. BASS_ChannelSlideAttribute is not used: a mixer does not advance a decoding source's
+// slides (measured: the value never moved).
+mp_result engine::set_replaygain(track* t, float gain_db, float peak) {
+    std::lock_guard lock{control_};
+    const float gain = replaygain_linear(gain_db, peak);
+    t->gain_db = gain_db;
+    t->peak = peak;
+    t->gain = gain;
+    if (!BASS_ChannelSetAttribute(t->stream, BASS_ATTRIB_VOL, gain)) {
+        return bass_fail("BASS_ChannelSetAttribute(BASS_ATTRIB_VOL)");
+    }
+    log(MP_LOG_DEBUG, "replaygain: %.2f dB, peak %.3f -> x%.4f%s", static_cast<double>(gain_db),
+        static_cast<double>(peak), static_cast<double>(gain),
+        gain_db != 0.0f && gain * peak > 0.999f && peak > 0.0f ? " (limited)" : "");
+    return MP_OK;
+}
+
 // ---- clock and stats ----------------------------------------------------------------------------
 
 mp_result engine::get_clock(mp_clock& out) const {

@@ -22,7 +22,9 @@
  * join (E1-S2 spike): mp_engine_preload_next queues the successor and the mix-time END sync starts it where the
  * current track ends; MP_EVENT_TRACK_STARTED/ENDED carry the mixer byte position of the join in b. E1-S3: the join
  * events name the tracks by handle, as the natural end does. The join is heard when mp_clock.mixer_byte_pos minus
- * output_buffered_bytes passes b.
+ * output_buffered_bytes passes b. 0.6 ReplayGain (E1-S5): mp_track_set_replaygain replaces the never-implemented
+ * engine-level stub (a stub that only ever returned MP_E_STATE, so no consumer changes behaviour): the gain belongs
+ * to the track, is applied by the mixer per source, and so switches on the exact frame of a gapless join.
  */
 #pragma once
 
@@ -45,7 +47,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 5u
+#define MP_ABI_MINOR 6u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -220,8 +222,13 @@ MP_API mp_result MP_CALL mp_engine_seek(mp_engine* engine, int64_t position_ms);
  * at 0). Applied at the mixer output, interpolated across one output buffer so there is no zipper noise;
  * 0 therefore mutes within one buffer without a click. */
 MP_API mp_result MP_CALL mp_engine_set_volume(mp_engine* engine, float linear);
-MP_API mp_result MP_CALL mp_engine_set_replaygain(mp_engine* engine, float gain_db,
-                                                  float peak);                    /* not implemented until E1-S5 */
+/* ReplayGain for one track: gain_db is the whole gain to apply (tag gain plus the user's preamp, decided by the
+ * caller), peak the tagged linear peak of the source (1.0 = full scale; <= 0 means unknown). The gain is applied
+ * per source by the mixer, so a preloaded track's gain takes effect on the exact frame of its gapless join, and
+ * it survives seeks and output changes. Clipping prevention: when peak is known and peak * 10^(gain_db/20) would
+ * exceed full scale, the gain is reduced to 1/peak. A change to the track being heard is ramped by the mixer, not
+ * stepped. Non-finite arguments are MP_E_INVALID_ARG. */
+MP_API mp_result MP_CALL mp_track_set_replaygain(mp_track* track, float gain_db, float peak);
 MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* engine, uint32_t ms); /* not implemented until E1-S4 */
 /* Lock-free with respect to the audio thread. */
 MP_API mp_result MP_CALL mp_engine_get_clock(mp_engine* engine, mp_clock* out_clock);
