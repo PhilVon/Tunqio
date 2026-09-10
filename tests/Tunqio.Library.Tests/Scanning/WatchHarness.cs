@@ -48,6 +48,25 @@ internal sealed class WatchHarness : IDisposable
     public Task WaitForScansAsync(int count, TimeSpan? timeout = null) =>
         WaitUntilAsync(() => Scanner.Completed >= count, timeout ?? TimeSpan.FromSeconds(30), $"{count} scan(s); saw {Scanner.Completed}");
 
+    /// <summary>
+    /// Fails the moment <paramref name="condition"/> stops holding, sampling until <paramref name="duration"/> is
+    /// up. For claims that must be true throughout a window rather than true at one sampled instant.
+    /// </summary>
+    public static async Task StaysTrueAsync(Func<bool> condition, TimeSpan duration, Func<string> what)
+    {
+        Stopwatch elapsed = Stopwatch.StartNew();
+        do
+        {
+            if (!condition())
+            {
+                throw new InvalidOperationException($"After {elapsed.ElapsedMilliseconds} ms this stopped holding: {what()}");
+            }
+
+            await Task.Delay(10);
+        }
+        while (elapsed.Elapsed < duration);
+    }
+
     public static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string what)
     {
         Stopwatch elapsed = Stopwatch.StartNew();
