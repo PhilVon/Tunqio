@@ -106,7 +106,10 @@ public partial class App : Application
         }
 
         var window = new MainWindow(
-            RenderSpikeRunner.WantsWarp(commandLine), settings, _host.Services.GetRequiredService<IPlaybackSessionSource>());
+            RenderSpikeRunner.WantsWarp(commandLine),
+            settings,
+            _host.Services.GetRequiredService<IPlaybackSessionSource>(),
+            _host.Services.GetRequiredService<ILibraryNavigator>());
         _window = window;
         s_mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
@@ -124,6 +127,14 @@ public partial class App : Application
         if (RenderSpikeRunner.IsRequested(commandLine))
         {
             new RenderSpikeRunner(window, logger, commandLine, Path.Combine(paths.LogsDirectory, "render-spike.json")).Start();
+        }
+
+        if (NowPlayingSpikeRunner.IsRequested(commandLine))
+        {
+            // E2-S3 measurement mode: 1000 px art through the panel's own binding, against the UI thread's frames.
+            new NowPlayingSpikeRunner(
+                window, window.NowPlayingPanelControl, logger, commandLine,
+                Path.Combine(paths.LogsDirectory, "nowplaying-spike.json")).Start();
         }
 
         if (ShellSpikeRunner.IsRequested(commandLine))

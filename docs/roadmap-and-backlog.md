@@ -211,8 +211,20 @@ that against a real session over the fake engine, which is also where "without j
 
 ### E2-S3 · Now Playing panel (metadata and art) · **M** · `ui`
 Art, title, artists, album, year, format badge, placeholder art derived from title hash.
-- [ ] Art up to 1000 px loads without blocking the UI thread (decoded off-thread)
-- [ ] Missing art shows a deterministic colour placeholder with the album initial
+- [x] Art up to 1000 px loads without blocking the UI thread (decoded off-thread) (`--nowplaying-spike`: sixteen 1000 px loads at once put 656 ms of decode in flight and came back in 68 ms — 9.7x overlap, which one thread cannot do — while the worst gap between composition frames over the burst window was 27.5 ms against 17.6 ms with the window idle)
+- [x] Missing art shows a deterministic colour placeholder with the album initial (the hue is an FNV-1a hash of the album title, asserted as a literal colour rather than against a second call, since the claim is that it survives a restart)
+
+One load could not have shown the second half of the first criterion. A 1000 px JPEG decodes in about a frame, so
+a stall that size hides inside the scheduling noise, and sequential loads look identical whichever thread does
+them. Sixteen at once separate the two: overlapping decodes are not something one thread can produce, and the UI
+thread is one thread. Getting there cost two wrong turns worth recording — XAML declines to decode an image that
+is not in a tree, so the first burst hung waiting for work nobody had asked for; and the wait afterwards was a
+`DispatcherQueueTimer`, whose managed wrapper the collection following 64 MB of decoding took with it.
+
+The placeholder is a layer under the image rather than a branch beside it. Between the source being set and the
+image opening there is a real interval — the very interval the first criterion is about — and something has to be
+on the screen during it. It also makes a cleared cache a non-event: the load fails, nothing replaces what is
+already there, and the tile the user saw in the grid is still the tile they see here.
 
 ### E2-S4 · Open files and drop · **S** · `ui` `windows`
 File picker, folder picker, drag-and-drop of files/folders onto the window; builds a queue in file-name order.

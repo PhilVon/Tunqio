@@ -31,8 +31,23 @@ public static class AudioFormats
         [".mpc"] = "mpc",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The codec identifiers that carry the samples intact. It is a property of the codec and not of the
+    /// container, which is why it is keyed on the refined identifier: <c>.m4a</c> is <c>alac</c> or <c>aac</c>
+    /// and the extension cannot say which.
+    /// </summary>
+    private static readonly FrozenSet<string> LosslessCodecs =
+        new[] { "flac", "alac", "wav", "aiff", "wavpack", "ape" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Extensions the scanner enumerates, lower case with the leading dot.</summary>
     public static IReadOnlyCollection<string> Extensions => CodecByExtension.Keys;
+
+    /// <summary>
+    /// True for a codec that stores the samples exactly. What it is for is display — a lossless format is read
+    /// as depth and rate ("FLAC 24/96") and a lossy one as a bit rate ("MP3 320 kbps"), because a bit depth is
+    /// not a fact about a lossy stream and a bit rate says nothing useful about a lossless one.
+    /// </summary>
+    public static bool IsLossless(string? codec) => codec is not null && LosslessCodecs.Contains(codec);
 
     /// <summary>True when the path's extension is in <see cref="Extensions"/>.</summary>
     public static bool IsSupported(string path) => CodecByExtension.ContainsKey(Path.GetExtension(path));

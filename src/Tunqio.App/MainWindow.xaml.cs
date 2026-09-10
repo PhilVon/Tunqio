@@ -31,27 +31,31 @@ public sealed partial class MainWindow : Window
     private readonly ShellChrome _chrome;
     private readonly ISettingsStore? _settings;
     private readonly TransportViewModel? _transport;
+    private readonly NowPlayingViewModel? _nowPlaying;
     private NativeRenderer? _renderer;
     private DispatcherQueueTimer? _statsTimer;
 
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
     /// <param name="settings">Read for <c>ui.theme</c>; the system theme is used when it is not supplied.</param>
     /// <param name="audio">Where the transport finds the session; it may not exist yet, and may never.</param>
-    public MainWindow(bool forceWarp = false, ISettingsStore? settings = null, IPlaybackSessionSource? audio = null)
+    /// <param name="navigator">The sidebar, for Now Playing's artist and album links; null leaves them inert.</param>
+    public MainWindow(
+        bool forceWarp = false,
+        ISettingsStore? settings = null,
+        IPlaybackSessionSource? audio = null,
+        Library.ILibraryNavigator? navigator = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
         InitializeComponent();
         Title = Identity.WindowTitle(null, null);
 
-        _chrome = new ShellChrome(Root, ShellGrid, NowPlayingPanel, SidebarPanel, ControlsPanel);
+        _chrome = new ShellChrome(Root, ShellGrid, NowPlayingColumn, SidebarPanel, ControlsPanel);
         // Before the first frame: the theme a repaint would otherwise arrive one frame late in, and a shape, so
         // the window never draws with all three panels stacked on top of each other in column 0.
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
         _chrome.ApplyLayout(ShellLayout.MediumThreshold);
         Root.SizeChanged += (_, e) => _chrome.ApplyLayout(e.NewSize.Width);
-        ProductText.Text = Identity.ProductName;
-        VersionText.Text = string.Create(CultureInfo.InvariantCulture, $"Version {ProductVersion()}");
         // About-page placeholder (E0-S3): the BASS attribution is shown until E6-S5 builds the real page.
         EngineText.Text = DescribeEngine() + Environment.NewLine + ThirdPartyAttribution.Bass;
 
@@ -60,6 +64,10 @@ public sealed partial class MainWindow : Window
             _transport = new TransportViewModel(audio, SynchronizationContext.Current);
             Transport.ViewModel = _transport;
             AddTransportShortcuts();
+            // The sidebar's navigator is what makes the artist and album lines links (E2-S3); it is not there in
+            // the spike modes, and the panel simply leaves them inert when it is missing.
+            _nowPlaying = new NowPlayingViewModel(audio, navigator, SynchronizationContext.Current);
+            NowPlaying.ViewModel = _nowPlaying;
         }
 
         VisualizerPanel.Loaded += OnPanelLoaded;
@@ -68,6 +76,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _transport?.Dispose();
+            _nowPlaying?.Dispose();
             TearDownRenderer();
         };
     }
@@ -77,6 +86,9 @@ public sealed partial class MainWindow : Window
 
     /// <summary>The shape the shell is in, for the tests that drive the window and for the diagnostics overlay.</summary>
     public ShellLayoutMode? LayoutMode => _chrome.Mode;
+
+    /// <summary>The Now Playing panel, for the E2-S3 spike, which drives it without a session.</summary>
+    internal NowPlayingPanel NowPlayingPanelControl => NowPlaying;
 
     /// <summary>The stored theme preference; the system theme when there is no settings store to read.</summary>
     public ThemePreference ThemePreference => _settings is null ? ThemePreference.System : ThemePolicy.Read(_settings);
@@ -124,17 +136,17 @@ public sealed partial class MainWindow : Window
     {
         ShellLayoutState expected = ShellLayout.For(Root.ActualWidth);
         (bool pass, string note) = ShellSpikeRunner.Judge(
-            expected, Root.ActualWidth, NowPlayingPanel.ActualWidth, SidebarPanel.ActualWidth, ControlsPanel.ActualWidth);
-        double total = NowPlayingPanel.ActualWidth + SidebarPanel.ActualWidth + ControlsPanel.ActualWidth;
+            expected, Root.ActualWidth, NowPlayingColumn.ActualWidth, SidebarPanel.ActualWidth, ControlsPanel.ActualWidth);
+        double total = NowPlayingColumn.ActualWidth + SidebarPanel.ActualWidth + ControlsPanel.ActualWidth;
         double share(double width) => total <= 0 ? 0 : Math.Round(width / total, 4);
         return new ShellMeasurement(
             requestedWidth,
             expected.Mode.ToString(),
             expected.Stacked,
-            Math.Round(NowPlayingPanel.ActualWidth, 1),
+            Math.Round(NowPlayingColumn.ActualWidth, 1),
             Math.Round(SidebarPanel.ActualWidth, 1),
             Math.Round(ControlsPanel.ActualWidth, 1),
-            share(NowPlayingPanel.ActualWidth),
+            share(NowPlayingColumn.ActualWidth),
             share(SidebarPanel.ActualWidth),
             share(ControlsPanel.ActualWidth),
             Root.ActualTheme.ToString(),
@@ -318,15 +330,6 @@ public sealed partial class MainWindow : Window
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{s.Adapter}{(s.Warp ? " (WARP)" : string.Empty)} · {s.Width}×{s.Height} · {s.Fps:F1} fps · frame avg {s.FrameAverage.TotalMilliseconds:F2} ms, max {s.FrameMax.TotalMilliseconds:F1} ms · missed refreshes {s.DxgiMissedRefreshes} · histogram [{string.Join(", ", s.FrameHistogram)}]");
-    }
-
-    private static string ProductVersion()
-    {
-        string? informational = typeof(MainWindow).Assembly
-            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-            .FirstOrDefault()?.InformationalVersion;
-        return informational ?? typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "?";
     }
 
     private static string DescribeEngine()

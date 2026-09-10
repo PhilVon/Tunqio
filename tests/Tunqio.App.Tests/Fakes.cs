@@ -20,12 +20,15 @@ internal static class Rows
         string codec = "flac",
         int? bitDepth = 16,
         int? sampleRate = 44100,
+        int? bitrateKbps = null,
         int durationMs = 240_000,
         long addedAt = 0,
         long? lastPlayedAt = null,
         int playCount = 0,
         long folderId = 1,
         bool missing = false,
+        int? year = 2001,
+        string? artHash = null,
         string? path = null) =>
         new(
             Id: id,
@@ -38,10 +41,10 @@ internal static class Rows
             AlbumArtist: albumArtist,
             TrackNo: trackNo ?? (int)id,
             DiscNo: disc,
-            Year: 2001,
+            Year: year,
             DurationMs: durationMs,
             Codec: codec,
-            BitrateKbps: null,
+            BitrateKbps: bitrateKbps,
             SampleRate: sampleRate,
             Channels: 2,
             BitDepth: bitDepth,
@@ -50,7 +53,7 @@ internal static class Rows
             Composer: null,
             Comment: null,
             ReplayGain: null,
-            ArtHash: null,
+            ArtHash: artHash,
             Mbid: null,
             AddedAt: addedAt,
             Rating: null,
@@ -562,4 +565,28 @@ internal sealed class FakeSearchService : ISearchService
         Rebuilds++;
         return Task.FromResult(0);
     }
+}
+
+/// <summary>What <see cref="Tunqio.App.Playback.AudioStartup"/> is to a shell panel, without an engine a test host can create.</summary>
+internal sealed class StubSessionSource : Tunqio.App.Playback.IPlaybackSessionSource
+{
+    private PlaybackSession? _session;
+
+    public PlaybackSession? Session
+    {
+        get => _session;
+        set
+        {
+            _session = value;
+            Started = true;
+            if (value is not null)
+            {
+                SessionReady?.Invoke(this, value);
+            }
+        }
+    }
+
+    public bool Started { get; set; }
+
+    public event EventHandler<PlaybackSession>? SessionReady;
 }

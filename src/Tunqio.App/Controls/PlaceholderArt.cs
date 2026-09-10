@@ -1,5 +1,4 @@
 using System.Text;
-using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 
@@ -17,9 +16,19 @@ public static class PlaceholderArt
 
     public static SolidColorBrush Brush(string? title)
     {
-        int bucket = (int)(Hash(title ?? string.Empty) % Buckets);
+        int bucket = Bucket(title);
         return Brushes[bucket] ??= new SolidColorBrush(Hsl(bucket * 360.0 / Buckets, 0.42, 0.34));
     }
+
+    /// <summary>
+    /// The colour <see cref="Brush"/> paints, without the brush. A <see cref="SolidColorBrush"/> cannot be
+    /// constructed outside the XAML runtime, so the determinism this class exists for — the same title gives the
+    /// same colour, this session and the next — is only assertable in the form the colour is in here.
+    /// </summary>
+    public static Color ColorFor(string? title) => Hsl(Bucket(title) * 360.0 / Buckets, 0.42, 0.34);
+
+    /// <summary>Which of the <see cref="Buckets"/> hues a title falls in.</summary>
+    private static int Bucket(string? title) => (int)(Hash(title ?? string.Empty) % Buckets);
 
     /// <summary>Up to two initials for the tile ("City Lights Compilation" gives "CL").</summary>
     public static string Initials(string? title)
@@ -70,6 +79,14 @@ public static class PlaceholderArt
             < 300 => (x, 0.0, c),
             _ => (c, 0.0, x),
         };
-        return ColorHelper.FromArgb(255, (byte)Math.Round((r + m) * 255), (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255));
+        // A struct initialiser rather than ColorHelper: this runs in the test host too, where there is no XAML
+        // runtime to activate a WinRT helper against.
+        return new Color
+        {
+            A = 255,
+            R = (byte)Math.Round((r + m) * 255),
+            G = (byte)Math.Round((g + m) * 255),
+            B = (byte)Math.Round((b + m) * 255),
+        };
     }
 }

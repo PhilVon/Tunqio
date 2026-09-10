@@ -1,4 +1,5 @@
 using System.Globalization;
+using Tunqio.Core.Library;
 
 namespace Tunqio.App.Controls;
 
@@ -62,4 +63,48 @@ public static class Format
 
     /// <summary>"1990s".</summary>
     public static string Decade(int decade) => decade.ToString(CultureInfo.InvariantCulture) + "s";
+
+    /// <summary>
+    /// Now Playing's format badge (docs/ui-screens-and-flows.md, "Shell / Now Playing": <c>FLAC 24/96</c>).
+    /// A lossless track reads as depth and rate, a lossy one as its bit rate, and either falls back to the bare
+    /// codec name when the scanner could not tell — a badge that says <c>MP3</c> is honest, one that says
+    /// <c>MP3 0 kbps</c> is not.
+    /// </summary>
+    public static string Badge(string? codec, int? bitDepth, int? sampleRate, int? bitrateKbps)
+    {
+        if (string.IsNullOrWhiteSpace(codec))
+        {
+            return string.Empty;
+        }
+
+        string name = codec.ToUpperInvariant();
+        if (!AudioFormats.IsLossless(codec))
+        {
+            return bitrateKbps is { } kbps && kbps > 0
+                ? string.Create(CultureInfo.InvariantCulture, $"{name} {kbps} kbps")
+                : name;
+        }
+
+        if (KiloHertz(sampleRate) is not { } rate)
+        {
+            return name;
+        }
+
+        return bitDepth is { } bits && bits > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"{name} {bits}/{rate}")
+            : name + " " + rate + " kHz";
+    }
+
+    /// <summary>A sample rate in kHz with no trailing zero: 48000 gives "48", 44100 gives "44.1".</summary>
+    private static string? KiloHertz(int? sampleRate)
+    {
+        if (sampleRate is not { } hz || hz <= 0)
+        {
+            return null;
+        }
+
+        return hz % 1000 == 0
+            ? (hz / 1000).ToString(CultureInfo.InvariantCulture)
+            : (hz / 1000.0).ToString("0.#", CultureInfo.InvariantCulture);
+    }
 }

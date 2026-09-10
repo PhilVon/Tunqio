@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Tunqio.App.Shell.NowPlayingPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:Tunqio.App.Controls"
+    mc:Ignorable="d">
+  <!--
+    Now Playing (E2-S3). It sits over the visualizer surface, so everything here is either the art, the text or
+    the scrim that keeps the text readable against whatever is moving behind it.
+
+    The art block is two layers on purpose: the placeholder tile (a colour from the album title's hash, with its
+    initials) is drawn first and always, and the Image is laid over it. A BitmapImage over a file URI decodes on a
+    background thread and only replaces what it covers once it has succeeded, so a missing or unreadable file
+    leaves the placeholder showing without a frame of empty space in between, and nothing waits on the UI thread
+    for a 1000 px JPEG (AC-73, AC-74).
+  -->
+  <Grid x:Name="Root"
+        Padding="24"
+        AutomationProperties.Name="{x:Bind ViewModel.AutomationName, Mode=OneWay}"
+        AutomationProperties.AccessibilityView="Content">
+
+    <!--
+      Where the E2-S3 spike puts its burst images. Empty in every other run. It is a real, laid-out host and not
+      a detached BitmapImage because XAML does not decode an image that is not in a tree — which is itself the
+      thing the criterion is about, and the first version of the spike hung waiting for a decode that XAML had
+      quite correctly declined to start.
+    -->
+    <Canvas x:Name="ArtMeasurementHost" Width="0" Height="0" Opacity="0" IsHitTestVisible="False"
+            AutomationProperties.AccessibilityView="Raw" />
+
+    <!-- Empty state. The two buttons are E2-S4's pickers; they are wired by the shell. -->
+    <StackPanel x:Name="EmptyState"
+                Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}"
+                VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+      <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
+      <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />
+      <TextBlock Text="Nothing playing" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.6" />
+    </StackPanel>
+
+    <!-- Playing state: art over the placeholder, then the metadata block. -->
+    <Grid x:Name="TrackState"
+          Visibility="{x:Bind ViewModel.HasTrack, Mode=OneWay}"
+          RowDefinitions="*,Auto" RowSpacing="20"
+          MaxWidth="620" VerticalAlignment="Center" HorizontalAlignment="Center">
+
+      <Viewbox x:Name="ArtBox" Stretch="Uniform" StretchDirection="DownOnly" MaxWidth="360" MaxHeight="360">
+        <Grid x:Name="ArtFrame" Width="360" Height="360" CornerRadius="10"
+              Background="{x:Bind controls:PlaceholderArt.Brush(ViewModel.ArtTitle), Mode=OneWay}">
+          <TextBlock Text="{x:Bind controls:PlaceholderArt.Initials(ViewModel.ArtTitle), Mode=OneWay}"
+                     FontSize="96" FontWeight="SemiBold" Opacity="0.85" Foreground="White"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Image x:Name="Art"
+                 Source="{x:Bind controls:AlbumArt.Large(ViewModel.ArtHash), Mode=OneWay}"
+                 Stretch="UniformToFill"
+                 ImageOpened="OnArtOpened"
+                 ImageFailed="OnArtFailed"
+                 AutomationProperties.AccessibilityView="Raw" />
+        </Grid>
+      </Viewbox>
+
+      <!--
+        The metadata. A scrim rather than a solid panel: the visualizer is meant to show through, and the text
+        still has to be readable over a bright frame of it.
+      -->
+      <StackPanel Grid.Row="1" Spacing="4" Padding="16,12" CornerRadius="8"
+                  Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}"
+                  HorizontalAlignment="Stretch">
+        <TextBlock Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+                   FontSize="28" FontWeight="SemiBold" LineHeight="34"
+                   TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                   HorizontalAlignment="Center" TextAlignment="Center" />
+
+        <!-- Artist and album are links into the sidebar when the track resolved to library rows (E3-S8). -->
+        <HyperlinkButton x:Name="ArtistLink"
+                         Content="{x:Bind ViewModel.ArtistNames, Mode=OneWay}"
+                         Visibility="{x:Bind ViewModel.HasArtists, Mode=OneWay}"
+                         IsEnabled="{x:Bind ViewModel.HasArtistLink, Mode=OneWay}"
+                         Click="OnArtistClick" Padding="4,0" HorizontalAlignment="Center"
+                         AutomationProperties.Name="Go to artist" />
+        <HyperlinkButton x:Name="AlbumLink"
+                         Content="{x:Bind ViewModel.AlbumLine, Mode=OneWay}"
+                         Visibility="{x:Bind ViewModel.HasAlbumLine, Mode=OneWay}"
+                         IsEnabled="{x:Bind ViewModel.HasAlbumLink, Mode=OneWay}"
+                         Click="OnAlbumClick" Padding="4,0" HorizontalAlignment="Center"
+                         AutomationProperties.Name="Go to album" />
+
+        <Border x:Name="FormatBadge"
+                Visibility="{x:Bind ViewModel.HasFormatBadge, Mode=OneWay}"
+                HorizontalAlignment="Center" Margin="0,6,0,0"
+                Padding="8,2" CornerRadius="4"
+                BorderThickness="1"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+          <TextBlock Text="{x:Bind ViewModel.FormatBadge, Mode=OneWay}"
+                     Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
+        </Border>
+      </StackPanel>
+    </Grid>
+  </Grid>
+</UserControl>

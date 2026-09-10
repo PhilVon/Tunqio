@@ -20,7 +20,7 @@ public sealed class TransportViewModelTests : IAsyncLifetime
     private readonly FakeSettings _settings = new();
     private readonly FakePlayHistory _history = new();
     private readonly FakeQueueStore _queues = new();
-    private readonly StubSource _source = new();
+    private readonly StubSessionSource _source = new();
     private PlaybackSession _session = null!;
     private TransportViewModel _vm = null!;
 
@@ -357,7 +357,7 @@ public sealed class TransportViewModelTests : IAsyncLifetime
     [Fact]
     public async Task A_panel_built_before_audio_started_picks_the_session_up_when_it_arrives_Async()
     {
-        var source = new StubSource();
+        var source = new StubSessionSource();
         using var early = new TransportViewModel(source);
         early.IsReady.Should().BeFalse();
         await early.PlayPauseAsync();
@@ -372,28 +372,5 @@ public sealed class TransportViewModelTests : IAsyncLifetime
         _engine.Drain().Should().Equal("pause");
     }
 
-    /// <summary>What <see cref="AudioStartup"/> is to the panel, without an engine a test host can create.</summary>
-    private sealed class StubSource : IPlaybackSessionSource
-    {
-        private PlaybackSession? _session;
-
-        public PlaybackSession? Session
-        {
-            get => _session;
-            set
-            {
-                _session = value;
-                Started = true;
-                if (value is not null)
-                {
-                    SessionReady?.Invoke(this, value);
-                }
-            }
-        }
-
-        public bool Started { get; set; }
-
-        public event EventHandler<PlaybackSession>? SessionReady;
-    }
 }
 #pragma warning restore CA1001

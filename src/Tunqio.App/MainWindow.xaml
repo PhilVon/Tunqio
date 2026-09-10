@@ -15,15 +15,11 @@
   <Grid x:Name="Root">
     <Grid x:Name="ShellGrid">
 
-      <!-- Now Playing: the visualizer surface with the metadata block over it. E2-S3 replaces the placeholder. -->
-      <Grid x:Name="NowPlayingPanel" RowDefinitions="*,Auto">
+      <!-- Now Playing: the visualizer surface with the metadata block over it (E2-S3). -->
+      <Grid x:Name="NowPlayingColumn" RowDefinitions="*,Auto">
         <!-- The native core renders into this panel's composition swap chain (ADR-002). -->
         <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
-        <StackPanel x:Name="NowPlayingPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
-          <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
-          <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />
-          <TextBlock Text="Nothing playing" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.6" />
-        </StackPanel>
+        <shell:NowPlayingPanel x:Name="NowPlaying" />
         <!-- E0-S5's renderer readout and E0-S3's attribution; E2-S8 builds the real diagnostics overlay. -->
         <StackPanel Grid.Row="1" Padding="12" Spacing="4" Background="#A0101014">
           <TextBlock x:Name="RenderText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap" />
