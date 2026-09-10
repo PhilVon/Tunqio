@@ -50,6 +50,9 @@ namespace mp::audio {
 namespace {
 
 std::atomic<bool> g_instance_exists{false};
+// The one engine, for the BASSWASAPI notification callback's test seam. Set after create() succeeds and cleared
+// before the destructor touches anything, so a simulated notification can never reach a half-built engine.
+std::atomic<engine*> g_instance{nullptr};
 
 std::wstring utf8_to_wide(const char* utf8) {
     if (utf8 == nullptr || *utf8 == '\0') {
@@ -244,6 +247,13 @@ constexpr DWORD k_source_flags = BASS_MIXER_CHAN_NORAMPIN | BASS_MIXER_CHAN_LIMI
 void testing::force_exclusive_failure(bool on) noexcept {
     g_force_exclusive_failure.store(on, std::memory_order_relaxed);
 }
+
+void testing::simulate_device_notification(uint32_t notify, uint32_t device) noexcept {
+    engine* const e = g_instance.load(std::memory_order_acquire);
+    if (e != nullptr) {
+        e->simulate_device_notification_for_test(notify, device);
+    }
+}
 #endif
 
 // ---- lifetime -----------------------------------------------------------------------------------
@@ -258,6 +268,8 @@ mp_result engine::create(const mp_engine_config& config, std::unique_ptr<engine>
         e.reset(); // ~engine clears the instance flag
         return r;
     }
+    e->start_device_watch();
+    g_instance.store(e.get(), std::memory_order_release);
     out = std::move(e);
     return MP_OK;
 }
@@ -325,6 +337,9 @@ mp_result engine::create_mixer(uint32_t rate, uint32_t channels) {
 }
 
 engine::~engine() {
+    // Before control_ is taken: the watch thread takes it as well, so joining from inside would deadlock.
+    g_instance.store(nullptr, std::memory_order_release);
+    stop_device_watch();
     {
         std::lock_guard lock{control_};
         playing_.store(false, std::memory_order_release);
@@ -455,7 +470,15 @@ mp_result engine::open_output(const mp_output_config& config, bool exclusive, ch
 
 mp_result engine::set_output(const mp_output_config& config) {
     std::lock_guard lock{control_};
+    return set_output_locked(config);
+}
+
+mp_result engine::set_output_locked(const mp_output_config& config) {
+    wanted_ = config;
+    have_wanted_ = true;
     free_output();
+    open_device_ = MP_DEVICE_NONE;
+    open_device_id_.clear();
 
     if (config.device_index == MP_DEVICE_NONE) {
         // Headless: the mixer keeps its rate; render() is the output thread.
@@ -499,10 +522,176 @@ mp_result engine::set_output(const mp_output_config& config) {
         return r;
     }
 
-    log(MP_LOG_INFO, "output: %s, %u Hz / %u ch, format %u, buffer %u bytes (%u ms)",
-        exclusive_ ? "exclusive" : "shared", output_rate_, output_channels_, output_format_, output_buffer_bytes_,
+    remember_open_device();
+    log(MP_LOG_INFO, "output: %s (%s), %u Hz / %u ch, format %u, buffer %u bytes (%u ms)",
+        open_device_id_.empty() ? "device" : open_device_id_.c_str(), exclusive_ ? "exclusive" : "shared", output_rate_,
+        output_channels_, output_format_, output_buffer_bytes_,
         output_rate_ != 0 ? output_buffer_bytes_ * 1000u / (output_rate_ * output_channels_ * 4u) : 0u);
     return MP_OK;
+}
+
+// ---- device changes (E1-S7) ---------------------------------------------------------------------
+
+void engine::remember_open_device() {
+    open_device_ = MP_DEVICE_NONE;
+    open_device_id_.clear();
+    const DWORD device = BASS_WASAPI_GetDevice();
+    if (device == static_cast<DWORD>(-1)) {
+        return;
+    }
+    open_device_ = static_cast<int32_t>(device);
+    BASS_WASAPI_DEVICEINFO di{};
+    if (BASS_WASAPI_GetDeviceInfo(device, &di) && di.id != nullptr) {
+        open_device_id_ = di.id;
+    }
+    // A device that comes back is the one that went: the wait for it ends when it is open again.
+    if (!open_device_id_.empty() && open_device_id_ == lost_device_id_) {
+        lost_device_id_.clear();
+    }
+}
+
+void engine::park_for_lost_device() noexcept {
+    // The audio thread is gone with the device, so the pause ramp cannot run: land the envelope by hand. The source
+    // keeps its position, which is what makes "reconnect and carry on" possible at all.
+    playing_.store(false, std::memory_order_release);
+    pause_pending_.store(false, std::memory_order_release);
+    env_target_.store(0.0f, std::memory_order_release);
+    env_level_.store(0.0f, std::memory_order_release);
+    hold_.store(true, std::memory_order_release);
+}
+
+void engine::notify_proc(unsigned long notify, unsigned long device, void* user) {
+    static_cast<engine*>(user)->post_device_note(static_cast<uint32_t>(notify), static_cast<uint32_t>(device));
+}
+
+void engine::post_device_note(uint32_t notify, uint32_t device) noexcept {
+    {
+        std::lock_guard lock{note_mutex_};
+        if (watch_stop_) {
+            return;
+        }
+        notes_.push_back({notify, device});
+    }
+    note_cv_.notify_one();
+}
+
+void engine::start_device_watch() {
+    device_watch_ = std::thread{[this]() { watch_loop(); }};
+    BASS_WASAPI_SetNotify(&notify_proc, this);
+}
+
+void engine::stop_device_watch() noexcept {
+    BASS_WASAPI_SetNotify(nullptr, nullptr); // no notification can arrive after this returns
+    {
+        std::lock_guard lock{note_mutex_};
+        watch_stop_ = true;
+        notes_.clear();
+    }
+    note_cv_.notify_all();
+    if (device_watch_.joinable()) {
+        device_watch_.join();
+    }
+}
+
+#if defined(MP_STATIC)
+void engine::simulate_device_notification_for_test(uint32_t notify, uint32_t device) noexcept {
+    uint64_t before = 0;
+    {
+        std::lock_guard lock{note_mutex_};
+        before = notes_handled_;
+    }
+    post_device_note(notify, device);
+    std::unique_lock lock{note_mutex_};
+    note_cv_.wait(lock, [&]() { return watch_stop_ || notes_handled_ > before; });
+}
+#endif
+
+void engine::watch_loop() noexcept {
+    for (;;) {
+        device_note note{};
+        {
+            std::unique_lock lock{note_mutex_};
+            note_cv_.wait(lock, [this]() { return watch_stop_ || !notes_.empty(); });
+            if (watch_stop_) {
+                return;
+            }
+            note = notes_.front();
+            notes_.pop_front();
+        }
+        handle_device_note(note);
+        {
+            std::lock_guard lock{note_mutex_};
+            ++notes_handled_;
+        }
+        note_cv_.notify_all();
+    }
+}
+
+void engine::handle_device_note(const device_note& note) {
+    std::lock_guard lock{control_};
+    const bool live = output_open_ && !offline_ && open_device_ >= 0;
+    const bool is_open_device = live && note.device == static_cast<uint32_t>(open_device_);
+
+    switch (note.notify) {
+    case BASS_WASAPI_NOTIFY_FAIL:
+    case BASS_WASAPI_NOTIFY_DISABLED: {
+        if (!is_open_device) {
+            return; // some other device came and went; nothing here is playing through it
+        }
+        // The device the music is going through has gone. Park where it stands and say so: the shell decides
+        // whether to move to the default device, because silently continuing somewhere else is exactly what
+        // ui-screens-and-flows.md forbids ("no silent continuation on the wrong device without notice").
+        const int32_t lost = open_device_;
+        lost_device_id_ = open_device_id_;
+        park_for_lost_device();
+        free_output();
+        open_device_ = MP_DEVICE_NONE;
+        open_device_id_.clear();
+        log(MP_LOG_WARN, "output device %d lost (%s); playback parked", lost, lost_device_id_.c_str());
+        emit(MP_EVENT_DEVICE_LOST, lost, 0, lost_device_id_.c_str());
+        return;
+    }
+    case BASS_WASAPI_NOTIFY_ENABLED: {
+        // Only the device that was lost is worth reporting: the shell offers "switch back" and the user chooses.
+        // Every other device appearing is the Settings list's business, not a running playback's.
+        if (lost_device_id_.empty()) {
+            return;
+        }
+        BASS_WASAPI_DEVICEINFO di{};
+        if (!BASS_WASAPI_GetDeviceInfo(note.device, &di) || di.id == nullptr || lost_device_id_ != di.id) {
+            return;
+        }
+        log(MP_LOG_INFO, "output device %u is back (%s)", note.device, di.id);
+        emit(MP_EVENT_DEVICE_CHANGED, static_cast<int64_t>(note.device), 0, di.id);
+        return;
+    }
+    case BASS_WASAPI_NOTIFY_DEFOUTPUT: {
+        // Asking for MP_DEVICE_DEFAULT means following the default, so this one migrates itself. A caller that
+        // named a device is left alone: its choice did not change because Windows changed its mind.
+        if (!have_wanted_ || wanted_.device_index != MP_DEVICE_DEFAULT || !live) {
+            return;
+        }
+        if (note.device == static_cast<uint32_t>(open_device_)) {
+            return; // already there
+        }
+        const mp_result r = set_output_locked(wanted_);
+        if (r != MP_OK) {
+            char message[320];
+            std::snprintf(message, sizeof message, "the default output device changed and could not be opened: %s",
+                          std::string{mp::abi::last_error()}.c_str());
+            log(MP_LOG_ERROR, "%s", message);
+            park_for_lost_device();
+            emit(MP_EVENT_ERROR, 0, 0, message);
+            return;
+        }
+        log(MP_LOG_INFO, "default output device changed; playback moved to device %d (%s)", open_device_,
+            open_device_id_.c_str());
+        emit(MP_EVENT_DEVICE_CHANGED, open_device_, 1, open_device_id_.c_str());
+        return;
+    }
+    default:
+        return;
+    }
 }
 
 mp_result engine::enum_devices(mp_device_info* out, uint32_t* count) {

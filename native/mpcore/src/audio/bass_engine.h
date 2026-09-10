@@ -6,11 +6,14 @@
 #include "mpcore.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace mp::audio {
@@ -18,11 +21,19 @@ namespace mp::audio {
 class engine;
 
 #if defined(MP_STATIC)
-// Test seam (E1-S6). Only a busy or unwilling driver makes an exclusive-mode init fail, and a CI runner may
-// have no output device at all, so the fallback path is unreachable from a test on real hardware. The tests
+// Test seams. Neither an exclusive-mode init that a driver refuses (E1-S6) nor a device being unplugged (E1-S7) can
+// be provoked from a test on hardware that is behaving, and a CI runner may have no output device at all. The tests
 // compile these sources directly (MP_STATIC); the shipped DLL is built without it and carries no hook.
 namespace testing {
 void force_exclusive_failure(bool on) noexcept;
+// Posts a BASSWASAPI device notification as if the driver had raised it, and returns once the watch thread has
+// finished acting on it, so a test never has to sleep to observe the result.
+void simulate_device_notification(uint32_t notify, uint32_t device) noexcept;
+// BASS_WASAPI_NOTIFY_* as the tests name them, so a test needs no BASS header (the include-grep rule).
+inline constexpr uint32_t k_notify_enabled = 0;
+inline constexpr uint32_t k_notify_disabled = 1;
+inline constexpr uint32_t k_notify_default_output = 2;
+inline constexpr uint32_t k_notify_fail = 0x100;
 } // namespace testing
 #endif
 
@@ -118,6 +129,11 @@ public:
     // Slider position to gain (audio taper, see mp_engine_set_volume). Exposed for the tests.
     static float volume_taper(float slider) noexcept;
 
+#if defined(MP_STATIC)
+    // testing::simulate_device_notification: posts the note and returns once the watch thread has handled it.
+    void simulate_device_notification_for_test(uint32_t notify, uint32_t device) noexcept;
+#endif
+
 private:
     engine() = default;
     mp_result init(const mp_engine_config& config);
@@ -130,6 +146,30 @@ private:
     mp_result open_output(const mp_output_config& config, bool exclusive, char* fail_text, size_t fail_cap);
     // Rebuilds the mixer at the output's rate and channels, carrying the playing source over at its position.
     mp_result adopt_output_format();
+    // set_output with control_ already held, which is how the device watch reopens an output for itself.
+    mp_result set_output_locked(const mp_output_config& config);
+
+    // ---- device changes (E1-S7) ----------------------------------------------------------------------------
+    // BASSWASAPI raises its notifications on a Windows notification thread, and reopening a device from inside one
+    // is how that thread deadlocks against the audio thread it is trying to stop. The callback therefore does
+    // nothing but enqueue; watch_loop drains the queue on its own thread and does the work under control_, which is
+    // also what stops a migration racing a set_output the user asked for.
+    struct device_note {
+        uint32_t notify;
+        uint32_t device;
+    };
+    void start_device_watch();
+    void stop_device_watch() noexcept;
+    void post_device_note(uint32_t notify, uint32_t device) noexcept;
+    void watch_loop() noexcept;
+    void handle_device_note(const device_note& note);
+    // Parks playback where it stands when the open device disappears. Not pause(): there is no audio thread left to
+    // run the ramp, so the hold is engaged here and resume() fades back in once an output exists again.
+    void park_for_lost_device() noexcept;
+    // Records what was actually opened, so a lost device can be recognised and a "default" migration knows whether
+    // the default has really moved.
+    void remember_open_device();
+    static void __stdcall notify_proc(unsigned long notify, unsigned long device, void* user);
     void emit(mp_event_type type, int64_t a, int64_t b, const char* message) noexcept;
 
     // Control plane: fade the envelope to silence and, on a live device, wait for the audio thread to get there.
@@ -189,6 +229,21 @@ private:
     std::atomic<bool> hold_{false};          // paused: the pull stage emits silence and leaves the mixer alone
     std::atomic<float> volume_target_{1.0f}; // taper applied
     float volume_current_ = 1.0f;            // audio thread only
+
+    // The output the caller last asked for (E1-S7): a migration reopens this rather than guessing, so the mode, the
+    // buffer and the event-driven choice survive the device moving underneath it.
+    mp_output_config wanted_{};
+    bool have_wanted_ = false;
+    int32_t open_device_ = MP_DEVICE_NONE; // BASS index of the device actually open (MP_DEVICE_DEFAULT resolved)
+    std::string open_device_id_;           // its endpoint id, which survives the index shifting
+    std::string lost_device_id_;           // the endpoint id whose return the UI is waiting to be offered
+
+    std::thread device_watch_;
+    std::mutex note_mutex_;
+    std::condition_variable note_cv_;
+    std::deque<device_note> notes_;
+    uint64_t notes_handled_ = 0; // under note_mutex_; the test seam waits on it rather than sleeping
+    bool watch_stop_ = false;
 
     bool output_open_ = false;
     bool output_started_ = false;

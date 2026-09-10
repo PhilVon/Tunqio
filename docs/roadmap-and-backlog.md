@@ -145,11 +145,11 @@ Device enumeration, output init at the device's native rate (both modes, not onl
 - [x] Mixer rate follows the device rate so no resampling occurs for matching sources — and in shared mode as well as exclusive, which the hypothesis missed: BASSWASAPI honours a differing rate in shared mode and Windows resamples for it (measured: a 44.1 kHz device was being driven at the mixer's 48 kHz)
 
 ### E1-S7 · Device change handling · **M** · `audio` `native`
-`BASS_WASAPI_SetNotify` and `IMMNotificationClient` in `mpcore`: default device change, device removal, format change, surfaced as `mp_event`s.
-- [ ] Unplugging the active device pauses within 500 ms and raises `DeviceLost`
-- [ ] Re-plugging raises `DeviceChanged` with the device ID so the UI can offer to switch back
-- [ ] Changing the Windows default device while on "default" migrates playback within 1 s without a crash
-- [ ] Soak: 200 simulated device changes leave handle counts stable
+`BASS_WASAPI_SetNotify` in `mpcore`: default device change, device removal and device failure surfaced as `mp_event`s. No separate `IMMNotificationClient` — BASSWASAPI's notification callback *is* one, and a second would be the same events twice. The callback only enqueues; a watch thread does the work under the control mutex, because reopening a device from inside a driver's notification thread is how that thread deadlocks against the audio thread it is stopping.
+- [x] Unplugging the active device pauses within 500 ms and raises `DeviceLost` (measured at 1 ms; the output is closed and the track stays loaded at its position, so reopening and resuming carries on)
+- [x] Re-plugging raises `DeviceChanged` with the device ID so the UI can offer to switch back (`B = 0` = offered; the engine never switches on its own, per the "no silent continuation on the wrong device" flow)
+- [x] Changing the Windows default device while on "default" migrates playback within 1 s without a crash (measured at 10 ms; `DeviceChanged` with `B = 1`. A caller that named a device is left alone.)
+- [x] Soak: 200 simulated device changes leave handle counts stable (225 → 229 across 200 notifications including 50 real close/reopen cycles)
 
 ### E1-S8 · Analysis tap and lock-free ring buffer · **M** · `audio` `analysis` `native`
 `mpcore/common` SPSC ring buffer (cache-line-aligned atomics, per performance-optimization.md); DSP callback on the mixer writing float frames plus byte position into it.

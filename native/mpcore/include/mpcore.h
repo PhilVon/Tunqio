@@ -29,7 +29,10 @@
  * boundary, since only the caller knows whether two tracks share an album. E1-S6 (no version change; no export or
  * struct moved): mp_engine_set_output asks the device for its own mix format rather than whatever rate the mixer was
  * left at (in either mode: BASSWASAPI honours a differing rate in shared mode too, and Windows then resamples every
- * frame), and an exclusive mode the driver refuses falls back to shared with MP_EVENT_ERROR saying why.
+ * frame), and an exclusive mode the driver refuses falls back to shared with MP_EVENT_ERROR saying why. E1-S7 (no
+ * version change): device changes are watched and raised as MP_EVENT_DEVICE_LOST / MP_EVENT_DEVICE_CHANGED, whose a,
+ * b and message are documented at mp_event_type; the engine parks playback when the open device goes and migrates
+ * itself only when the caller asked for MP_DEVICE_DEFAULT.
  */
 #pragma once
 
@@ -174,13 +177,18 @@ typedef struct mp_engine_stats {
 } mp_engine_stats;
 
 typedef enum mp_event_type {
-    MP_EVENT_TRACK_STARTED = 1, /* a = track handle; b = start_ms for mp_engine_play, the mixer byte position at a
-                                   gapless join (mp_clock.mixer_byte_pos units) */
-    MP_EVENT_TRACK_ENDED = 2,   /* natural end; a = track handle (0 only if the source ended before mp_engine_play
-                                   had recorded it); b = the mixer byte position when a preloaded successor took
-                                   over, else 0 */
-    MP_EVENT_DEVICE_LOST = 3,
-    MP_EVENT_DEVICE_CHANGED = 4,
+    MP_EVENT_TRACK_STARTED = 1,  /* a = track handle; b = start_ms for mp_engine_play, the mixer byte position at a
+                                    gapless join (mp_clock.mixer_byte_pos units) */
+    MP_EVENT_TRACK_ENDED = 2,    /* natural end; a = track handle (0 only if the source ended before mp_engine_play
+                                    had recorded it); b = the mixer byte position when a preloaded successor took
+                                    over, else 0 */
+    MP_EVENT_DEVICE_LOST = 3,    /* the open device went (unplugged, disabled, failed): playback is parked where it
+                                    stood and the output is closed. a = the device index that went, b = 0, message =
+                                    its endpoint id. Reopen with mp_engine_set_output and resume; nothing is lost. */
+    MP_EVENT_DEVICE_CHANGED = 4, /* a = device index, message = its endpoint id. b = 1 when playback has already
+                                    moved there (the caller asked for MP_DEVICE_DEFAULT and the default moved), b = 0
+                                    when the device is only being offered - the one that was lost has come back, and
+                                    it is the caller's choice whether to switch to it. */
     MP_EVENT_UNDERRUN = 5,
     MP_EVENT_ERROR = 6 /* message set */
 } mp_event_type;
