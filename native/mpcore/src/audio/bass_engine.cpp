@@ -1228,11 +1228,18 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
         std::memset(buffer, 0, bytes); // paused: the mixer is not advanced, so the position stays put
     } else {
         // A source with LIMIT ends the read at its last frame; the next read continues with whatever follows it
-        // (a successor added by end_sync, or NONSTOP silence), so a short read here is a real underrun.
+        // (a successor added by end_sync, or NONSTOP silence), so a short read here is a real underrun -- with one
+        // exception. When that last frame is the first frame of this pull, the read returns nothing at all: BASSmix
+        // runs end_sync inside it, which is what puts the successor under the mixer, and only the read after that
+        // can reach it. Breaking on that zero would drop a whole buffer of the successor and count an underrun for
+        // it, which is what a join landing on a period boundary used to do (T-108, found by the E1-S11 soak). One
+        // more read is enough, and only one: at the true end of the queue nothing joins, so nothing retries.
         uint32_t got = 0;
         while (got < bytes) {
             const DWORD n = BASS_ChannelGetData(mixer_, static_cast<char*>(buffer) + got, bytes - got);
+            bool joined_here = false;
             if (track* const joined = join_pending_.exchange(nullptr, std::memory_order_acq_rel); joined != nullptr) {
+                joined_here = true;
                 // A gapless join: end_sync swapped the sources inside that read; the read stopped on the last frame
                 // of the old source (LIMIT), so the mixer position now is exactly where the new one starts. A
                 // crossfade: fade_sync added the new source under the old one and noted where.
@@ -1245,8 +1252,14 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
                 }
                 emit(MP_EVENT_TRACK_STARTED, reinterpret_cast<int64_t>(joined), at, nullptr);
             }
-            if (n == 0 || n == static_cast<DWORD>(-1)) {
+            if (n == static_cast<DWORD>(-1)) {
                 break;
+            }
+            if (n == 0) {
+                if (!joined_here) {
+                    break;
+                }
+                continue; // the successor arrived during that read; it is the next read that reaches it
             }
             got += n;
         }

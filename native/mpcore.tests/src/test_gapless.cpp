@@ -427,3 +427,48 @@ TEST_CASE("an AAC track seeks and pauses through the trimming wrapper", "[gaples
     mp_engine_set_event_callback(fx.engine, nullptr, nullptr);
     (void)out;
 }
+
+// T-108, found by the soak runner (E1-S11): every gapless join whose source rate differs from the mixer's counted
+// one underrun on a real device, and the continuity assertions above cannot see it - they check the samples, and
+// this is a short read whose tail is zero-filled. Rendered headless, so it is measured at the same pull the device
+// makes without needing one. The same-rate pair is the control: whatever the 44.1 kHz pair does, the 48 kHz pair
+// must not do, or the count is measuring the harness rather than the join.
+TEST_CASE("a join into a source at a different rate to the mixer does not count an underrun", "[gapless]") {
+    const fs::path root = fixture_root();
+    if (root.empty() || !fs::exists(root)) {
+        SKIP("tests/fixtures/gapless not found (run detached from the repository)");
+    }
+
+    const auto underruns_across_a_join = [&](const char* pair, uint32_t pull) -> uint64_t {
+        const fs::path dir = root / pair;
+        if (!fs::exists(dir)) {
+            SKIP(std::string{"tests/fixtures/gapless/"} + pair + " not found");
+        }
+        offline_engine fx;
+        mp_track* a = fx.open(utf8(track_file(dir, "a")));
+        mp_track* b = fx.open(utf8(track_file(dir, "b")));
+        REQUIRE(mp_engine_play(fx.engine, a, 0) == MP_OK);
+        REQUIRE(mp_engine_preload_next(fx.engine, b) == MP_OK);
+        // Past the 2.0 s seam and short of b's end, so the only boundary crossed is the join itself.
+        const int64_t total = k_rate * 3;
+        std::vector<float> out(static_cast<size_t>(pull) * k_channels);
+        for (int64_t done = 0; done < total; done += pull) {
+            REQUIRE(mp_engine_render(fx.engine, out.data(), pull) == MP_OK);
+        }
+        mp_engine_stats stats{};
+        stats.struct_size = sizeof stats;
+        REQUIRE(mp_engine_get_stats(fx.engine, &stats) == MP_OK);
+        return stats.underruns;
+    };
+
+    // 96000 frames in: a multiple of 480 and not of 479, so the same pair joins on a pull boundary and inside a
+    // pull. That is the whole difference between these two numbers.
+    const uint64_t on_a_boundary = underruns_across_a_join("flac", 480);
+    const uint64_t inside_a_pull = underruns_across_a_join("flac", 479);
+    const uint64_t resampled = underruns_across_a_join("flac-44k", 480);
+    INFO("48 kHz on a pull boundary: " << on_a_boundary << "; inside a pull: " << inside_a_pull
+                                       << "; 44.1 kHz: " << resampled);
+    CHECK(inside_a_pull == 0);
+    CHECK(resampled == 0);
+    CHECK(on_a_boundary == 0);
+}
