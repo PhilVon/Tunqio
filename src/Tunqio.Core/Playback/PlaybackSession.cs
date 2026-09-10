@@ -66,6 +66,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     private readonly IAudioEngine _engine;
     private readonly ITrackRepository _tracks;
     private readonly IPlayHistoryRepository _history;
+    private readonly IQueueStateRepository _queueStore;
     private readonly ISettingsStore _settings;
     private readonly TimeProvider _time;
     private readonly Random _rng;
@@ -82,12 +83,14 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     private PendingJoin? _join;
     private bool _ended;
     private PlaybackState _state = PlaybackState.Stopped;
+    private TimeSpan _position;
     private float _volume = 1f;
     private bool _disposed;
 
     /// <param name="engine">The engine this session drives; it is the session's alone.</param>
     /// <param name="tracks">Resolves the queue's track ids to the files and tags the engine needs.</param>
     /// <param name="history">Takes a play event for every track that stops being current (E3-S11).</param>
+    /// <param name="queueStore">Holds the queue across a restart; written on stop and on dispose.</param>
     /// <param name="settings">Read for gapless, crossfade and ReplayGain at every boundary, so a change applies to the next one.</param>
     /// <param name="clock">Drives the 10 Hz snapshot timer; pass a fake and call <see cref="PollAsync"/> by hand in tests.</param>
     /// <param name="rng">The shuffle's randomness; fixed in tests.</param>
@@ -97,6 +100,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
         IAudioEngine engine,
         ITrackRepository tracks,
         IPlayHistoryRepository history,
+        IQueueStateRepository queueStore,
         ISettingsStore settings,
         TimeProvider? clock = null,
         Random? rng = null,
@@ -106,11 +110,13 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(tracks);
         ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(queueStore);
         ArgumentNullException.ThrowIfNull(settings);
 
         _engine = engine;
         _tracks = tracks;
         _history = history;
+        _queueStore = queueStore;
         _settings = settings;
         _time = clock ?? TimeProvider.System;
         _rng = rng ?? Random.Shared;
@@ -217,6 +223,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     /// <summary>Stops and unloads, leaving the queue as it is.</summary>
     public Task StopAsync() => LockedAsync(async () =>
     {
+        await SaveCoreAsync(default).ConfigureAwait(false);
         await _engine.StopAsync().ConfigureAwait(false);
         await UnloadAsync().ConfigureAwait(false);
         _state = PlaybackState.Stopped;
@@ -274,6 +281,56 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     });
 
     /// <summary>
+    /// The queue and position as they stand, for the row that survives a restart (E1-S10). The position belongs to
+    /// the queue's current item rather than to the loaded handle, so it outlives a stop: stopping unloads the track
+    /// but leaves the item current, and the save that follows the app closing has to report where the user was, not
+    /// zero.
+    /// </summary>
+    public QueueState Capture()
+    {
+        if (_current is not null)
+        {
+            _position = _engine.Clock.Position;
+        }
+
+        return QueueState.Capture(
+            _queue,
+            _queue.Current is null ? null : _position,
+            _time.GetUtcNow().ToUnixTimeMilliseconds());
+    }
+
+    /// <summary>Writes <see cref="Capture"/> to the store. Done on stop and on dispose; callable in between.</summary>
+    public Task SaveAsync(CancellationToken ct = default) => LockedAsync(() => SaveCoreAsync(ct));
+
+    /// <summary>
+    /// Brings back the saved queue, and — when <c>playback.resumeOnLaunch</c> is on — opens the track that was
+    /// current, paused at the position it was left at (docs/solution-structure.md, start-up step d). Paused, not
+    /// playing: a launch that starts making noise on its own is a launch nobody asked for. Returns false when
+    /// there is nothing worth restoring, which includes a saved queue whose tracks have all left the library.
+    /// </summary>
+    public Task<bool> RestoreAsync(CancellationToken ct = default) => LockedAsync(async () =>
+    {
+        QueueState? saved = await LoadSavedAsync(ct).ConfigureAwait(false);
+        if (saved is null || saved.Items.Count == 0)
+        {
+            return false;
+        }
+
+        await UnloadAsync().ConfigureAwait(false);
+        _queue = saved.ToQueue();
+        _state = PlaybackState.Stopped;
+
+        if (_queue.Current is null || !_settings.GetValue(SettingsKeys.PlaybackResumeOnLaunch, true))
+        {
+            Publish();
+            return true;
+        }
+
+        await StartCurrentAsync(saved.Position ?? TimeSpan.Zero, ct, paused: true).ConfigureAwait(false);
+        return true;
+    });
+
+    /// <summary>
     /// Publishes a snapshot and acts on anything the engine has recorded since the last poll: a join whose audio
     /// has now been heard, or a track that ended with nothing behind it. The 10 Hz timer calls this; a test calls
     /// it by hand.
@@ -309,6 +366,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
         _disposed = true;
         _timer?.Dispose();
         _events.Dispose();
+        await SaveCoreAsync(default).ConfigureAwait(false);
         await UnloadAsync().ConfigureAwait(false);
         _snapshots.Dispose();
         _gate.Dispose();
@@ -363,7 +421,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     /// Opens and plays whatever the queue says is current, skipping past tracks the library no longer has a usable
     /// file for. With nothing current it stops.
     /// </summary>
-    private async Task StartCurrentAsync(TimeSpan startAt, CancellationToken ct)
+    private async Task StartCurrentAsync(TimeSpan startAt, CancellationToken ct, bool paused = false)
     {
         await UnloadAsync().ConfigureAwait(false);
 
@@ -388,6 +446,12 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
             BeginListen(loaded, startAt);
             await _engine.PlayAsync(loaded.Handle, startAt, ct).ConfigureAwait(false);
             _state = PlaybackState.Playing;
+            if (paused)
+            {
+                await _engine.PauseAsync().ConfigureAwait(false);
+                _state = PlaybackState.Paused;
+            }
+
             await RefreshPreloadCoreAsync(ct).ConfigureAwait(false);
             Publish();
             return;
@@ -493,8 +557,11 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
 
     // ---- what was heard ------------------------------------------------------------------------------------------
 
-    private void BeginListen(LoadedTrack track, TimeSpan startAt) =>
+    private void BeginListen(LoadedTrack track, TimeSpan startAt)
+    {
+        _position = startAt;
         _listen = new Listen(track, _time.GetUtcNow().ToUnixTimeMilliseconds(), startAt, _time.GetTimestamp());
+    }
 
     /// <summary>
     /// Adds what has become audible since the last call. Heard time follows the <em>position</em>, capped by the
@@ -546,6 +613,32 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
         }
     }
 
+    /// <summary>A store that will not take the queue is logged: it costs the next launch its queue, not this one.</summary>
+    private async Task SaveCoreAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _queueStore.SaveAsync(Capture(), ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "Could not save the queue");
+        }
+    }
+
+    private async Task<QueueState?> LoadSavedAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await _queueStore.LoadAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "Could not read the saved queue");
+            return null;
+        }
+    }
+
     private async Task SeekCoreAsync(TimeSpan position)
     {
         if (_current is null)
@@ -564,18 +657,40 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
 
     private void Publish()
     {
-        TimeSpan position = _current is null ? TimeSpan.Zero : _engine.Clock.Position;
+        if (_current is not null)
+        {
+            _position = _engine.Clock.Position;
+        }
+        else if (_queue.Current is null)
+        {
+            _position = TimeSpan.Zero;
+        }
+
         _snapshots.OnNext(new PlaybackSnapshot(
             _state,
             _current?.Item,
             _current?.Dto,
-            position,
+            _position,
             _current?.Handle.Info.Duration ?? TimeSpan.Zero,
             _queue.CurrentIndex,
             _queue.Count,
             _queue.Shuffle,
             _queue.Repeat,
             _volume));
+    }
+
+    private async Task<T> LockedAsync<T>(Func<Task<T>> work)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await work().ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     private async Task LockedAsync(Func<Task> work)

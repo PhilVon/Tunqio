@@ -18,13 +18,14 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     private readonly FakeTrackRepository _tracks = FakeTrackRepository.With(1, 2, 3);
     private readonly FakeSettingsStore _settings = new();
     private readonly FakePlayHistory _history = new();
+    private readonly FakeQueueStore _queues = new();
     private readonly ManualTimeProvider _time = new(Start);
     private PlaybackSession _session = null!;
 
     public Task InitializeAsync()
     {
         _engine.Duration = TimeSpan.FromMinutes(3);
-        _session = new PlaybackSession(_engine, _tracks, _history, _settings, _time, new Random(1), autoPoll: false);
+        _session = new PlaybackSession(_engine, _tracks, _history, _queues, _settings, _time, new Random(1), autoPoll: false);
         return Task.CompletedTask;
     }
 
