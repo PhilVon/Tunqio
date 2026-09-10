@@ -111,7 +111,8 @@ public partial class App : Application
             _host.Services.GetRequiredService<IPlaybackSessionSource>(),
             _host.Services.GetRequiredService<ILibraryNavigator>(),
             _host.Services.GetRequiredService<OpenCoordinator>(),
-            _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRepository>());
+            _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRepository>(),
+            _host.Services.GetRequiredService<Library.LibraryScanCoordinator>());
         _window = window;
         s_mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());

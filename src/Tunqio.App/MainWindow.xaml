@@ -62,8 +62,12 @@
       </Border>
     </Grid>
 
-    <!-- Start-up notices (E3-S1 database recovery, E1-S10e audio). E2-S7 replaces this with the error surfaces. -->
-    <InfoBar x:Name="NoticeBar" VerticalAlignment="Top" Margin="12" IsOpen="False" />
+    <!--
+      The error surfaces (E2-S7): start-up notices (E3-S1 database recovery, E1-S10e audio), the sticky output bar
+      with its recovery action (flow 4), engine errors and scan reports. Hit-testing follows the bars themselves,
+      so the empty area over the shell is not a lid on the window.
+    -->
+    <shell:NoticePanel x:Name="Notices" VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="12" MaxWidth="720" />
 
     <!-- What a drag looks like while it is over the window. Hit-testing off, or it would steal its own drop. -->
     <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"

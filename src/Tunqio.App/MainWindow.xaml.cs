@@ -33,6 +33,7 @@ public sealed partial class MainWindow : Window
     private readonly TransportViewModel? _transport;
     private readonly NowPlayingViewModel? _nowPlaying;
     private readonly QueueViewModel? _queue;
+    private readonly ShellNotices _notices;
     private readonly OpenCoordinator? _open;
     private NativeRenderer? _renderer;
     private DispatcherQueueTimer? _statsTimer;
@@ -43,13 +44,15 @@ public sealed partial class MainWindow : Window
     /// <param name="navigator">The sidebar, for Now Playing's artist and album links; null leaves them inert.</param>
     /// <param name="open">Files and folders opened or dropped (E2-S4); null leaves the window inert to drops.</param>
     /// <param name="tracks">Resolves the queue panel's rows (E2-S5); null leaves the panel showing its empty state.</param>
+    /// <param name="scans">The library's scans, for the scan report bar (E2-S7); null leaves scans unreported.</param>
     public MainWindow(
         bool forceWarp = false,
         ISettingsStore? settings = null,
         IPlaybackSessionSource? audio = null,
         Library.ILibraryNavigator? navigator = null,
         OpenCoordinator? open = null,
-        Core.Library.ITrackRepository? tracks = null)
+        Core.Library.ITrackRepository? tracks = null,
+        Library.LibraryScanCoordinator? scans = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
@@ -65,6 +68,11 @@ public sealed partial class MainWindow : Window
         Root.SizeChanged += (_, e) => _chrome.ApplyLayout(e.NewSize.Width);
         // About-page placeholder (E0-S3): the BASS attribution is shown until E6-S5 builds the real page.
         EngineText.Text = DescribeEngine() + Environment.NewLine + ThirdPartyAttribution.Bass;
+
+        // The error surfaces (E2-S7). Built before the session is attached below, so a failure during start-up has
+        // somewhere to be said.
+        _notices = new ShellNotices(audio, scans, SynchronizationContext.Current);
+        Notices.ViewModel = _notices;
 
         if (audio is not null)
         {
@@ -100,6 +108,7 @@ public sealed partial class MainWindow : Window
             _transport?.Dispose();
             _nowPlaying?.Dispose();
             _queue?.Dispose();
+            _notices.Dispose();
             TearDownRenderer();
         };
     }
@@ -464,20 +473,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>Shows a start-up notice in the window's InfoBar (closable; one at a time).</summary>
-    public void ShowNotice(StartupNotice notice)
-    {
-        ArgumentNullException.ThrowIfNull(notice);
-        NoticeBar.Title = notice.Title;
-        NoticeBar.Message = notice.Message;
-        NoticeBar.Severity = notice.Severity switch
-        {
-            StartupNoticeSeverity.Error => InfoBarSeverity.Error,
-            StartupNoticeSeverity.Warning => InfoBarSeverity.Warning,
-            _ => InfoBarSeverity.Informational,
-        };
-        NoticeBar.IsOpen = true;
-    }
+    /// <summary>Shows a start-up notice in the shell's notice area (closable; one start-up notice at a time).</summary>
+    public void ShowNotice(StartupNotice notice) => _notices.Show(notice);
 
     private void OnPanelLoaded(object sender, RoutedEventArgs e)
     {

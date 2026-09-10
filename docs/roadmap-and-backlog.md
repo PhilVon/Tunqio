@@ -312,7 +312,39 @@ stay on `LibraryPane`, where the thing they act on lives.
 
 ### E2-S7 · Error surfaces · **S** · `ui`
 Transient and sticky `InfoBar`s wired to `EngineEvent.Error`, `DeviceLost`, scan reports.
-- [ ] Device unplug shows the sticky bar with a working "Use default device" action (flow 4)
+- [x] Device unplug shows the sticky bar with a working "Use default device" action (flow 4) (the whole chain is asserted from the engine event to the reopen and the resume; the action is the bar's own `Func<Task>`, so the test presses the button the user presses)
+- [x] The device coming back replaces the bar with "Switch back" rather than switching on its own, and one bar about the output is one bar
+- [x] An engine error is told once and goes on its own; a hundred of them are still one bar
+- [x] A scan that found nothing new says nothing, and one that added rows or could not read a file says which
+
+The sticky / transient split is not a property of the message, it is a property of what the message is about, and
+that is what decides where each notice comes from. A disconnected device is a state the user is still in a minute
+later — a bar that timed out would leave silence with no explanation, which is the failure flow 4 exists to prevent —
+so it is `OutputStatus` on `PlaybackSnapshot`, and it stays until the snapshot says otherwise. An engine error and a
+finished scan are events: they happened, they are told once, and they time out. `PlaybackSession.Errors` is therefore
+a stream and not a field, since a second failure must not overwrite the first before anyone has read it; it is raised
+from `PollAsync` like everything else the engine reports, so nothing reaches a subscriber on the interop pump thread.
+
+Recovering is the session's, because the session is the only caller of `IAudioEngine` (ADR-008). `UseSystemDefaultOutputAsync`
+reopens on the default in shared mode and resumes — the loaded track is untouched by a device going (E1-S7), so this
+is a reopen and a resume rather than a reload, and the position is the one the user was at. It deliberately does not
+write `output.deviceId`: this is recovery from a device that is not there, not a change of mind about which device to
+use, and quietly rewriting the preference would mean plugging the DAC back in never brought it back. A resume only
+happens if playback was running when the output went, which is why the loss records that before it parks the state.
+
+`ShellNotices` allows one bar per kind. Without that an engine failing on every buffer would stack bars until the
+window was nothing else, and a second scan would leave the first report on screen saying something no longer true.
+The rule the live check changed: the launch scan runs at every start and usually finds exactly what it found last
+time, and the first build put "Scan finished · 0 files" on the screen every launch — which trains the user to ignore
+the bar the device case needs them to read. A scan now reports only when it changed rows or could not read something;
+the settings page still shows every report (E3-S12), which is where a scan that did nothing belongs.
+
+Verified in the running app by corrupting `library.db` and launching, which drives the real recovery path (E3-S1)
+into the real notice panel: two bars stacked with their own severity icons and close buttons, the action button
+correctly absent on a notice that has no action, and — before the rule above — the scan bar that should not have been
+there. The one thing that check cannot reach is the action button drawn for a notice that *has* one, because
+producing a `DeviceLost` needs a device to unplug; the binding is the same one proven in the other direction, and the
+action behind it is asserted in `Tunqio.App.Tests`.
 
 ### E2-S8 · Debug/diagnostics overlay · **S** · `ui` `perf`
 Toggle (Ctrl+Shift+D) showing output latency, underruns, engine state, frame time (once E4 exists).

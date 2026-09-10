@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Tunqio.App.Shell.NoticePanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:shell="using:Tunqio.App.Shell"
+    mc:Ignorable="d"
+    IsTabStop="False">
+  <!--
+    The shell's error surfaces (E2-S7). An ItemsControl and not a single InfoBar, because the notices are about
+    different things and one replacing another would mean a device disconnecting hid the scan report, or the other
+    way round. What stops them piling up is the one-per-kind rule in ShellNotices, not the shape of this control.
+
+    The bars are open by construction: a notice that exists is a notice to show, and closing one is what removes it
+    from the collection. Binding IsOpen to something would give the InfoBar a second opinion about that.
+  -->
+  <ItemsControl x:Name="Bars" ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}">
+    <ItemsControl.ItemTemplate>
+      <DataTemplate x:DataType="shell:ShellNotice">
+        <InfoBar IsOpen="True"
+                 Margin="0,0,0,8"
+                 Title="{x:Bind Title}"
+                 Message="{x:Bind Message}"
+                 Severity="{x:Bind shell:NoticePanel.Level(Severity)}"
+                 IsClosable="True"
+                 CloseButtonClick="OnClosed">
+          <InfoBar.ActionButton>
+            <Button Content="{x:Bind ActionText}"
+                    Visibility="{x:Bind HasAction}"
+                    AutomationProperties.Name="{x:Bind ActionText}"
+                    Click="OnAction" />
+          </InfoBar.ActionButton>
+        </InfoBar>
+      </DataTemplate>
+    </ItemsControl.ItemTemplate>
+  </ItemsControl>
+</UserControl>

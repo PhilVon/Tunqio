@@ -36,11 +36,12 @@ public sealed record PlaybackSnapshot(
     TimeSpan Position,
     TimeSpan Duration,
     PlayQueue Queue,
-    float Volume)
+    float Volume,
+    OutputStatus Output)
 {
-    /// <summary>Nothing playing, empty queue.</summary>
+    /// <summary>Nothing playing, empty queue, nothing to say about the output.</summary>
     public static PlaybackSnapshot Idle { get; } = new(
-        PlaybackState.Stopped, null, null, TimeSpan.Zero, TimeSpan.Zero, PlayQueue.Empty, 1f);
+        PlaybackState.Stopped, null, null, TimeSpan.Zero, TimeSpan.Zero, PlayQueue.Empty, 1f, OutputStatus.Ok);
 
     /// <summary>Where the current item sits in the play order, or null when nothing is current.</summary>
     public int? QueueIndex => Queue.CurrentIndex;
@@ -89,6 +90,8 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     private readonly ILogger _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly BehaviorSubject<PlaybackSnapshot> _snapshots = new(PlaybackSnapshot.Idle);
+    private readonly Subject<string> _errors = new();
+    private readonly List<string> _pendingErrors = [];
     private readonly IDisposable _events;
     private readonly ITimer? _timer;
 
@@ -101,6 +104,8 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     private PlaybackState _state = PlaybackState.Stopped;
     private TimeSpan _position;
     private float _volume = 1f;
+    private OutputStatus _output = OutputStatus.Ok;
+    private bool _resumeWhenOutputReturns;
     private bool _disposed;
 
     /// <param name="engine">The engine this session drives; it is the session's alone.</param>
@@ -150,6 +155,15 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
 
     /// <summary>The most recent snapshot, without subscribing.</summary>
     public PlaybackSnapshot Current => _snapshots.Value;
+
+    /// <summary>
+    /// Engine failures worth telling the user about once, as they happen (E2-S7): an exclusive-mode request a
+    /// driver refused, a stream that could not be opened. Transient, which is why they are a stream and not part of
+    /// the snapshot — a second failure must not overwrite the first before anyone has read it, and neither is a
+    /// state the user is still in. Raised from <see cref="PollAsync"/>, so nothing reaches a subscriber on the
+    /// interop pump thread.
+    /// </summary>
+    public IObservable<string> Errors => _errors;
 
     /// <summary>The queue as it stands.</summary>
     public PlayQueue Queue => _queue;
@@ -364,6 +378,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     /// </summary>
     public Task PollAsync(CancellationToken ct = default) => LockedAsync(async () =>
     {
+        DrainErrors();
         Accrue();
         if (_join is PendingJoin join && _engine.Clock.HasPlayed(join.MixerBytePosition))
         {
@@ -396,7 +411,109 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
         await SaveCoreAsync(default).ConfigureAwait(false);
         await UnloadAsync().ConfigureAwait(false);
         _snapshots.Dispose();
+        _errors.Dispose();
         _gate.Dispose();
+    }
+
+    /// <summary>
+    /// Hands on whatever the engine reported since the last poll. Off the pump thread, in order, and taking a copy
+    /// under the lock so a subscriber that does something slow is not holding the thread the driver is calling on.
+    /// </summary>
+    private void DrainErrors()
+    {
+        string[] errors;
+        lock (_pendingErrors)
+        {
+            if (_pendingErrors.Count == 0)
+            {
+                return;
+            }
+
+            errors = [.. _pendingErrors];
+            _pendingErrors.Clear();
+        }
+
+        foreach (string error in errors)
+        {
+            _errors.OnNext(error);
+        }
+    }
+
+    // ---- the output going and coming back (E2-S7) ------------------------------------------------------------------
+
+    /// <summary>
+    /// Reopens the output on the system default in shared mode — flow 4's "Use default device" — and carries on
+    /// from where the loss parked playback. The loaded track is untouched by a device going (E1-S7), so this is a
+    /// reopen and a resume, not a reload: the position is the one the user was at.
+    /// </summary>
+    /// <remarks>
+    /// It does not write <c>output.deviceId</c>. This is a recovery from a device that is not there, not a change
+    /// of mind about which device to use, and quietly rewriting the preference would mean plugging the DAC back in
+    /// never brought it back.
+    /// </remarks>
+    public Task<bool> UseSystemDefaultOutputAsync(CancellationToken ct = default) => LockedAsync(() =>
+        ReopenAsync(
+            new OutputConfig(OutputConfig.DefaultDevice, OutputMode.Shared, OutputPolicy.DefaultBufferMs(OutputMode.Shared)),
+            ct));
+
+    /// <summary>
+    /// Switches to the device the engine has offered back — flow 4's "Switch back" — in the mode and buffer the
+    /// user's settings ask for, since this is their device returning rather than a fallback. Does nothing when
+    /// nothing is being offered.
+    /// </summary>
+    public Task<bool> SwitchToReturnedOutputAsync(CancellationToken ct = default) => LockedAsync(() =>
+    {
+        if (_output.Health != OutputHealth.Returned)
+        {
+            return Task.FromResult(false);
+        }
+
+        OutputPreference preference = OutputPolicy.Read(_settings);
+        OutputSelection selection = OutputPolicy.Resolve(
+            preference with { DeviceId = _output.DeviceId }, Devices());
+        return ReopenAsync(selection.Config, ct);
+    });
+
+    private IReadOnlyList<OutputDevice> Devices()
+    {
+        try
+        {
+            return _engine.EnumerateDevices();
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            _log.LogWarning(e, "Output devices could not be enumerated");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Opens <paramref name="config"/> and, if playback was running when the output went, starts it again. A
+    /// failure leaves the status where it was: the bar the user pressed the button on is still the true one.
+    /// </summary>
+    private async Task<bool> ReopenAsync(OutputConfig config, CancellationToken ct)
+    {
+        try
+        {
+            await _engine.InitializeAsync(config, ct).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            _log.LogWarning(e, "The output could not be reopened");
+            _errors.OnNext("That output could not be opened.");
+            return false;
+        }
+
+        _output = OutputStatus.Ok;
+        if (_resumeWhenOutputReturns && _current is not null)
+        {
+            await _engine.ResumeAsync().ConfigureAwait(false);
+            _state = PlaybackState.Playing;
+        }
+
+        _resumeWhenOutputReturns = false;
+        Publish();
+        return true;
     }
 
     // ---- the engine talks, the poll acts -------------------------------------------------------------------------
@@ -412,10 +529,29 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
                 _ended = true;
                 break;
             case EngineEventType.DeviceLost:
+                _resumeWhenOutputReturns = _state == PlaybackState.Playing;
                 _state = PlaybackState.Paused;
+                _output = new OutputStatus(OutputHealth.Lost, e.Message, null);
+                break;
+            // B = 1 is Windows having moved the default under a caller who asked for the default, and playback has
+            // already followed it; there is nothing to offer and nothing to recover from. B = 0 is the device
+            // coming back and being offered, which is only interesting while we are on something else.
+            case EngineEventType.DeviceChanged when e.B == 1:
+                _output = OutputStatus.Ok;
+                break;
+            case EngineEventType.DeviceChanged when _output.Health == OutputHealth.Lost:
+                _output = _output with { Health = OutputHealth.Returned, DeviceId = e.Message ?? _output.DeviceId };
                 break;
             case EngineEventType.Error:
                 _log.LogWarning("Engine error: {Message}", e.Message);
+                if (!string.IsNullOrWhiteSpace(e.Message))
+                {
+                    lock (_pendingErrors)
+                    {
+                        _pendingErrors.Add(e.Message);
+                    }
+                }
+
                 break;
             default:
                 break;
@@ -700,7 +836,8 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
             _position,
             _current?.Handle.Info.Duration ?? TimeSpan.Zero,
             _queue,
-            _volume));
+            _volume,
+            _output));
     }
 
     private async Task<T> LockedAsync<T>(Func<Task<T>> work)

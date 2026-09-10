@@ -573,6 +573,71 @@ internal sealed class FakeSearchService : ISearchService
 }
 
 /// <summary>What <see cref="Tunqio.App.Playback.AudioStartup"/> is to a shell panel, without an engine a test host can create.</summary>
+/// <summary>
+/// A clock the test moves by hand, whose timers fire when it is moved past their due time. There is no
+/// FakeTimeProvider package here, and the alternative — waiting eight real seconds to watch a transient notice go —
+/// is not a test, it is a delay.
+/// </summary>
+internal sealed class ManualClock : TimeProvider
+{
+    private readonly List<ManualTimer> _timers = [];
+    private DateTimeOffset _now = DateTimeOffset.UnixEpoch;
+
+    public override DateTimeOffset GetUtcNow() => _now;
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new ManualTimer(callback, state, dueTime == Timeout.InfiniteTimeSpan ? null : _now + dueTime);
+        lock (_timers)
+        {
+            _timers.Add(timer);
+        }
+
+        return timer;
+    }
+
+    /// <summary>Moves the clock, firing anything that fell due on the way. One-shot: a fired timer does not repeat.</summary>
+    public void Advance(TimeSpan by)
+    {
+        _now += by;
+        ManualTimer[] due;
+        lock (_timers)
+        {
+            due = [.. _timers.Where(t => t.Due is { } at && at <= _now)];
+            foreach (ManualTimer timer in due)
+            {
+                _timers.Remove(timer);
+            }
+        }
+
+        foreach (ManualTimer timer in due)
+        {
+            timer.Fire();
+        }
+    }
+
+    private sealed class ManualTimer(TimerCallback callback, object? state, DateTimeOffset? due) : ITimer
+    {
+        public DateTimeOffset? Due { get; private set; } = due;
+
+        public void Fire() => callback(state);
+
+        public bool Change(TimeSpan dueTime, TimeSpan period)
+        {
+            Due = null;
+            return true;
+        }
+
+        public void Dispose() => Due = null;
+
+        public ValueTask DisposeAsync()
+        {
+            Due = null;
+            return ValueTask.CompletedTask;
+        }
+    }
+}
+
 internal sealed class StubSessionSource : Tunqio.App.Playback.IPlaybackSessionSource
 {
     private PlaybackSession? _session;

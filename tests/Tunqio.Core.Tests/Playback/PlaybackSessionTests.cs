@@ -290,7 +290,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Clearing_upcoming_leaves_the_track_playing_and_drops_what_was_preloaded()
+    public async Task Clearing_upcoming_leaves_the_track_playing_and_drops_what_was_preloaded_Async()
     {
         await _session.PlayNowAsync([1, 2, 3]);
         Drain();
@@ -401,6 +401,140 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
 
         _session.Current.State.Should().Be(PlaybackState.Paused);
         _session.Current.Track!.Id.Should().Be(1, "nothing was unloaded, so resuming carries on from here");
+    }
+
+    [Fact]
+    public async Task Losing_the_device_is_a_state_the_shell_can_draw_a_sticky_bar_from_Async()
+    {
+        await _session.PlayNowAsync([1, 2]);
+
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceLost, 3, 0, "usb-dac"));
+        await _session.PollAsync();
+
+        _session.Current.Output.Health.Should().Be(OutputHealth.Lost);
+        _session.Current.Output.DeviceId.Should().Be("usb-dac");
+    }
+
+    [Fact]
+    public async Task Use_the_default_device_reopens_the_output_and_carries_on_from_where_it_stopped_Async()
+    {
+        await _session.PlayNowAsync([1, 2]);
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceLost, 3, 0, "usb-dac"));
+        await _session.PollAsync();
+        Drain();
+
+        bool recovered = await _session.UseSystemDefaultOutputAsync();
+
+        recovered.Should().BeTrue();
+        Drain().Should().Equal(["init:-1:shared:40", "resume"], "the track was never unloaded, so this is a resume");
+        _session.Current.State.Should().Be(PlaybackState.Playing);
+        _session.Current.Output.Health.Should().Be(OutputHealth.Ok);
+    }
+
+    [Fact]
+    public async Task An_output_that_will_not_reopen_leaves_the_bar_the_user_pressed_saying_what_is_true_Async()
+    {
+        await _session.PlayNowAsync([1, 2]);
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceLost, 3, 0, "usb-dac"));
+        await _session.PollAsync();
+        _engine.UnopenableDevices.Add(OutputConfig.DefaultDevice);
+
+        bool recovered = await _session.UseSystemDefaultOutputAsync();
+
+        recovered.Should().BeFalse();
+        _session.Current.Output.Health.Should().Be(OutputHealth.Lost);
+        _session.Current.State.Should().Be(PlaybackState.Paused);
+    }
+
+    [Fact]
+    public async Task A_device_that_was_paused_by_hand_does_not_start_playing_when_the_output_comes_back_Async()
+    {
+        await _session.PlayNowAsync([1, 2]);
+        await _session.TogglePlayPauseAsync();
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceLost, 3, 0, "usb-dac"));
+        await _session.PollAsync();
+        Drain();
+
+        await _session.UseSystemDefaultOutputAsync();
+
+        Drain().Should().NotContain("resume");
+        _session.Current.State.Should().Be(PlaybackState.Paused);
+    }
+
+    [Fact]
+    public async Task A_device_coming_back_is_offered_rather_than_taken_Async()
+    {
+        await _session.PlayNowAsync([1, 2]);
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceLost, 3, 0, "usb-dac"));
+        await _session.PollAsync();
+        Drain();
+
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceChanged, 3, 0, "usb-dac"));
+        await _session.PollAsync();
+
+        _session.Current.Output.Health.Should().Be(OutputHealth.Returned);
+        Drain().Should().BeEmpty("the engine never switches on its own, and neither does the session");
+
+        _engine.Devices.Add(new OutputDevice(
+            3, "USB DAC", "usb-dac", 48000, 2, TimeSpan.FromMilliseconds(3), TimeSpan.FromMilliseconds(10), IsDefault: false));
+        bool switched = await _session.SwitchToReturnedOutputAsync();
+
+        switched.Should().BeTrue();
+        Drain().Should().Equal(["init:3:shared:40", "resume"]);
+        _session.Current.Output.Health.Should().Be(OutputHealth.Ok);
+    }
+
+    [Fact]
+    public async Task Windows_moving_the_default_under_a_session_that_asked_for_the_default_is_not_a_problem_Async()
+    {
+        await _session.PlayNowAsync([1, 2]);
+
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceChanged, 4, 1, "speakers"));
+        await _session.PollAsync();
+
+        _session.Current.Output.Health.Should().Be(OutputHealth.Ok, "playback has already followed it; there is nothing to offer");
+    }
+
+    [Fact]
+    public async Task Nothing_is_offered_while_the_output_is_fine_Async()
+    {
+        await _session.PlayNowAsync([1, 2]);
+
+        _engine.Raise(new EngineEvent(EngineEventType.DeviceChanged, 9, 0, "some-other-dac"));
+        await _session.PollAsync();
+
+        _session.Current.Output.Health.Should().Be(OutputHealth.Ok);
+        (await _session.SwitchToReturnedOutputAsync()).Should().BeFalse();
+    }
+
+    // ---- engine errors, which are told once and not held ------------------------------------------------------------------
+
+    [Fact]
+    public async Task An_engine_error_reaches_the_shell_off_the_pump_thread_Async()
+    {
+        List<string> seen = [];
+        using IDisposable subscription = _session.Errors.Subscribe(seen.Add);
+
+        _engine.Raise(new EngineEvent(EngineEventType.Error, 0, 0, "exclusive mode refused by the driver"));
+        seen.Should().BeEmpty("the pump thread records; the poll acts");
+
+        await _session.PollAsync();
+
+        seen.Should().Equal("exclusive mode refused by the driver");
+    }
+
+    [Fact]
+    public async Task Two_errors_in_one_poll_are_both_told_Async()
+    {
+        List<string> seen = [];
+        using IDisposable subscription = _session.Errors.Subscribe(seen.Add);
+
+        _engine.Raise(new EngineEvent(EngineEventType.Error, 0, 0, "first"));
+        _engine.Raise(new EngineEvent(EngineEventType.Error, 0, 0, "second"));
+        await _session.PollAsync();
+
+        // A second failure must not overwrite the first before anyone has read it.
+        seen.Should().Equal("first", "second");
     }
 
     // ---- lifetime ---------------------------------------------------------------------------------------------------------
