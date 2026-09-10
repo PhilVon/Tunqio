@@ -55,6 +55,7 @@
     <ClInclude Include="src\abi\guard.h" />
     <ClInclude Include="src\abi\last_error.h" />
     <ClInclude Include="src\audio\bass_engine.h" />
+    <ClInclude Include="src\audio\mp4_gapless.h" />
     <ClInclude Include="src\common\log.h" />
     <ClInclude Include="src\common\spsc_ring.h" />
     <ClInclude Include="src\common\version.h" />
@@ -66,6 +67,7 @@
     <ClCompile Include="src\abi\exports_render.cpp" />
     <ClCompile Include="src\abi\last_error.cpp" />
     <ClCompile Include="src\audio\bass_engine.cpp" />
+    <ClCompile Include="src\audio\mp4_gapless.cpp" />
     <ClCompile Include="src\common\log.cpp" />
     <ClCompile Include="src\common\rt_guard.cpp" />
     <ClCompile Include="src\render\renderer.cpp" />

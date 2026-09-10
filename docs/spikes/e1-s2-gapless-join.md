@@ -38,13 +38,13 @@ multiple, so the seam falls inside a buffer: a join that is only buffer-accurate
 | mp3-44k | BASS | 44 100 | 88 200 | 88 200 | 96 000 | 0 | 0 | 0.0300 | 0.0300 | 1.10 | continuous (resampled) |
 | ogg | BASS | 48 000 | 96 000 | 96 000 | 96 000 | 0 | 0 | 0.0147 | 0.0220 | 1.40 | continuous |
 | opus | bassopus | 48 000 | 96 000 | 96 000 | 96 000 | 0 | 0 | 0.0100 | 0.0110 | 1.14 | continuous (pre-skip applied) |
-| m4a (AAC) | Media Foundation | 48 000 | 96 000 | 96 000 | 97 280 (+1 280) | **+1 024** | **+2 304** | 0.0145 | 1.73 | 1.04 | **best-effort**: priming not removed |
+| m4a (AAC) | Media Foundation | 48 000 | 96 000 | 96 000 | 97 280 (+1 280) | **+1 024** | **+2 304** | 0.0145 | 1.73 | 1.04 | **best-effort** as decoded; continuous since T-102 (below) |
 | wma | Media Foundation | 48 000 | 96 000 | 96 000 | 94 208 (-1 792) | 0 | **-1 792** | 0.0034 | 1.61 | 6.27 | **best-effort**: decoder drops the tail |
 
 The residuals of the continuous lossy rows (0.01 to 0.03) are the codecs' own coding error on the chirp, the
 same before and after the seam; the seam residual equals the residual after, so the join added nothing. The
 `[gapless]` suite asserts lag 0 before and after, the exact join frame, the residual bound per pair and a step
-ratio under 1.6 for the ten continuous pairs, and only that the join happened for the two best-effort ones.
+ratio under 1.6 for the eleven continuous pairs (AAC since T-102), and only that the join happened for WMA.
 
 ## What it took: three findings about BASSmix
 
@@ -82,13 +82,20 @@ Trimming by seeking is not an option either. Seeking the MF stream is not sample
 from 21 ms landed at frame 0, from 42 ms at frame 992, from 500 ms at frame 6 949), so a "skip the priming"
 seek cannot be relied on, and BASS's `BASS_MP3_IGNOREDELAY` / LAME logic does not apply to MF streams.
 
-What would give gapless AAC: read the priming and padding ourselves (the `elst` media time and the
-`iTunSMPB` freeform atom, a small MP4 atom walk) and wrap the MF decode stream in a user decode stream
-(`BASS_StreamCreate` with a `STREAMPROC`) that decodes from 0, discards the priming frames and ends after the
-valid count; the wrapper is then an ordinary source for the mixer, LIMIT and all. Seeks would go to the MF
-stream underneath and stay inexact, which they are today. The BASS_AAC add-on, which does this itself, is GPL
-and excluded by the licence policy (THIRD-PARTY-NOTICES.md). This is a story of its own, not part of the
-spike; until it lands AAC is best-effort.
+**T-102 (Q-19: queued for E1) closed this.** `audio/mp4_gapless.cpp` walks the file's `moov` (skipping
+`mdat` unread) and takes the priming and valid-frame count from `iTunSMPB` when present, else from the
+first real `elst` entry (media time = priming; segment duration scaled from the movie timescale to the
+track's), clamped to what the track holds; a file with neither, or one that trims nothing (ALAC's media
+time 0), plays untrimmed. For such a track `open_track` creates a user decode stream
+(`BASS_StreamCreate` + `STREAMPROC`) over the MF stream that drops the priming after a rewind and ends after
+the valid count, so the mixer sees an ordinary source, LIMIT and all: the m4a pair now joins at frame 96 000
+with lag 0 and a seam residual of 0.03 (the codec's own error), and `mp_track_info` reports 96 000 frames /
+2 000 ms rather than the decoder's 97 280. A user stream cannot seek (BASS: reset to 0 only), so a seek on a
+wrapped track takes it out of the mixer, resets the wrapper, moves the MF stream to the frame plus priming,
+records that frame as the wrapper's origin (added back to every position read, so the clock stays right)
+and re-attaches it; the landing is as inexact as MF's seek was before (measured: within 100 ms). The
+BASS_AAC add-on, which does the trimming itself, is GPL and excluded by the licence policy
+(THIRD-PARTY-NOTICES.md).
 
 ## WMA through Media Foundation
 
@@ -102,6 +109,8 @@ WMA as gapless; best-effort, listed as such in product-scope.md.
 - `mp_engine_preload_next(next)` queues the successor (rewound to 0); NULL, `mp_engine_stop`, closing the
   queued track, or playing it by hand clear the queue. The join needs no fade: the envelope stays at 1.
 - The exact join frame is in the events' `b`; `mp_engine_get_clock` returns `b`'s position from the join on.
-- Sources are added with `NORAMPIN | LIMIT` everywhere (play, re-attach after a device change, the join).
+- Sources are added with `NORAMPIN | LIMIT` everywhere (play, re-attach after a device change, the join, a seek
+  on a wrapped MP4 track).
+- MP4 AAC is trimmed by the engine from the file's own description (T-102); `track.inner` is the MF stream.
 - ABI 0.5: nothing changed in signatures; `mp_engine_preload_next` is implemented and the events' `b` is
   documented.

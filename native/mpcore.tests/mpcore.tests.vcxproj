@@ -61,6 +61,7 @@
     <ClCompile Include="$(MpCoreDir)src\abi\exports_render.cpp" />
     <ClCompile Include="$(MpCoreDir)src\abi\last_error.cpp" />
     <ClCompile Include="$(MpCoreDir)src\audio\bass_engine.cpp" />
+    <ClCompile Include="$(MpCoreDir)src\audio\mp4_gapless.cpp" />
     <ClCompile Include="$(MpCoreDir)src\common\log.cpp" />
     <ClCompile Include="$(MpCoreDir)src\common\rt_guard.cpp" />
     <ClCompile Include="$(MpCoreDir)src\render\renderer.cpp" />
@@ -71,6 +72,7 @@
     <ClCompile Include="src\test_asan_scratch.cpp" />
     <ClCompile Include="src\test_engine.cpp" />
     <ClCompile Include="src\test_gapless.cpp" />
+    <ClCompile Include="src\test_mp4_gapless.cpp" />
     <ClCompile Include="src\test_transport.cpp" />
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_spsc_ring.cpp" />

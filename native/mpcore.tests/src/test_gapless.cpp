@@ -56,13 +56,13 @@ double score(const std::vector<float>& out, int64_t from, int64_t to, int64_t la
     return s;
 }
 
-// The lag in [-range, range] at which out[from, to) best matches the reference: a coarse pass over the first
-// 4000 frames of the window, then the full window within 24 frames of the coarse winner.
-int64_t best_lag(const std::vector<float>& out, int64_t from, int64_t to, int64_t range) {
+// The lag in [centre - range, centre + range] at which out[from, to) best matches the reference: a coarse pass over the
+// first 4000 frames of the window, then the full window within 24 frames of the coarse winner.
+int64_t best_lag(const std::vector<float>& out, int64_t from, int64_t to, int64_t range, int64_t centre = 0) {
     const int64_t coarse_to = std::min(to, from + 4000);
-    int64_t best = 0;
+    int64_t best = centre;
     double best_score = -1e300;
-    for (int64_t lag = -range; lag <= range; ++lag) {
+    for (int64_t lag = centre - range; lag <= centre + range; ++lag) {
         const double s = score(out, from, coarse_to, lag);
         if (s > best_score) {
             best_score = s;
@@ -139,14 +139,15 @@ struct pair_result {
 
 // What the spike measured (docs/spikes/e1-s2-gapless-join.md) and E1-S3 relies on: the pairs that join
 // sample-continuously, with the seam residual each decoder is allowed (its coding error on the chirp, not the
-// join's). A pair not listed is best-effort - AAC and WMA through Media Foundation - and only has to join.
+// join's). AAC joined once the engine trimmed the priming itself (T-102). A pair not listed is best-effort - WMA
+// through Media Foundation - and only has to join.
 struct expectation {
     const char* name;
     double seam_bound;
 };
 constexpr expectation k_continuous[] = {
-    {"wav", 0.001},      {"aiff", 0.001}, {"flac", 0.001},   {"alac", 0.001}, {"wv", 0.001},
-    {"flac-44k", 0.002}, {"mp3", 0.05},   {"mp3-44k", 0.05}, {"ogg", 0.05},   {"opus", 0.05},
+    {"wav", 0.001}, {"aiff", 0.001},   {"flac", 0.001}, {"alac", 0.001}, {"wv", 0.001}, {"flac-44k", 0.002},
+    {"mp3", 0.05},  {"mp3-44k", 0.05}, {"ogg", 0.05},   {"opus", 0.05},  {"m4a", 0.05},
 };
 
 const expectation* expected_continuous(const std::string& name) {
@@ -372,4 +373,51 @@ TEST_CASE("preload_next is cleared by stop, by closing the track and by playing 
         CHECK(fx.position_ms() == Catch::Approx(150).margin(15));
     }
     mp_engine_set_event_callback(fx.engine, nullptr, nullptr);
+}
+
+TEST_CASE("an AAC track seeks and pauses through the trimming wrapper", "[gapless][mp4]") {
+    const fs::path root = fixture_root();
+    if (root.empty() || !fs::exists(root / "m4a")) {
+        SKIP("tests/fixtures/gapless not found (run detached from the repository)");
+    }
+    offline_engine fx;
+    mp_track* a = fx.open(utf8(track_file(root / "m4a", "a")));
+    mp_track_info info{};
+    info.struct_size = sizeof info;
+    REQUIRE(mp_track_get_info(a, &info) == MP_OK);
+    CHECK(info.total_frames == 96000); // the valid frames, not the decoder's 97 280
+    CHECK(info.duration_ms == 2000);
+
+    REQUIRE(mp_engine_play(fx.engine, a, 0) == MP_OK);
+    fx.render(k_rate / 2);
+    {
+        const mp_result sr = mp_engine_seek(fx.engine, 1000);
+        INFO(last_error());
+        REQUIRE(sr == MP_OK);
+    }
+    std::vector<float> out(static_cast<size_t>(k_rate) * k_channels);
+    // Render 1 s after the seek and match it against the chirp: the audio comes from about 1.0 s in (a Media
+    // Foundation seek lands near, not on, the frame) and the clock follows the wrapper's position.
+    const std::vector<float> after = fx.render(k_rate);
+    const int64_t expected_lag = -static_cast<int64_t>(k_rate); // output frame k holds chirp frame k + 48000
+    const int64_t lag = best_lag(after, 100 + mp::tests::k_fade_frames, k_rate - 100, 6000, expected_lag);
+    CHECK(std::llabs(lag - expected_lag) < 4800); // within 100 ms: inexact, as documented
+    CHECK(residual(after, 100 + mp::tests::k_fade_frames, k_rate - 100, lag) < 0.05);
+    CHECK(fx.position_ms() == Catch::Approx(2000).margin(150));
+
+    // The wrapper ends at the valid count: the track ends exactly when its 96 000 frames are out.
+    REQUIRE(mp_engine_play(fx.engine, a, 1900) == MP_OK);
+    int ended = 0;
+    mp_engine_set_event_callback(
+        fx.engine,
+        [](const mp_event* ev, void* user) {
+            if (ev->type == MP_EVENT_TRACK_ENDED) {
+                ++*static_cast<int*>(user);
+            }
+        },
+        &ended);
+    fx.render(k_rate / 2);
+    CHECK(ended == 1);
+    mp_engine_set_event_callback(fx.engine, nullptr, nullptr);
+    (void)out;
 }

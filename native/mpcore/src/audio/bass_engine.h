@@ -17,10 +17,23 @@ namespace mp::audio {
 class engine;
 
 struct track {
-    uint32_t stream = 0; // HSTREAM (decode)
+    uint32_t stream = 0; // HSTREAM (decode): what the mixer plays
     mp_track_info info{};
     std::wstring path;
     engine* owner = nullptr;
+
+    // T-102: an MP4 whose decoder (Media Foundation) hands out the encoder priming and padding. `stream` is then
+    // a user decode stream whose STREAMPROC reads `inner`, drops trim_priming frames after a rewind and ends
+    // after trim_valid frames. A user stream cannot seek, only reset to 0, so a seek resets it, moves `inner`,
+    // and records in trim_origin the frame its counter 0 now stands for; every position read adds it back.
+    // The audio thread owns trim_skip and trim_delivered while the wrapper is in the mixer.
+    uint32_t inner = 0;
+    uint64_t trim_priming = 0;
+    uint64_t trim_valid = 0;
+    uint64_t trim_skip = 0;
+    uint64_t trim_delivered = 0;
+    uint64_t trim_origin = 0;
+    uint32_t frame_bytes = 0;
 };
 
 class engine {
@@ -77,6 +90,14 @@ private:
     void pull(void* buffer, uint32_t bytes) noexcept;
 
     static unsigned long __stdcall output_proc(void* buffer, unsigned long length, void* user);
+    static unsigned long __stdcall trim_proc(unsigned long handle, void* buffer, unsigned long length, void* user);
+    static void free_track_streams(track& t) noexcept;
+    // Positions a source that is not in the mixer (bytes of its own float format); handles the wrapper.
+    static bool set_source_position(track& t, uint64_t bytes) noexcept;
+    // The source's mixer position (latency-compensated by `delay` bytes) including a wrapper's origin.
+    static uint64_t source_position(const track& t, uint32_t delay) noexcept;
+    // Attaches a positioned source to the mixer with the END sync.
+    mp_result attach_source(track& t);
     static void __stdcall end_sync(unsigned long handle, unsigned long channel, unsigned long data, void* user);
 
     mutable std::mutex control_; // control-plane calls; never taken on the audio thread

@@ -21,6 +21,7 @@
 #include "audio/bass_engine.h"
 
 #include "abi/last_error.h"
+#include "audio/mp4_gapless.h"
 #include "common/log.h"
 #include "common/rt_guard.h"
 
@@ -283,9 +284,7 @@ engine::~engine() {
         current_.store(nullptr, std::memory_order_relaxed);
         next_.store(nullptr, std::memory_order_relaxed);
         for (auto& t : tracks_) {
-            if (t->stream != 0) {
-                BASS_StreamFree(t->stream);
-            }
+            free_track_streams(*t);
         }
         tracks_.clear();
         if (mixer_ != 0) {
@@ -367,10 +366,10 @@ mp_result engine::set_output(const mp_output_config& config) {
     // The mixer must produce exactly what the device consumes; recreate it at the output format and
     // re-attach the current source at its position (surprise recorded in the spike doc).
     if (output_rate_ != mixer_rate_ || output_channels_ != mixer_channels_) {
-        QWORD resume_pos = 0;
+        uint64_t resume_pos = 0;
         track* const cur = current_.load(std::memory_order_acquire);
         if (cur != nullptr) {
-            resume_pos = BASS_Mixer_ChannelGetPosition(cur->stream, BASS_POS_BYTE);
+            resume_pos = source_position(*cur, 0);
             BASS_Mixer_ChannelRemove(cur->stream);
         }
         const mp_result r = create_mixer(output_rate_, output_channels_);
@@ -379,11 +378,10 @@ mp_result engine::set_output(const mp_output_config& config) {
             return r;
         }
         if (cur != nullptr) {
-            BASS_ChannelSetPosition(cur->stream, resume_pos, BASS_POS_BYTE);
-            if (!BASS_Mixer_StreamAddChannel(mixer_, cur->stream, k_source_flags)) {
-                return bass_fail("BASS_Mixer_StreamAddChannel (re-attach)");
+            set_source_position(*cur, resume_pos);
+            if (const mp_result a = attach_source(*cur); a != MP_OK) {
+                return a;
             }
-            BASS_Mixer_ChannelSetSync(cur->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, this);
         }
     }
 
@@ -475,6 +473,7 @@ mp_result engine::open_track(const char* utf8_path, track*& out) {
     t->stream = stream;
     t->path = path;
     t->owner = this;
+    t->frame_bytes = static_cast<uint32_t>(sizeof(float)) * ci.chans;
     t->info.struct_size = sizeof(mp_track_info);
     t->info.sample_rate = ci.freq;
     t->info.channels = ci.chans;
@@ -486,6 +485,30 @@ mp_result engine::open_track(const char* utf8_path, track*& out) {
     } else {
         t->info.duration_ms = -1;
         t->info.total_frames = -1;
+    }
+
+    // Media Foundation delivers an MP4's priming and padding as audio (E1-S2 spike); wrap such a stream in one
+    // that trims them. Other decoders (bassflac, bassopus, BASS's MP3) already do this themselves.
+    if (ci.ctype == BASS_CTYPE_STREAM_MF && ci.chans != 0 && ci.freq != 0) {
+        if (const auto g = read_mp4_gapless(path); g && g->timescale == ci.freq) {
+            const HSTREAM wrapper =
+                BASS_StreamCreate(ci.freq, ci.chans, BASS_STREAM_DECODE | BASS_SAMPLE_FLOAT, &trim_proc, t.get());
+            if (wrapper == 0) {
+                BASS_StreamFree(stream);
+                return bass_fail("BASS_StreamCreate (trim)");
+            }
+            t->inner = stream;
+            t->stream = wrapper;
+            t->trim_priming = g->priming_frames;
+            t->trim_valid = g->valid_frames;
+            t->trim_skip = g->priming_frames;
+            t->trim_delivered = 0;
+            t->info.total_frames = static_cast<int64_t>(g->valid_frames);
+            t->info.duration_ms = static_cast<int64_t>(g->valid_frames * 1000 / ci.freq);
+            log(MP_LOG_DEBUG, "mp4 gapless: priming %llu, valid %llu frames (%s)",
+                static_cast<unsigned long long>(g->priming_frames), static_cast<unsigned long long>(g->valid_frames),
+                g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list");
+        }
     }
     out = t.get();
     tracks_.push_back(std::move(t));
@@ -513,7 +536,7 @@ mp_result engine::close_track(track* t) {
         current_.store(nullptr, std::memory_order_release);
         playing_.store(false, std::memory_order_release);
     }
-    BASS_StreamFree(t->stream);
+    free_track_streams(*t);
     tracks_.erase(it);
     return MP_OK;
 }
@@ -558,15 +581,12 @@ mp_result engine::play(track* t, int64_t start_ms) {
         next_.store(nullptr, std::memory_order_release); // playing the preloaded track by hand consumes it
     }
     const QWORD start = BASS_ChannelSeconds2Bytes(t->stream, static_cast<double>(start_ms) / 1000.0);
-    if (!BASS_ChannelSetPosition(t->stream, start, BASS_POS_BYTE)) {
+    if (!set_source_position(*t, start)) {
         return bass_fail("BASS_ChannelSetPosition");
     }
-    // The mixer resamples if the source rate differs.
-    if (!BASS_Mixer_StreamAddChannel(mixer_, t->stream, k_source_flags)) {
-        return bass_fail("BASS_Mixer_StreamAddChannel");
+    if (const mp_result r = attach_source(*t); r != MP_OK) {
+        return r;
     }
-    // MIXTIME: fires when the end is mixed, not when it is heard; the managed side compensates with the clock.
-    BASS_Mixer_ChannelSetSync(t->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, this);
     current_.store(t, std::memory_order_release);
     env_level_.store(0.0f, std::memory_order_release);
     begin_fade_in();
@@ -592,7 +612,7 @@ mp_result engine::preload_next(track* next) {
         return MP_E_INVALID_ARG;
     }
     // Rewind here, on the control thread; the audio thread only adds it to the mixer.
-    if (!BASS_ChannelSetPosition(next->stream, 0, BASS_POS_BYTE)) {
+    if (!set_source_position(*next, 0)) {
         return bass_fail("BASS_ChannelSetPosition (preload)");
     }
     next_.store(next, std::memory_order_release);
@@ -653,8 +673,16 @@ mp_result engine::seek(int64_t position_ms) {
     const bool was_playing = playing_.load(std::memory_order_acquire);
     guard_out();
     const QWORD pos = BASS_ChannelSeconds2Bytes(cur->stream, static_cast<double>(position_ms) / 1000.0);
-    // MIXER_RESET drops what the mixer already buffered from the old position.
-    if (!BASS_Mixer_ChannelSetPosition(cur->stream, pos, BASS_POS_BYTE | BASS_POS_MIXER_RESET)) {
+    bool ok;
+    if (cur->inner == 0) {
+        // MIXER_RESET drops what the mixer already buffered from the old position.
+        ok = BASS_Mixer_ChannelSetPosition(cur->stream, pos, BASS_POS_BYTE | BASS_POS_MIXER_RESET);
+    } else {
+        // A user stream only resets: take the wrapper out (its syncs go with it), reposition, put it back.
+        BASS_Mixer_ChannelRemove(cur->stream);
+        ok = set_source_position(*cur, pos) && attach_source(*cur) == MP_OK;
+    }
+    if (!ok) {
         const mp_result r = bass_fail("BASS_Mixer_ChannelSetPosition");
         if (was_playing) {
             begin_fade_in();
@@ -705,9 +733,8 @@ mp_result engine::get_clock(mp_clock& out) const {
         out.position_ms = 0;
         return MP_OK;
     }
-    const QWORD pos = BASS_Mixer_ChannelGetPositionEx(t->stream, BASS_POS_BYTE, buffered);
-    out.position_ms =
-        pos == static_cast<QWORD>(-1) ? 0 : static_cast<int64_t>(BASS_ChannelBytes2Seconds(t->stream, pos) * 1000.0);
+    const uint64_t pos = source_position(*t, buffered);
+    out.position_ms = static_cast<int64_t>(BASS_ChannelBytes2Seconds(t->stream, pos) * 1000.0);
     return MP_OK;
 }
 
@@ -827,6 +854,100 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
     uint32_t prev = callback_max_us_.load(std::memory_order_relaxed);
     while (us > prev && !callback_max_us_.compare_exchange_weak(prev, us, std::memory_order_relaxed)) {
     }
+}
+
+void engine::free_track_streams(track& t) noexcept {
+    if (t.stream != 0) {
+        BASS_StreamFree(t.stream);
+        t.stream = 0;
+    }
+    if (t.inner != 0) {
+        BASS_StreamFree(t.inner);
+        t.inner = 0;
+    }
+}
+
+// ---- MP4 trimming wrapper (T-102) ---------------------------------------------------------------
+
+// STREAMPROC of the wrapper: pulled by the mixer on the audio thread. Drops the priming frames still owed
+// (using the caller's buffer as scratch), then hands out inner frames until the valid count is reached. No
+// allocation, no logging.
+unsigned long __stdcall engine::trim_proc(unsigned long /*handle*/, void* buffer, unsigned long length, void* user) {
+    auto* t = static_cast<track*>(user);
+    const uint32_t frame_bytes = t->frame_bytes;
+    if (frame_bytes == 0) {
+        return BASS_STREAMPROC_END;
+    }
+    while (t->trim_skip > 0) {
+        const auto want =
+            static_cast<DWORD>(std::min<uint64_t>(t->trim_skip * frame_bytes, length) / frame_bytes * frame_bytes);
+        if (want == 0) {
+            return BASS_STREAMPROC_END;
+        }
+        const DWORD got = BASS_ChannelGetData(t->inner, buffer, want);
+        if (got == 0 || got == static_cast<DWORD>(-1)) {
+            return BASS_STREAMPROC_END; // shorter than its own priming: nothing to play
+        }
+        t->trim_skip -= got / frame_bytes;
+    }
+    const uint64_t remaining = t->trim_valid > t->trim_delivered ? t->trim_valid - t->trim_delivered : 0;
+    const auto want =
+        static_cast<DWORD>(std::min<uint64_t>(remaining * frame_bytes, length) / frame_bytes * frame_bytes);
+    if (want == 0) {
+        return BASS_STREAMPROC_END;
+    }
+    DWORD got = BASS_ChannelGetData(t->inner, buffer, want);
+    if (got == static_cast<DWORD>(-1)) {
+        return BASS_STREAMPROC_END;
+    }
+    got = got / frame_bytes * frame_bytes;
+    t->trim_delivered += got / frame_bytes;
+    const bool ended = got < want || t->trim_delivered >= t->trim_valid;
+    return got | (ended ? BASS_STREAMPROC_END : 0);
+}
+
+// Control thread, source not in the mixer. For a wrapper: reset its counter (the one thing a user stream can
+// do), move the inner stream to the same audio frame past the priming, and remember what frame the counter
+// now starts at. Position 0 decodes from the file's start and drops the priming exactly; anything else is a
+// Media Foundation seek, which is not sample-accurate (spike doc), as it was before the wrapper.
+bool engine::set_source_position(track& t, uint64_t bytes) noexcept {
+    if (t.inner == 0) {
+        return BASS_ChannelSetPosition(t.stream, bytes, BASS_POS_BYTE) != 0;
+    }
+    if (t.frame_bytes == 0 || !BASS_ChannelSetPosition(t.stream, 0, BASS_POS_BYTE)) {
+        return false;
+    }
+    const uint64_t frames = bytes / t.frame_bytes;
+    if (frames == 0) {
+        if (!BASS_ChannelSetPosition(t.inner, 0, BASS_POS_BYTE)) {
+            return false;
+        }
+        t.trim_skip = t.trim_priming;
+    } else {
+        if (!BASS_ChannelSetPosition(t.inner, (frames + t.trim_priming) * t.frame_bytes, BASS_POS_BYTE)) {
+            return false;
+        }
+        t.trim_skip = 0;
+    }
+    t.trim_delivered = frames;
+    t.trim_origin = frames;
+    return true;
+}
+
+uint64_t engine::source_position(const track& t, uint32_t delay) noexcept {
+    const QWORD pos = BASS_Mixer_ChannelGetPositionEx(t.stream, BASS_POS_BYTE, delay);
+    const uint64_t counted = pos == static_cast<QWORD>(-1) ? 0 : pos;
+    return counted + t.trim_origin * t.frame_bytes;
+}
+
+mp_result engine::attach_source(track& t) {
+    // The mixer resamples if the source rate differs.
+    if (!BASS_Mixer_StreamAddChannel(mixer_, t.stream, k_source_flags)) {
+        return bass_fail("BASS_Mixer_StreamAddChannel");
+    }
+    // MIXTIME: fires when the end is mixed, not when it is heard; the managed side compensates with the clock.
+    BASS_Mixer_ChannelSetSync(t.stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, this);
+    return MP_OK;
 }
 
 // BASSWASAPI calls this on its own thread; the data it wants is always 32-bit float regardless of the
