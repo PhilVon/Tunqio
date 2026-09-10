@@ -111,6 +111,25 @@ the priming (and the clamp below it), never a packet boundary and never drifting
 identifies the bias as the edit list's priming rather than the 1 024-frame AAC packet the fixture happens to
 share it with.
 
+**That sign is not the same on every Windows** (T-109, measured on CI). Everything above was taken on Windows
+10 19045. Repeating the position measurement on `windows-2025-vs2026` gives an error of exactly `+priming`
+instead — the same magnitude, the same exactness at every position, the opposite direction:
+
+| seek to | 0 ms | 250 ms | 500 ms | 1 000 ms | 1 500 ms |
+|---|---|---|---|---|---|
+| error, Windows 10 19045 | 0 | `-1 024` | `-1 024` | `-1 024` | `-1 024` |
+| error, windows-2025-vs2026 | 0 | `+1 024` | `+1 024` | `+1 024` | `+1 024` |
+
+A rewind to 0 behaves the same on both. Nothing readable at open separates the two: both hand out the same
+97 280 frames from position 0, both refuse a seek at or past 96 000, and both echo back the position they were
+given. `BASS_ChannelGetLength` reports 96 000 before anything has been decoded and 97 280 afterwards, on both.
+
+So the engine does not assume the rule, it measures it — `calibrate_seek_offset` in `bass_engine.cpp`, once per
+file at open. Seeking to `k` frames before the end of the valid audio and counting what is left gives
+`2 * priming + padding + k` when the seek lands early and `padding + k` when it lands late; the two are
+`2 * priming` apart and the padding is under one AAC frame, so `tail - k < priming` separates them. It costs a
+seek and a few thousand frames of decoding rather than a whole track.
+
 Two of the three figures in the paragraph above fit that rule exactly (21 ms = 1 008 frames asked lands at
 decoder frame 0; 42 ms = 2 016 lands at 992 = 2 016 - 1 024); the 500 ms one does not and is unexplained. So
 "not sample-accurate" was the wrong reading of a systematic offset, and the wrapper inherited it: it asked for

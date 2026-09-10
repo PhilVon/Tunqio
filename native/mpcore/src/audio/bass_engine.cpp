@@ -760,6 +760,50 @@ void engine::emit(mp_event_type type, int64_t a, int64_t b, const char* message)
 
 // ---- tracks -------------------------------------------------------------------------------------
 
+// T-109. Media Foundation's two timelines do not agree, and which way they disagree is not the same on every
+// Windows. Its *data* is the decoder's: priming frames, then the valid audio, then the padding. Its *positions*
+// are the edit list's. Asking for frame n and measuring where the audio actually starts gives, at every position
+// clear of the priming and never drifting:
+//
+//   Windows 10 19045          data begins at decoder frame n - priming   (what the E1-S2 spike measured)
+//   windows-2025-vs2026       data begins at decoder frame n + priming
+//
+// Nothing readable at open tells the two apart - both hand out the same priming + valid + padding frames from 0,
+// both refuse a seek at or past the valid count, both echo back the position they were given. So this measures
+// the rule instead of assuming it: seek to `k` frames before the end of the valid audio and count what is left.
+// The tail is everything from where the data really began to the end of the decoder's output, so
+//
+//   tail = priming + padding + k - offset, with offset either -priming or +priming
+//
+// which is `2 * priming + padding + k` when the seek lands early and `padding + k` when it lands late. The two
+// are 2 * priming apart and the padding is the only other unknown, so `tail - k < priming` separates them for
+// any padding smaller than the priming - and the padding is under one AAC frame while the priming is one or
+// more. Costs a seek and a few thousand frames of decoding, once per file, not a whole track.
+//
+// Returns true when a seek lands past the priming. Leaves the stream rewound to 0.
+static bool calibrate_seek_offset(HSTREAM stream, uint32_t frame_bytes, uint64_t priming, uint64_t valid) noexcept {
+    constexpr uint64_t k_probe_frames = 2000;
+    if (frame_bytes == 0 || priming == 0 || valid <= k_probe_frames) {
+        return false; // nothing to measure against; the spike's rule is the older behaviour, so keep it
+    }
+    if (BASS_ChannelSetPosition(stream, (valid - k_probe_frames) * frame_bytes, BASS_POS_BYTE) == 0) {
+        return false;
+    }
+
+    uint64_t tail = 0;
+    std::vector<char> scratch(8192);
+    for (;;) {
+        const DWORD got = BASS_ChannelGetData(stream, scratch.data(), static_cast<DWORD>(scratch.size()));
+        if (got == static_cast<DWORD>(-1) || got == 0) {
+            break;
+        }
+        tail += got / frame_bytes;
+    }
+    BASS_ChannelSetPosition(stream, 0, BASS_POS_BYTE);
+
+    return tail < k_probe_frames + priming;
+}
+
 mp_result engine::open_track(const char* utf8_path, track*& out) {
     std::lock_guard lock{control_};
     const std::wstring path = utf8_to_wide(utf8_path);
@@ -813,9 +857,11 @@ mp_result engine::open_track(const char* utf8_path, track*& out) {
             t->trim_delivered = 0;
             t->info.total_frames = static_cast<int64_t>(g->valid_frames);
             t->info.duration_ms = static_cast<int64_t>(g->valid_frames * 1000 / ci.freq);
-            log(MP_LOG_DEBUG, "mp4 gapless: priming %llu, valid %llu frames (%s)",
+            t->trim_lands_late = calibrate_seek_offset(stream, t->frame_bytes, g->priming_frames, g->valid_frames);
+            log(MP_LOG_DEBUG, "mp4 gapless: priming %llu, valid %llu frames (%s); a seek lands %s",
                 static_cast<unsigned long long>(g->priming_frames), static_cast<unsigned long long>(g->valid_frames),
-                g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list");
+                g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list",
+                t->trim_lands_late ? "past the priming" : "before it");
         }
     }
     // The crossfade envelope rides on whichever stream the mixer pulls; it is a no-op until a fade is armed.
@@ -1364,15 +1410,19 @@ unsigned long __stdcall engine::trim_proc(unsigned long /*handle*/, void* buffer
 // do), move the inner stream to the audio frame asked for, and remember what frame the counter now stands for.
 //
 // The two timelines of an MF stream do not agree, and that is what the arithmetic here is about. Its *data* is
-// the decoder's: priming frames, then the valid audio, then the padding. Its *positions* are the edit list's:
-// BASS_ChannelGetLength reports the valid count, a position past it is refused, and - measured with the probe
-// in docs/spikes/e1-s2-gapless-join.md on Windows 10 19045, over many positions and three edit lists claiming
-// 512, 1024 and 2048 priming frames - data delivered after a seek to frame n begins at decoder frame
-// n - priming, clamped at 0. Exactly, every time: the seek is sample-accurate, it is the coordinate that is
-// shifted. So asking for frame n and then dropping what is still owed lands on the requested frame exactly,
-// and trim_delivered, trim_origin and dsp_pos are the real frame the next output holds - which is what the
-// valid-frame limit in trim_proc and the reported clock both need. (Asking for frames + priming instead, and
-// assuming it landed there, is what used to cut the last priming frames off a track after a seek.)
+// the decoder's: priming frames, then the valid audio, then the padding. Its *positions* are the edit list's.
+// The seek itself is exact - the offset between them is the same at every position and never drifts - but which
+// way it goes is not the same on every Windows, so calibrate_seek_offset measures it per file at open:
+//
+//   Windows 10 19045          data begins at decoder frame n - priming, clamped at 0 (the E1-S2 spike's rule)
+//   windows-2025-vs2026       data begins at decoder frame n + priming
+//
+// A rewind is the exception and behaves the same on both: position 0 hands back the decoder's own first frame,
+// so what is owed there is the priming itself. Dropping what is still owed then lands on the requested frame
+// exactly, and trim_delivered, trim_origin and dsp_pos are the real frame the next output holds - which is what
+// the valid-frame limit in trim_proc and the reported clock both need. (Asking for frames + priming and assuming
+// it landed there is what used to cut the last priming frames off a track after a seek on 19045; assuming
+// 19045's rule everywhere is what put the audio 2 * priming frames late on the CI runner.)
 bool engine::set_source_position(track& t, uint64_t bytes) noexcept {
     if (t.inner == 0) {
         if (!BASS_ChannelSetPosition(t.stream, bytes, BASS_POS_BYTE)) {
@@ -1389,9 +1439,16 @@ bool engine::set_source_position(track& t, uint64_t bytes) noexcept {
         return false;
     }
     // Where the inner stream's next frame sits in the decoder's output, and where the requested frame sits.
-    const uint64_t data_at = frames > t.trim_priming ? frames - t.trim_priming : 0;
+    uint64_t data_at;
+    if (frames == 0) {
+        data_at = 0; // a rewind hands back the decoder's first frame, priming included, on both
+    } else if (t.trim_lands_late) {
+        data_at = frames + t.trim_priming;
+    } else {
+        data_at = frames > t.trim_priming ? frames - t.trim_priming : 0;
+    }
     const uint64_t want_at = frames + t.trim_priming;
-    t.trim_skip = want_at - data_at; // priming at position 0, twice that once clear of it
+    t.trim_skip = want_at - data_at; // the priming at a rewind; twice it, or nothing, once clear of it
     t.trim_delivered = frames;
     t.trim_origin = frames;
     t.dsp_pos.store(frames, std::memory_order_release);

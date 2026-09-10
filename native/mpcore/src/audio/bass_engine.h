@@ -49,13 +49,16 @@ struct track {
     // a user decode stream whose STREAMPROC reads `inner`, drops trim_skip frames it is still owed and ends
     // after trim_valid frames. A user stream cannot seek, only reset to 0, so a seek resets it, moves `inner`,
     // and records in trim_origin the frame its counter 0 now stands for; every position read adds it back.
-    // trim_skip is how set_source_position corrects for `inner`'s own positions running trim_priming frames
-    // ahead of its data (T-109, see there); at position 0 that is the priming itself.
+    // trim_skip is how set_source_position corrects for the offset between the frame `inner` is asked for and the
+    // frame its data actually starts at (T-109, see there); at position 0 that offset is the priming itself.
+    // trim_lands_late says which way that offset goes on this machine's Media Foundation, measured once per file
+    // at open by calibrate_seek_offset rather than assumed.
     // The audio thread owns trim_skip and trim_delivered while the wrapper is in the mixer.
     uint32_t inner = 0;
     uint64_t trim_priming = 0;
     uint64_t trim_valid = 0;
     uint64_t trim_skip = 0;
+    bool trim_lands_late = false;
     uint64_t trim_delivered = 0;
     uint64_t trim_origin = 0;
     uint32_t frame_bytes = 0;
