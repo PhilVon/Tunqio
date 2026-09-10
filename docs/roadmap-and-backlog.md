@@ -172,8 +172,13 @@ Depends on: E1-S1, E1-S3, E1-S9. C# single owner of state; drives `IAudioEngine`
 - [ ] A `play_event` is emitted with correct heard time and `completed` flag per the 50%/4-minute rule
 
 ### E1-S11 · Soak runner · **S** · `perf` `audio`
-`tools/SoakRunner` (C# over Interop) loops the fixture library and logs `mp_engine_stats.underruns`.
+`tools/SoakRunner` (C# over Interop) loops a library through a real device and reports `mp_engine_stats.underruns`.
+Silent by default (`-volume 0`): the WASAPI proc still pulls, so an underrun is as real as it would be at listening
+volume. A pass also needs the clock to have kept moving — silence produces no underruns either.
 - [ ] 1-hour soak on the dev machine completes with zero underruns (24 h run is E8)
+
+Its first run found the join underrun below, which is what blocks that criterion: the checked-in fixture library is
+44.1 kHz for every format but FLAC and Opus, so it fails on the first boundary.
 
 ---
 

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- tools/SoakRunner (E1-S11): plays the fixture library through a real WASAPI device for as long as it is asked
+       to, and reports mp_engine_stats.underruns. Silent by default (-volume 0): the WASAPI proc still pulls and the
+       mixer still runs, so an underrun is exactly as real as it would be at listening volume, and an hour of the
+       fixture library is not something anyone should have to sit through.
+         dotnet run -c Release -p:Platform=x64 -project tools/SoakRunner (then: -minutes 60)
+       Needs mpcore.dll and the BASS runtime next to the exe (copied below, the way the interop tests do it). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Tunqio.SoakRunner</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Reactive" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tunqio.Interop\Tunqio.Interop.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+    <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
+  </PropertyGroup>
+  <Target Name="TunqioCopyNativeCore" AfterTargets="Build">
+    <Error Condition="!Exists('$(TunqioNativeOut)mpcore.dll')"
+           Text="mpcore.dll not found at $(TunqioNativeOut). Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
+    <Error Condition="!Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
+           Text="native/bass is empty; run tools/fetch-native.ps1 first." />
+    <ItemGroup>
+      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+      <_TunqioNativeFiles Include="$(TunqioBassRoot)bin\x64\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
