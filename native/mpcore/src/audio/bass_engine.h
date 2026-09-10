@@ -46,9 +46,11 @@ struct track {
     engine* owner = nullptr;
 
     // T-102: an MP4 whose decoder (Media Foundation) hands out the encoder priming and padding. `stream` is then
-    // a user decode stream whose STREAMPROC reads `inner`, drops trim_priming frames after a rewind and ends
+    // a user decode stream whose STREAMPROC reads `inner`, drops trim_skip frames it is still owed and ends
     // after trim_valid frames. A user stream cannot seek, only reset to 0, so a seek resets it, moves `inner`,
     // and records in trim_origin the frame its counter 0 now stands for; every position read adds it back.
+    // trim_skip is how set_source_position corrects for `inner`'s own positions running trim_priming frames
+    // ahead of its data (T-109, see there); at position 0 that is the priming itself.
     // The audio thread owns trim_skip and trim_delivered while the wrapper is in the mixer.
     uint32_t inner = 0;
     uint64_t trim_priming = 0;

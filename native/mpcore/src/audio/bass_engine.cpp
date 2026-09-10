@@ -1323,9 +1323,9 @@ void engine::free_track_streams(track& t) noexcept {
 
 // ---- MP4 trimming wrapper (T-102) ---------------------------------------------------------------
 
-// STREAMPROC of the wrapper: pulled by the mixer on the audio thread. Drops the priming frames still owed
-// (using the caller's buffer as scratch), then hands out inner frames until the valid count is reached. No
-// allocation, no logging.
+// STREAMPROC of the wrapper: pulled by the mixer on the audio thread. Drops the inner frames still owed -
+// the priming after a rewind, and after a seek what set_source_position left to drop - using the caller's
+// buffer as scratch, then hands out inner frames until the valid count is reached. No allocation, no logging.
 unsigned long __stdcall engine::trim_proc(unsigned long /*handle*/, void* buffer, unsigned long length, void* user) {
     auto* t = static_cast<track*>(user);
     const uint32_t frame_bytes = t->frame_bytes;
@@ -1361,9 +1361,18 @@ unsigned long __stdcall engine::trim_proc(unsigned long /*handle*/, void* buffer
 }
 
 // Control thread, source not in the mixer. For a wrapper: reset its counter (the one thing a user stream can
-// do), move the inner stream to the same audio frame past the priming, and remember what frame the counter
-// now starts at. Position 0 decodes from the file's start and drops the priming exactly; anything else is a
-// Media Foundation seek, which is not sample-accurate (spike doc), as it was before the wrapper.
+// do), move the inner stream to the audio frame asked for, and remember what frame the counter now stands for.
+//
+// The two timelines of an MF stream do not agree, and that is what the arithmetic here is about. Its *data* is
+// the decoder's: priming frames, then the valid audio, then the padding. Its *positions* are the edit list's:
+// BASS_ChannelGetLength reports the valid count, a position past it is refused, and - measured with the probe
+// in docs/spikes/e1-s2-gapless-join.md on Windows 10 19045, over many positions and three edit lists claiming
+// 512, 1024 and 2048 priming frames - data delivered after a seek to frame n begins at decoder frame
+// n - priming, clamped at 0. Exactly, every time: the seek is sample-accurate, it is the coordinate that is
+// shifted. So asking for frame n and then dropping what is still owed lands on the requested frame exactly,
+// and trim_delivered, trim_origin and dsp_pos are the real frame the next output holds - which is what the
+// valid-frame limit in trim_proc and the reported clock both need. (Asking for frames + priming instead, and
+// assuming it landed there, is what used to cut the last priming frames off a track after a seek.)
 bool engine::set_source_position(track& t, uint64_t bytes) noexcept {
     if (t.inner == 0) {
         if (!BASS_ChannelSetPosition(t.stream, bytes, BASS_POS_BYTE)) {
@@ -1376,17 +1385,13 @@ bool engine::set_source_position(track& t, uint64_t bytes) noexcept {
         return false;
     }
     const uint64_t frames = bytes / t.frame_bytes;
-    if (frames == 0) {
-        if (!BASS_ChannelSetPosition(t.inner, 0, BASS_POS_BYTE)) {
-            return false;
-        }
-        t.trim_skip = t.trim_priming;
-    } else {
-        if (!BASS_ChannelSetPosition(t.inner, (frames + t.trim_priming) * t.frame_bytes, BASS_POS_BYTE)) {
-            return false;
-        }
-        t.trim_skip = 0;
+    if (!BASS_ChannelSetPosition(t.inner, frames * t.frame_bytes, BASS_POS_BYTE)) {
+        return false;
     }
+    // Where the inner stream's next frame sits in the decoder's output, and where the requested frame sits.
+    const uint64_t data_at = frames > t.trim_priming ? frames - t.trim_priming : 0;
+    const uint64_t want_at = frames + t.trim_priming;
+    t.trim_skip = want_at - data_at; // priming at position 0, twice that once clear of it
     t.trim_delivered = frames;
     t.trim_origin = frames;
     t.dsp_pos.store(frames, std::memory_order_release);

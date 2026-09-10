@@ -91,11 +91,37 @@ time 0), plays untrimmed. For such a track `open_track` creates a user decode st
 the valid count, so the mixer sees an ordinary source, LIMIT and all: the m4a pair now joins at frame 96 000
 with lag 0 and a seam residual of 0.03 (the codec's own error), and `mp_track_info` reports 96 000 frames /
 2 000 ms rather than the decoder's 97 280. A user stream cannot seek (BASS: reset to 0 only), so a seek on a
-wrapped track takes it out of the mixer, resets the wrapper, moves the MF stream to the frame plus priming,
-records that frame as the wrapper's origin (added back to every position read, so the clock stays right)
-and re-attaches it; the landing is as inexact as MF's seek was before (measured: within 100 ms). The
-BASS_AAC add-on, which does the trimming itself, is GPL and excluded by the licence policy
-(THIRD-PARTY-NOTICES.md).
+wrapped track takes it out of the mixer, resets the wrapper, moves the MF stream, records the frame the
+wrapper's counter now stands for (added back to every position read, so the clock stays right) and
+re-attaches it. The BASS_AAC add-on, which does the trimming itself, is GPL and excluded by the licence
+policy (THIRD-PARTY-NOTICES.md).
+
+### What a seek on the MF stream actually does (T-109)
+
+The seek is sample-accurate; what is off is the coordinate. `BASS_ChannelGetLength` on the MF stream reports
+the *edit list's* valid count (96 000) while the stream delivers the decoder's 97 280 frames, and data
+delivered after `BASS_ChannelSetPosition(n)` begins at decoder frame `n - priming`, clamped at 0. A position
+past the claimed length is refused (`BASS_ERROR_POSITION`).
+
+Measured with a standalone probe: decode the file once from 0 as the reference, then seek and locate the
+returned audio inside that reference by least squares. Over positions 0, 512, 1 024, 24 000, 48 000, 49 024,
+50 048, 91 200, 92 224, 95 000, 95 999 and 96 000 the error was exactly `-priming` at every position clear of
+the priming (and the clamp below it), never a packet boundary and never drifting. Copies of `a.m4a` with the
+`elst` media time rewritten to 512 and 2 048 moved the error to exactly `-512` and `-2 048`, which is what
+identifies the bias as the edit list's priming rather than the 1 024-frame AAC packet the fixture happens to
+share it with.
+
+Two of the three figures in the paragraph above fit that rule exactly (21 ms = 1 008 frames asked lands at
+decoder frame 0; 42 ms = 2 016 lands at 992 = 2 016 - 1 024); the 500 ms one does not and is unexplained. So
+"not sample-accurate" was the wrong reading of a systematic offset, and the wrapper inherited it: it asked for
+`frame + priming` and assumed it had landed there, which started the audio `priming` frames early and, because
+`trim_proc` stops after `trim_valid - trim_delivered` frames, cut the same amount off the track's real end -
+the last 1 024 valid frames (21 ms) were unreachable after a seek, and the reported clock carried the same
+error. It now asks for the frame it wants and drops what the inner stream still owes (`priming` at position 0,
+twice that once clear of it) through the same `trim_skip` path the rewind uses, which lands on the requested
+frame exactly, costs one extra packet of decoding, and never asks for a position past the claimed length -
+seeks into the last `priming` frames used to be refused outright. `[gapless][mp4]` pins it: lag exactly
+-48 000 after a seek to 1 000 ms, and the rendered second's final frames still matching the chirp's end.
 
 ## WMA through Media Foundation
 

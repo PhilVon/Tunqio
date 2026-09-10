@@ -401,15 +401,22 @@ TEST_CASE("an AAC track seeks and pauses through the trimming wrapper", "[gaples
         INFO(last_error());
         REQUIRE(sr == MP_OK);
     }
-    std::vector<float> out(static_cast<size_t>(k_rate) * k_channels);
-    // Render 1 s after the seek and match it against the chirp: the audio comes from about 1.0 s in (a Media
-    // Foundation seek lands near, not on, the frame) and the clock follows the wrapper's position.
+    // Render the 1 s the seek left and match it against the chirp. The wrapper asks the inner stream for the
+    // frame it wants and drops what that stream still owes (bass_engine.cpp), so the seek is sample-exact: the
+    // audio comes from 1.0 s in to the frame, and the clock follows it. Before T-109 the wrapper assumed the
+    // inner stream landed where it was asked, which put this 1024 frames (21 ms) early.
     const std::vector<float> after = fx.render(k_rate);
     const int64_t expected_lag = -static_cast<int64_t>(k_rate); // output frame k holds chirp frame k + 48000
     const int64_t lag = best_lag(after, 100 + mp::tests::k_fade_frames, k_rate - 100, 6000, expected_lag);
-    CHECK(std::llabs(lag - expected_lag) < 4800); // within 100 ms: inexact, as documented
+    CHECK(lag == expected_lag);
     CHECK(residual(after, 100 + mp::tests::k_fade_frames, k_rate - 100, lag) < 0.05);
-    CHECK(fx.position_ms() == Catch::Approx(2000).margin(150));
+    CHECK(fx.position_ms() == Catch::Approx(2000).margin(15));
+
+    // And it plays to the track's real end rather than stopping short of it: those 48 000 frames are the last
+    // of the 96 000 valid ones, so the final frame holds chirp frame 95 999 and nothing after the seek is
+    // silence. The window above stops 100 frames early, which is where the lost tail used to hide.
+    CHECK(residual(after, k_rate - 2400, k_rate, expected_lag) < 0.05);
+    CHECK(mp::tests::rms(after, k_rate - 1024, k_rate) > 0.1);
 
     // The wrapper ends at the valid count: the track ends exactly when its 96 000 frames are out.
     REQUIRE(mp_engine_play(fx.engine, a, 1900) == MP_OK);
@@ -425,7 +432,6 @@ TEST_CASE("an AAC track seeks and pauses through the trimming wrapper", "[gaples
     fx.render(k_rate / 2);
     CHECK(ended == 1);
     mp_engine_set_event_callback(fx.engine, nullptr, nullptr);
-    (void)out;
 }
 
 // T-108, found by the soak runner (E1-S11): every gapless join whose source rate differs from the mixer's counted
