@@ -813,9 +813,14 @@ mp_result engine::open_track(const char* utf8_path, track*& out) {
             t->trim_delivered = 0;
             t->info.total_frames = static_cast<int64_t>(g->valid_frames);
             t->info.duration_ms = static_cast<int64_t>(g->valid_frames * 1000 / ci.freq);
-            log(MP_LOG_DEBUG, "mp4 gapless: priming %llu, valid %llu frames (%s)",
+            // PROBE (T-109 follow-up, temporary): what the MF stream reports for its own length says whether this
+            // Media Foundation applies the edit list itself. valid_frames means it does and a seek is already in
+            // valid-frame coordinates; valid + priming + padding means it does not, which is what the E1-S2 spike
+            // measured on Windows 10 19045 and what the wrapper's arithmetic currently assumes everywhere.
+            log(MP_LOG_DEBUG, "mp4 gapless: priming %llu, valid %llu frames (%s); MF reports %lld frames",
                 static_cast<unsigned long long>(g->priming_frames), static_cast<unsigned long long>(g->valid_frames),
-                g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list");
+                g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list",
+                static_cast<long long>(BASS_ChannelGetLength(stream, BASS_POS_BYTE) / t->frame_bytes));
         }
     }
     // The crossfade envelope rides on whichever stream the mixer pulls; it is a no-op until a fade is armed.

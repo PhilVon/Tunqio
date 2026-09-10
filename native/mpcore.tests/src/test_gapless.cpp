@@ -434,6 +434,57 @@ TEST_CASE("an AAC track seeks and pauses through the trimming wrapper", "[gaples
     mp_engine_set_event_callback(fx.engine, nullptr, nullptr);
 }
 
+// PROBE (T-109 follow-up, temporary - delete with the fix it informs). The E1-S2 spike measured, on Windows 10
+// 19045, that data delivered after BASS_ChannelSetPosition(n) on an MF stream begins at decoder frame
+// n - priming, and the wrapper's arithmetic assumes that everywhere. main's CI run on windows-2025-vs2026 lands
+// 2048 frames out, which that rule cannot explain, so this measures the rule instead of assuming it: the offset
+// at a spread of positions, and what MF reports for the stream's own length. Reports, asserts nothing about the
+// platform - the point is to read the numbers off a runner this machine cannot reproduce.
+static std::vector<std::string> g_probe_log;
+
+TEST_CASE("PROBE: where an MF seek lands on the machine running this suite", "[gapless][mp4][probe]") {
+    const fs::path root = fixture_root();
+    if (root.empty() || !fs::exists(root / "m4a")) {
+        SKIP("tests/fixtures/gapless not found (run detached from the repository)");
+    }
+
+    g_probe_log.clear();
+    REQUIRE(mp_log_set_sink(
+                [](mp_log_level, const char* message, void*) { g_probe_log.emplace_back(message); },
+                nullptr,
+                MP_LOG_DEBUG) == MP_OK);
+
+    offline_engine fx;
+    mp_track* a = fx.open(utf8(track_file(root / "m4a", "a")));
+    mp_track_info info{};
+    info.struct_size = sizeof info;
+    REQUIRE(mp_track_get_info(a, &info) == MP_OK);
+
+    mp_log_set_sink(nullptr, nullptr, MP_LOG_DEBUG);
+    for (const std::string& line : g_probe_log) {
+        WARN("PROBE engine: " << line);
+    }
+    WARN("PROBE parsed: total_frames " << info.total_frames << ", duration_ms " << info.duration_ms);
+
+    // 0 is the rewind path (a user stream can only reset to 0), the rest are seeks clear of the priming. The track
+    // is 96 000 frames, so a 19 200-frame window after the latest of these still stops well short of the end -
+    // silence in the window would otherwise be read as a bad match rather than as running out of track.
+    constexpr int64_t k_window = 19200;
+    for (const int64_t ms : {0, 250, 500, 1000, 1500}) {
+        REQUIRE(mp_engine_play(fx.engine, a, 0) == MP_OK);
+        fx.render(mp::tests::k_fade_frames);
+        REQUIRE(mp_engine_seek(fx.engine, ms) == MP_OK);
+
+        const std::vector<float> after = fx.render(static_cast<uint32_t>(k_window));
+        const int64_t expected = -(ms * k_rate / 1000);
+        const int64_t from = 100 + mp::tests::k_fade_frames;
+        const int64_t to = k_window - 100;
+        const int64_t lag = best_lag(after, from, to, 8000, expected);
+        WARN("PROBE seek " << ms << " ms: lag " << lag << ", expected " << expected << ", error " << (lag - expected)
+                           << ", residual " << residual(after, from, to, lag) << ", position_ms " << fx.position_ms());
+    }
+}
+
 // T-108, found by the soak runner (E1-S11): every gapless join whose source rate differs from the mixer's counted
 // one underrun on a real device, and the continuity assertions above cannot see it - they check the samples, and
 // this is a short read whose tail is zero-filled. Rendered headless, so it is measured at the same pull the device
