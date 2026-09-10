@@ -166,19 +166,22 @@ Immutable `PlayQueue` per library-and-data.md. Shuffle is a second ordering rath
 
 ### E1-S10 · PlaybackSession · **L** · `core`
 Depends on: E1-S1, E1-S3, E1-S9. C# single owner of state; drives `IAudioEngine`; snapshots at 10 Hz; queue persistence; history events.
-- [ ] Sequence play/next/previous/seek/pause through a fake engine matches a scripted expectation table
-- [ ] Previous within 3 s goes to the previous track, otherwise restarts the current one (`PlayQueue.Back`, E1-S9; the earlier wording here had the rule the wrong way round, Q-21)
-- [ ] Queue and position are captured on stop and restored on start (integration test with real engine paused)
-- [ ] A `play_event` is emitted with correct heard time and `completed` flag per the 50%/4-minute rule
+- [x] Sequence play/next/previous/seek/pause through a fake engine matches a scripted expectation table (`PlaybackSessionTests`, the table is the assertion)
+- [x] Previous within 3 s goes to the previous track, otherwise restarts the current one (`PlayQueue.Back`, E1-S9; the earlier wording here had the rule the wrong way round, Q-21)
+- [x] Queue and position are captured on stop and restored on start (integration test with real engine paused; the app's own restore and save-on-close are covered in `AudioStartupTests`)
+- [x] A `play_event` is emitted with correct heard time and `completed` flag per the 50%/4-minute rule
 
 ### E1-S11 · Soak runner · **S** · `perf` `audio`
 `tools/SoakRunner` (C# over Interop) loops a library through a real device and reports `mp_engine_stats.underruns`.
 Silent by default (`-volume 0`): the WASAPI proc still pulls, so an underrun is as real as it would be at listening
 volume. A pass also needs the clock to have kept moving — silence produces no underruns either.
-- [ ] 1-hour soak on the dev machine completes with zero underruns (24 h run is E8)
+- [x] 1-hour soak on the dev machine completes with zero underruns (24 h run is E8)
 
-Its first run found the join underrun below, which is what blocks that criterion: the checked-in fixture library is
-44.1 kHz for every format but FLAC and Opus, so it fails on the first boundary.
+Its first run found a real one: a gapless join landing on a device period boundary dropped a whole buffer and counted
+an underrun, because the read that runs the mix-time END sync returns nothing and the pull loop broke on that zero
+(T-108, fixed). The hour then passed with 3600 joins and none. Two figures for E8-S3 to inherit: the callback max was
+29 ms against a 40 ms buffer in Debug, where the RT allocation hook sits in the callback, and 16 ms in Release; the
+working set went 42 to 49 MB over the hour and plateaued from about twenty-five minutes in.
 
 ---
 
