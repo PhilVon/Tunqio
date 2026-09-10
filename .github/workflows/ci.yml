@@ -1,7 +1,7 @@
 # PR gate (docs/build-test-release.md, "Continuous integration"). Target: under 15 minutes.
 # Runner: windows-2025-vs2026 carries VS 2026 (MSVC v145), Windows SDK 10.0.26100 and LLVM, matching the pins
-# in Directory.Build.props. Steps that belong to later stories (fetch-native, dxc preset validation, gated
-# benchmarks, coverage upload) are added by those stories.
+# in Directory.Build.props. Steps that belong to later stories (dxc preset validation, coverage upload) are
+# added by those stories.
 name: ci
 
 on:
@@ -89,6 +89,14 @@ jobs:
             if ($LASTEXITCODE -ne 0) { $failed = 1 }
           }
           exit $failed
+
+      # E3-S9's search claim, asserted where it can be measured: BenchmarkDotNet owns the machine for the
+      # 100 samples it takes of each query, which the xunit companion (running beside three other test
+      # projects) cannot. Generates its own copy of the 100k database; E3-S13 points it at the committed
+      # fixture and adds the open-time budget beside it.
+      - name: Gated benchmarks (search p95 on the 100k database)
+        shell: pwsh
+        run: dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks --no-build -- --gate --filter '*SearchBenchmarks*'
 
       - name: Package MSIX (unsigned; signing lands with E8-S1)
         run: msbuild src/Tunqio.App/Tunqio.App.csproj -p:Configuration=Release -p:Platform=x64 -p:TunqioPackaged=true -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -m -nologo -v:minimal
