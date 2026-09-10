@@ -817,44 +817,47 @@ mp_result engine::open_track(const char* utf8_path, track*& out) {
                 static_cast<unsigned long long>(g->priming_frames), static_cast<unsigned long long>(g->valid_frames),
                 g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list");
 
-            // PROBE (T-109 follow-up, temporary - delete with the fix it informs). The runner's Media Foundation
-            // lands a seek on the valid frame asked for; Windows 10 19045's lands priming frames earlier, and
-            // reported length is 96 000 on both, so it cannot tell them apart. These are the other things the
-            // wrapper could ask at open time. Whichever differs between the two machines is the detector.
+            // PROBE (T-109 follow-up, temporary - delete with the fix it informs). Both machines hand out the same
+            // 97 280 raw frames from 0, refuse the same seeks and echo back the position they were given, so
+            // nothing asked at open tells them apart. What differs is only where a seek lands inside that stream:
+            // Windows 10 19045 begins at raw frame n - priming, the runner at n + priming.
+            //
+            // That difference is measurable without a reference signal. Seek near the end and count what is left:
+            // the tail is (raw total - where the data actually began), so the two rules differ by 2 * priming.
+            // Cheap, because k is small - a few thousand frames of decoding, not a whole track.
             {
                 const uint32_t fb = t->frame_bytes;
-                const uint64_t priming = g->priming_frames;
                 const uint64_t valid = g->valid_frames;
-
-                // What BASS says the position is after a seek to the middle - does it echo, or adjust?
-                const bool mid_ok = BASS_ChannelSetPosition(stream, valid / 2 * fb, BASS_POS_BYTE) != 0;
-                const QWORD mid_back = BASS_ChannelGetPosition(stream, BASS_POS_BYTE);
-
-                // Where seeking starts being refused: the end of the valid audio, or the end of the raw data.
-                const bool at_valid = BASS_ChannelSetPosition(stream, valid * fb, BASS_POS_BYTE) != 0;
-                const bool past_valid = BASS_ChannelSetPosition(stream, (valid + priming) * fb, BASS_POS_BYTE) != 0;
-
-                // How many frames the inner stream actually hands out from 0: valid means MF applied the edit
-                // list, valid + priming + padding means it did not. The clearest signal, but a whole decode.
-                BASS_ChannelSetPosition(stream, 0, BASS_POS_BYTE);
-                uint64_t decoded = 0;
                 std::vector<char> scratch(8192);
-                for (;;) {
-                    const DWORD got = BASS_ChannelGetData(stream, scratch.data(), static_cast<DWORD>(scratch.size()));
-                    if (got == static_cast<DWORD>(-1) || got == 0) {
-                        break;
+                const auto remaining_after_seek = [&](uint64_t from_frame) -> uint64_t {
+                    if (BASS_ChannelSetPosition(stream, from_frame * fb, BASS_POS_BYTE) == 0) {
+                        return UINT64_MAX;
                     }
-                    decoded += got / fb;
-                }
+                    uint64_t frames = 0;
+                    for (;;) {
+                        const DWORD got =
+                            BASS_ChannelGetData(stream, scratch.data(), static_cast<DWORD>(scratch.size()));
+                        if (got == static_cast<DWORD>(-1) || got == 0) {
+                            break;
+                        }
+                        frames += got / fb;
+                    }
+                    return frames;
+                };
+
+                const uint64_t r1000 = remaining_after_seek(valid - 1000);
+                const uint64_t r2000 = remaining_after_seek(valid - 2000);
+                const uint64_t r4000 = remaining_after_seek(valid - 4000);
                 BASS_ChannelSetPosition(stream, 0, BASS_POS_BYTE);
 
+                // Predicted: 1280 + k + priming where a seek lands early (Windows 10), 1280 + k - priming where it
+                // lands late (the runner) - so 3304/4304/6304 against 1256/2256/4256 for priming 1024.
                 log(MP_LOG_DEBUG,
-                    "PROBE detectors: length %lld, seek(valid/2) %s -> reports %lld, seek(valid) %s, "
-                    "seek(valid+priming) %s, decodable-from-0 %llu frames (valid %llu, valid+priming %llu)",
-                    static_cast<long long>(BASS_ChannelGetLength(stream, BASS_POS_BYTE) / fb),
-                    mid_ok ? "ok" : "refused", static_cast<long long>(mid_back / fb), at_valid ? "ok" : "refused",
-                    past_valid ? "ok" : "refused", static_cast<unsigned long long>(decoded),
-                    static_cast<unsigned long long>(valid), static_cast<unsigned long long>(valid + priming));
+                    "PROBE tail: remaining after seek to valid-1000 %llu, valid-2000 %llu, valid-4000 %llu "
+                    "(priming %llu, valid %llu)",
+                    static_cast<unsigned long long>(r1000), static_cast<unsigned long long>(r2000),
+                    static_cast<unsigned long long>(r4000), static_cast<unsigned long long>(g->priming_frames),
+                    static_cast<unsigned long long>(valid));
             }
         }
     }
