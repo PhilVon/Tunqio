@@ -9,8 +9,9 @@ namespace Tunqio.Library.Tests.Scanning;
 /// <summary>
 /// E3-S6 acceptance over a real <see cref="FileSystemWatcher"/>: a file added to a watched folder is in the
 /// library within 5 s with no manual rescan (AC-94), and 5k files copied at once end as a complete library
-/// with no duplicates through the overflow path (AC-95). The watch buffer is set to its 4 KB minimum for the
-/// second so the buffer does overflow; the first keeps the documented 2 s debounce.
+/// with no duplicates (AC-95). The watch buffer is set to its 4 KB minimum for the second to make an overflow
+/// likely, though whether one happens is the operating system's call and the outcome must hold either way;
+/// the first keeps the documented 2 s debounce.
 /// </summary>
 public sealed class LibraryWatcherIntegrationTests(ITestOutputHelper output)
 {
@@ -63,7 +64,15 @@ public sealed class LibraryWatcherIntegrationTests(ITestOutputHelper output)
         LibraryWatcherStats stats = watcher.Stats;
         output.WriteLine($"copied {Files} files in {copy.TotalSeconds:0.0} s; complete after {elapsed.Elapsed.TotalSeconds:0.0} s; {stats}");
 
-        stats.Overflows.Should().BeGreaterThanOrEqualTo(1, "a 4 KB buffer overflows under 5k files, so the rescan path ran");
+        // Whether a 4 KB buffer actually overflows is the operating system's decision, not this test's. On a
+        // machine whose watcher drains faster than the copy writes, 5k files arrive as 5k events and none are
+        // lost: 0 overflows on both a Windows 10 19045 dev box and windows-2025-vs2026, with 15 526 events seen
+        // and every row correct. Requiring an overflow failed the test for something that says nothing about the
+        // library, and the overflow path is already pinned where it can be made to happen on demand -
+        // LibraryWatcherTests raises InternalBufferOverflowException at the source and asserts the rescan. The
+        // small buffer stays because it makes the overflow likelier, and the claim AC-95 actually makes is the
+        // outcome below, which holds either way.
+        output.WriteLine($"overflows: {stats.Overflows} (the rescan path ran {(stats.Overflows > 0 ? "and was exercised here" : "in LibraryWatcherTests, not here")})");
         h.Scalar("SELECT count(*) FROM track").Should().Be(Files, "every file is there once");
         h.Scalar("SELECT count(DISTINCT path) FROM track").Should().Be(Files);
         h.Scalar("SELECT count(*) FROM track WHERE missing = 1").Should().Be(0);
