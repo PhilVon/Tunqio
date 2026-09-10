@@ -472,6 +472,63 @@ public class PlayQueueTests
         Order(after.ToggleShuffle(new Random(6))).Should().Equal(1, 2, 3, 4, 5);
     }
 
+    // ---- ClearUpcoming (E2-S5) --------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Clearing_upcoming_keeps_what_is_playing_and_what_was_played()
+    {
+        PlayQueue queue = PlayQueue.Empty.PlayNow([1, 2, 3, 4, 5], startIndex: 2);
+
+        PlayQueue after = queue.ClearUpcoming();
+
+        // The two behind the current track stay: they are what Previous walks back through.
+        Order(after).Should().Equal(1, 2, 3);
+        after.Current!.TrackId.Should().Be(3);
+        after.PeekNext().Should().BeNull();
+    }
+
+    [Fact]
+    public void Clearing_upcoming_with_nothing_current_empties_the_queue()
+    {
+        PlayQueue exhausted = Queue(1, 2).Advance(manual: true).Advance(manual: true);
+        exhausted.Current.Should().BeNull();
+
+        PlayQueue after = exhausted.ClearUpcoming();
+
+        after.Count.Should().Be(0);
+        after.CurrentIndex.Should().BeNull();
+    }
+
+    [Fact]
+    public void Clearing_upcoming_keeps_repeat_and_shuffle()
+    {
+        PlayQueue queue = Queue(1, 2, 3).WithRepeat(RepeatMode.All).ToggleShuffle(new Random(5));
+
+        PlayQueue after = queue.ClearUpcoming();
+
+        after.Repeat.Should().Be(RepeatMode.All);
+        after.Shuffle.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Under shuffle the two orders disagree about which items are after the current one, so the added order has to
+    /// lose the same items the play order lost and not simply the same number of them — otherwise turning shuffle
+    /// off afterwards brings back tracks the user has just cleared.
+    /// </summary>
+    [Fact]
+    public void Clearing_upcoming_under_shuffle_removes_the_same_items_from_the_order_shuffle_restores()
+    {
+        // Shuffled and then played into: the two orders now disagree about which items are behind the current one.
+        PlayQueue shuffled = Queue(1, 2, 3, 4, 5).ToggleShuffle(new Random(6)).Advance(manual: true).Advance(manual: true);
+        long[] heard = [.. shuffled.Items.Take(3).Select(item => item.TrackId).Order()];
+        heard.Should().NotEqual(
+            [1L, 2L, 3L], "otherwise both orders agree on what was heard and truncating would have worked too");
+
+        PlayQueue after = shuffled.ClearUpcoming().ToggleShuffle(new Random(6));
+
+        Order(after).Should().Equal(heard, "unshuffling restores the added order of exactly what survived");
+    }
+
     // ---- restoring a saved queue (E1-S10) --------------------------------------------------------------------------
 
     [Fact]

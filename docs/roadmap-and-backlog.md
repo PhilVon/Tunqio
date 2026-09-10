@@ -246,7 +246,34 @@ the disk, and `ArchitectureTests` forbids Core `System.IO.File`. The rule was ri
 
 ### E2-S5 · Queue panel · **M** · `ui`
 Now-playing pinned, upcoming with drag reorder, remove, clear upcoming, remaining time.
-- [ ] Drag reorder updates the engine's preloaded next track when the item after current changes
+- [x] Drag reorder updates the engine's preloaded next track when the item after current changes (asserted through the engine's own call log, because the queue value being right is exactly what would hide a mixer that was not told)
+- [x] The panel pins the current track and lists only what follows it, in play order, so a shuffled queue reads in the order it will play
+- [x] Clear upcoming leaves the current track playing and empties everything after it, including what the engine had preloaded
+- [x] Removing the playing item starts the one that took its place; removing any other leaves playback where it was
+- [x] The remaining time is what is left of the current track plus every upcoming track, and it follows the position rather than only the queue
+- [x] A Queue button in the controls panel opens the panel, is reachable by keyboard and named for Narrator (`tools/check-transport-automation.ps1` invokes it and walks the flyout)
+
+The drag is not handled as a drag. A `ListView` with `CanReorderItems` moves the row in the bound collection itself, so
+`QueueViewModel` watches that collection rather than `DragItemsCompleted`: a row dragged with the pointer and a row moved
+with the keyboard then arrive by one path instead of two, and the whole of AC-76 is testable without a window. What
+makes that safe is a rule rather than a flag — a reorder reaches the collection as a remove and then an insert, and the
+half-way state is not a permutation of the queue's upcoming items, so it is skipped rather than reported as the removal
+it looks like. One drag can also need more than one move: dragging the first row to the end is two, and they are worked
+out against a local copy of the order rather than by re-reading the session between them, since the snapshot carrying
+each move back arrives on the UI thread's queue and need not have been delivered yet.
+
+`PlaybackSnapshot` now carries the `PlayQueue` itself in place of the four numbers the transport used to read off it
+(which are still there, as properties over it). A panel that fetched the items from the session separately would
+sometimes draw a queue from one instant against a current index from another, and the pinned row would be the wrong
+track for a frame. Carrying it costs nothing — the queue is immutable and replaced on every mutation — and it makes
+"has the queue changed" a reference comparison, which is what keeps the rows from being rebuilt ten times a second.
+`ClearUpcoming` drops the items after the current one from **both** orders by identity rather than truncating the added
+order to the same length: under shuffle the two orders disagree about which items are behind the current one, and
+truncating would bring back tracks the user had just cleared the next time they turned shuffle off.
+
+The panel is the flyout from the controls panel's Queue button. The sidebar's own Queue page (docs/ui-screens-and-flows.md,
+"Navigation map") waits for the Playlists section it sits beside there, which is E6-S1. "Save as playlist" waits for the
+same story, since there is nothing yet to save one into.
 
 ### E2-S6 · Keyboard accelerators · **S** · `ui` `a11y`
 Shell-level accelerators from ui-screens-and-flows.md with text-box opt-out.

@@ -290,6 +290,21 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Clearing_upcoming_leaves_the_track_playing_and_drops_what_was_preloaded()
+    {
+        await _session.PlayNowAsync([1, 2, 3]);
+        Drain();
+
+        await _session.ClearUpcomingAsync();
+
+        _session.Queue.Items.Select(i => i.TrackId).Should().Equal(1);
+        _session.Current.State.Should().Be(PlaybackState.Playing, "the current track is not upcoming");
+        Drain().Should().Equal(
+            ["crossfade:0", "preload:none", "close:2"],
+            "the mixer cannot keep a track queued that the queue no longer has");
+    }
+
+    [Fact]
     public async Task Shuffle_keeps_the_current_track_playing_and_re_queues_what_follows()
     {
         await _session.PlayNowAsync([1, 2, 3, 4]);

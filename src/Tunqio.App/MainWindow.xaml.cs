@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     private readonly ISettingsStore? _settings;
     private readonly TransportViewModel? _transport;
     private readonly NowPlayingViewModel? _nowPlaying;
+    private readonly QueueViewModel? _queue;
     private readonly OpenCoordinator? _open;
     private NativeRenderer? _renderer;
     private DispatcherQueueTimer? _statsTimer;
@@ -41,12 +42,14 @@ public sealed partial class MainWindow : Window
     /// <param name="audio">Where the transport finds the session; it may not exist yet, and may never.</param>
     /// <param name="navigator">The sidebar, for Now Playing's artist and album links; null leaves them inert.</param>
     /// <param name="open">Files and folders opened or dropped (E2-S4); null leaves the window inert to drops.</param>
+    /// <param name="tracks">Resolves the queue panel's rows (E2-S5); null leaves the panel showing its empty state.</param>
     public MainWindow(
         bool forceWarp = false,
         ISettingsStore? settings = null,
         IPlaybackSessionSource? audio = null,
         Library.ILibraryNavigator? navigator = null,
-        OpenCoordinator? open = null)
+        OpenCoordinator? open = null,
+        Core.Library.ITrackRepository? tracks = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
@@ -72,6 +75,13 @@ public sealed partial class MainWindow : Window
             // the spike modes, and the panel simply leaves them inert when it is missing.
             _nowPlaying = new NowPlayingViewModel(audio, navigator, SynchronizationContext.Current);
             NowPlaying.ViewModel = _nowPlaying;
+            // The queue panel needs the library to turn track ids into rows; without it the button opens an empty
+            // panel, which is what the spike modes get and is honest about what they have.
+            if (tracks is not null)
+            {
+                _queue = new QueueViewModel(audio, tracks, SynchronizationContext.Current);
+                QueuePanelControl.ViewModel = _queue;
+            }
         }
 
         if (_open is not null)
@@ -86,6 +96,7 @@ public sealed partial class MainWindow : Window
         {
             _transport?.Dispose();
             _nowPlaying?.Dispose();
+            _queue?.Dispose();
             TearDownRenderer();
         };
     }

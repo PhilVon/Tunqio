@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Tunqio.App.Shell.QueuePanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:shell="using:Tunqio.App.Shell"
+    mc:Ignorable="d"
+    Width="360">
+  <!--
+    The queue (E2-S5, docs/ui-screens-and-flows.md, "Queue"): the current track pinned at the top, everything after
+    it below with drag reorder and remove, "clear upcoming", and the time left.
+
+    The reorder is the ListView's own (CanReorderItems): it moves the row in the bound collection, and the view
+    model is watching that collection, so a pointer drag and a keyboard reorder reach the session by the same path
+    without a handler here for either. What the session does that the list cannot is re-open the track after the
+    current one in the mixer, which is what AC-76 is about.
+  -->
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="4">
+
+    <!-- Header: what this is, how much is left, and the one action that applies to the whole of it. -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="8,4,4,8">
+      <StackPanel Grid.Column="0">
+        <TextBlock Text="Queue" Style="{StaticResource SubtitleTextBlockStyle}" />
+        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
+                   Text="{x:Bind ViewModel.RemainingText, Mode=OneWay}"
+                   AutomationProperties.Name="Time remaining in the queue" />
+      </StackPanel>
+      <Button Grid.Column="1" x:Name="ClearButton" Click="OnClearUpcoming" VerticalAlignment="Top"
+              IsEnabled="{x:Bind ViewModel.HasUpcoming, Mode=OneWay}"
+              AutomationProperties.Name="Clear upcoming"
+              ToolTipService.ToolTip="Remove everything after the current track">
+        <!-- Raw: the button already carries the name, and a label announced beside it is the same thing twice. -->
+        <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
+          <FontIcon Glyph="&#xE74D;" FontSize="12" />
+          <TextBlock Text="Clear upcoming" Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+      </Button>
+    </Grid>
+
+    <!-- The pinned row. Removable like any other: removing it starts whatever took its place. -->
+    <Border Grid.Row="1" x:Name="PinnedRow"
+            Visibility="{x:Bind ViewModel.HasNowPlaying, Mode=OneWay}"
+            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+            CornerRadius="4" Padding="8,6" Margin="4,0,4,8">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8"
+            AutomationProperties.Name="{x:Bind ViewModel.NowPlaying.AutomationName, Mode=OneWay}">
+        <FontIcon Grid.Column="0" Glyph="&#xE767;" FontSize="12" VerticalAlignment="Center" Opacity="0.8" />
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="{x:Bind ViewModel.NowPlaying.Title, Mode=OneWay}" TextTrimming="CharacterEllipsis"
+                     Style="{StaticResource BodyStrongTextBlockStyle}" />
+          <TextBlock Text="{x:Bind ViewModel.NowPlaying.ArtistNames, Mode=OneWay}" TextTrimming="CharacterEllipsis"
+                     Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+        </StackPanel>
+        <TextBlock Grid.Column="2" VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"
+                   Opacity="0.7" Text="{x:Bind ViewModel.NowPlaying.DurationText, Mode=OneWay}" />
+        <Button Grid.Column="3" Click="OnRemovePinned" Padding="6,2" Background="Transparent" BorderThickness="0"
+                AutomationProperties.Name="{x:Bind ViewModel.NowPlaying.RemoveLabel, Mode=OneWay}"
+                ToolTipService.ToolTip="Remove from queue">
+          <FontIcon Glyph="&#xE711;" FontSize="12" />
+        </Button>
+      </Grid>
+    </Border>
+
+    <!-- Upcoming. SelectionMode None: this list is for dragging and removing, not for choosing. -->
+    <ListView Grid.Row="2" x:Name="UpcomingList"
+              ItemsSource="{x:Bind ViewModel.Upcoming, Mode=OneWay}"
+              SelectionMode="None"
+              CanDragItems="True"
+              CanReorderItems="True"
+              AllowDrop="True"
+              ReorderMode="Enabled"
+              MaxHeight="420"
+              AutomationProperties.Name="Upcoming tracks">
+      <ListView.ItemTemplate>
+        <DataTemplate x:DataType="shell:QueueRow">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8" Padding="0,2"
+                AutomationProperties.Name="{x:Bind AutomationName}">
+            <FontIcon Grid.Column="0" Glyph="&#xE76F;" FontSize="12" VerticalAlignment="Center" Opacity="0.45"
+                      AutomationProperties.AccessibilityView="Raw"
+                      ToolTipService.ToolTip="Drag to reorder" />
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" Style="{StaticResource BodyTextBlockStyle}" />
+              <TextBlock Text="{x:Bind ArtistNames}" TextTrimming="CharacterEllipsis"
+                         Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+            </StackPanel>
+            <TextBlock Grid.Column="2" VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"
+                       Opacity="0.7" Text="{x:Bind DurationText}" />
+            <Button Grid.Column="3" Click="OnRemoveRow" Padding="6,2" Background="Transparent" BorderThickness="0"
+                    AutomationProperties.Name="{x:Bind RemoveLabel}"
+                    ToolTipService.ToolTip="Remove from queue">
+              <FontIcon Glyph="&#xE711;" FontSize="12" />
+            </Button>
+          </Grid>
+        </DataTemplate>
+      </ListView.ItemTemplate>
+    </ListView>
+
+    <!-- Empty state: nothing playing and nothing queued. -->
+    <StackPanel Grid.Row="3" Margin="8,12" Spacing="4"
+                Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}">
+      <TextBlock Text="Nothing queued" Style="{StaticResource BodyTextBlockStyle}" Opacity="0.7" />
+      <TextBlock Text="Play an album, or drop files on the window" Style="{StaticResource CaptionTextBlockStyle}"
+                 Opacity="0.5" />
+    </StackPanel>
+  </Grid>
+</UserControl>

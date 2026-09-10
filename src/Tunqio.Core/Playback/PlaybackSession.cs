@@ -19,24 +19,40 @@ public enum PlaybackState
 }
 
 /// <summary>
-/// Everything the shell needs to draw the transport and Now Playing, published at 10 Hz (E1-S10). A value, so a
-/// view model can diff two of them rather than watch a mutable store.
+/// Everything the shell needs to draw the transport, Now Playing and the queue, published at 10 Hz (E1-S10). A
+/// value, so a view model can diff two of them rather than watch a mutable store.
 /// </summary>
+/// <remarks>
+/// The <see cref="PlayQueue"/> is carried whole rather than as the handful of numbers the transport reads off it,
+/// because the queue panel (E2-S5) needs the items and a panel that fetched them from the session separately would
+/// be drawing a queue from one instant against a current index from another. It costs nothing to carry: the queue
+/// is immutable and replaced on every mutation, so this is a reference, and reference equality is exactly the test
+/// for "has the queue changed since the last snapshot".
+/// </remarks>
 public sealed record PlaybackSnapshot(
     PlaybackState State,
     QueueItem? Current,
     TrackDto? Track,
     TimeSpan Position,
     TimeSpan Duration,
-    int? QueueIndex,
-    int QueueCount,
-    bool Shuffle,
-    RepeatMode Repeat,
+    PlayQueue Queue,
     float Volume)
 {
     /// <summary>Nothing playing, empty queue.</summary>
     public static PlaybackSnapshot Idle { get; } = new(
-        PlaybackState.Stopped, null, null, TimeSpan.Zero, TimeSpan.Zero, null, 0, false, RepeatMode.Off, 1f);
+        PlaybackState.Stopped, null, null, TimeSpan.Zero, TimeSpan.Zero, PlayQueue.Empty, 1f);
+
+    /// <summary>Where the current item sits in the play order, or null when nothing is current.</summary>
+    public int? QueueIndex => Queue.CurrentIndex;
+
+    /// <summary>How many items are queued.</summary>
+    public int QueueCount => Queue.Count;
+
+    /// <summary>Whether the play order is shuffled.</summary>
+    public bool Shuffle => Queue.Shuffle;
+
+    /// <summary>What the end of the queue does.</summary>
+    public RepeatMode Repeat => Queue.Repeat;
 }
 
 /// <summary>
@@ -277,6 +293,17 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     public Task MoveInQueueAsync(Guid instanceId, int toIndex, CancellationToken ct = default) => LockedAsync(async () =>
     {
         _queue = _queue.Move(instanceId, toIndex);
+        await RefreshPreloadAsync(ct).ConfigureAwait(false);
+    });
+
+    /// <summary>
+    /// Drops everything after the current track, which keeps playing. What the engine had pre-opened goes with it —
+    /// clearing the upcoming items and leaving the next one queued in the mixer would mean the queue said one thing
+    /// and the speakers said another.
+    /// </summary>
+    public Task ClearUpcomingAsync(CancellationToken ct = default) => LockedAsync(async () =>
+    {
+        _queue = _queue.ClearUpcoming();
         await RefreshPreloadAsync(ct).ConfigureAwait(false);
     });
 
@@ -672,10 +699,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
             _current?.Dto,
             _position,
             _current?.Handle.Info.Duration ?? TimeSpan.Zero,
-            _queue.CurrentIndex,
-            _queue.Count,
-            _queue.Shuffle,
-            _queue.Repeat,
+            _queue,
             _volume));
     }
 

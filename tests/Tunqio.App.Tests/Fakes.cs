@@ -102,8 +102,10 @@ internal sealed class FakeTrackRepository : ITrackRepository
 
     public Task<TrackDto?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Rows.FirstOrDefault(t => t.Id == id));
 
+    /// <summary>In the order asked for, unknown ids skipped — the contract, and what a purged track looks like.</summary>
     public Task<IReadOnlyList<TrackDto>> GetByIdsAsync(IReadOnlyList<long> ids, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<TrackDto>>(ids.Select(id => Rows.First(t => t.Id == id)).ToList());
+        Task.FromResult<IReadOnlyList<TrackDto>>(
+            [.. ids.Select(id => Rows.FirstOrDefault(t => t.Id == id)).OfType<TrackDto>()]);
 
     public Task<TrackDto?> GetByPathAsync(string path, CancellationToken ct = default) =>
         Task.FromResult(Rows.FirstOrDefault(t => string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase)));

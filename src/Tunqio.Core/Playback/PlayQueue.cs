@@ -165,6 +165,27 @@ public sealed class PlayQueue
     }
 
     /// <summary>
+    /// Drops everything after the current item, in both orders, leaving the current item current. With nothing
+    /// current the whole queue goes: everything in it is upcoming.
+    /// </summary>
+    /// <remarks>
+    /// The survivors are taken from the play order and then filtered out of the added order, rather than the added
+    /// order being truncated at the same length. Under shuffle the two orders disagree about which items are
+    /// "after" the current one, and truncating would keep a different set than the user just saw disappear.
+    /// </remarks>
+    public PlayQueue ClearUpcoming()
+    {
+        if (CurrentIndex is not int index)
+        {
+            return new PlayQueue([], [], null, Shuffle, Repeat);
+        }
+
+        QueueItem[] kept = _items[..(index + 1)];
+        HashSet<QueueItem> keptSet = [.. kept];
+        return new PlayQueue(kept, [.. _addedOrder.Where(keptSet.Contains)], index, Shuffle, Repeat);
+    }
+
+    /// <summary>
     /// Moves the item with <paramref name="instanceId"/> to <paramref name="toIndex"/> in play order (clamped into
     /// the queue); an id that is not in the queue changes nothing. The current item stays current wherever it lands.
     /// While shuffle is on this reorders the play order only — see the note on the class.

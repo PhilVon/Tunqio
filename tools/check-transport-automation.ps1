@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-  E2-S2 AC-70: every transport control is reachable by keyboard and named for Narrator.
+  E2-S2 AC-70 and E2-S5 AC-239: every control in the controls panel is reachable by keyboard and named for
+  Narrator, and the Queue button opens a panel whose own controls are too.
 
   Launches the shell and reads its automation tree the way Narrator does, rather than asking the app what it
   believes about itself. A glyph is not a name, and a Border with a Tapped handler is not a button: both of those
@@ -35,7 +36,15 @@ $expected = @(
     @{ Name = 'Shuffle';        Type = 'Button' },
     @{ Name = 'Repeat';         Type = 'Button' },
     @{ Name = 'Mute';           Type = 'Button' },   # or Unmute
-    @{ Name = 'Volume';         Type = 'Slider' }
+    @{ Name = 'Volume';         Type = 'Slider' },
+    @{ Name = 'Queue';          Type = 'Button' }   # E2-S5: opens the queue panel
+)
+
+# What the queue panel owes once it is open. The rows carry their own names, which only exist when something is
+# queued; these are the panel's own furniture, which is there whether the queue is empty or not.
+$expectedInQueue = @(
+    @{ Name = 'Clear upcoming'; Type = 'Button' },
+    @{ Name = 'Upcoming tracks'; Type = 'List' }
 )
 
 $process = Start-Process $Exe -PassThru
@@ -81,9 +90,44 @@ try {
         }
     }
 
+    # ---- E2-S5: the Queue button opens the panel, and what is in it is named too --------------------------------
+    Write-Output ''
+    # By name *and* control type: a button's own label is an element with the same name, and picking that one up
+    # would report a Text where the tree in fact has a perfectly good Button.
+    function Find-ByNameAndType($scope, $name, $type) {
+        $scope.FindFirst(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.AndCondition(
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, $name)),
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::$type)))))
+    }
+
+    $queueButton = Find-ByNameAndType $window 'Queue' 'Button' 
+    if (-not $queueButton) {
+        $failures += "no control named 'Queue' to open the queue panel with"
+    }
+    else {
+        $queueButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Start-Sleep -Seconds 2
+        foreach ($want in $expectedInQueue) {
+            $control = Find-ByNameAndType $window $want.Name $want.Type
+            if (-not $control) {
+                $failures += "the queue panel opened without a $($want.Type) named '$($want.Name)'"
+                continue
+            }
+
+            $state = if ($control.Current.IsEnabled) { 'enabled' } else { 'disabled' }
+            Write-Output ("  {0,-8} '{1}'  {2}, focusable={3}" -f
+                $want.Type, $want.Name, $state, $control.Current.IsKeyboardFocusable)
+        }
+    }
+
     Write-Output ''
     if ($failures.Count -eq 0) {
-        Write-Output "PASS: $($expected.Count) transport controls, each named for Narrator and reachable when enabled"
+        Write-Output "PASS: $($expected.Count) controls-panel controls and $($expectedInQueue.Count) in the queue panel, each named for Narrator and reachable when enabled"
         exit 0
     }
 
