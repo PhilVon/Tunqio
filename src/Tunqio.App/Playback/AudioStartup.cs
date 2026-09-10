@@ -71,6 +71,9 @@ public sealed class AudioStartup : IPlaybackSessionSource, IDisposable
     /// <summary>The session, once <see cref="StartAsync"/> has succeeded; null before that and when audio is unavailable.</summary>
     public PlaybackSession? Session { get; private set; }
 
+    /// <inheritdoc />
+    public event EventHandler<PlaybackSession>? SessionReady;
+
     /// <summary>True once <see cref="StartAsync"/> has run, whether or not it produced a session.</summary>
     public bool Started { get; private set; }
 
@@ -111,9 +114,12 @@ public sealed class AudioStartup : IPlaybackSessionSource, IDisposable
             return notice;
         }
 
-        Session = new PlaybackSession(
+        var session = new PlaybackSession(
             engine, _tracks, _history, _queues, _settings, logger: _loggerFactory?.CreateLogger<PlaybackSession>());
+        Session = session;
         await RestoreAsync(ct).ConfigureAwait(false);
+        // After the restore, so the first snapshot anything sees already has the queue the user left behind in it.
+        SessionReady?.Invoke(this, session);
         return notice;
     }
 

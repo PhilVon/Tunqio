@@ -200,9 +200,14 @@ anything checking the proportions reports a bug against a rule that does not app
 
 ### E2-S2 · Transport controls panel · **M** · `ui`
 Play/pause, previous, next, progress with hover tooltip and drag seek, elapsed/remaining toggle, volume with mute, shuffle, repeat.
-- [ ] Every control works with mouse, keyboard and Narrator
-- [ ] Seek drag shows the target time and commits on release; position updates at 10 Hz without jitter
-- [ ] Shuffle and repeat state icons reflect `PlaybackSnapshot`
+- [x] Every control works with mouse, keyboard and Narrator (`tools/check-transport-automation.ps1` walks the real UIA tree: nine controls, each named and reachable when enabled)
+- [x] Seek drag shows the target time and commits on release; position updates at 10 Hz without jitter
+- [x] Shuffle and repeat state icons reflect `PlaybackSnapshot`
+
+The scrub is the interesting half. A `Slider` cannot tell the user dragging from a binding update, and snapshots
+arrive ten times a second, so a slider bound straight to the position fights the thumb someone is holding.
+`TransportViewModel` takes the position over for the duration of a drag and seeks once on release; the tests drive
+that against a real session over the fake engine, which is also where "without jitter" is asserted.
 
 ### E2-S3 · Now Playing panel (metadata and art) · **M** · `ui`
 Art, title, artists, album, year, format badge, placeholder art derived from title hash.

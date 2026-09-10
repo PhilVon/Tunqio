@@ -122,9 +122,24 @@ public sealed class PlaybackWiringTests : IAsyncLifetime
     /// <summary>What <see cref="AudioStartup"/> is to the forwarder, without the native engine a test host has no way to create.</summary>
     private sealed class SessionSource : IPlaybackSessionSource
     {
-        public PlaybackSession? Session { get; set; }
+        private PlaybackSession? _session;
+
+        public PlaybackSession? Session
+        {
+            get => _session;
+            set
+            {
+                _session = value;
+                if (value is not null)
+                {
+                    SessionReady?.Invoke(this, value);
+                }
+            }
+        }
 
         public bool Started { get; set; }
+
+        public event EventHandler<PlaybackSession>? SessionReady;
     }
 }
 #pragma warning restore CA1001

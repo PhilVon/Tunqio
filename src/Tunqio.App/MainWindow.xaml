@@ -3,7 +3,8 @@
     x:Class="Tunqio.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:library="using:Tunqio.App.Library">
+    xmlns:library="using:Tunqio.App.Library"
+    xmlns:shell="using:Tunqio.App.Shell">
   <!--
     The shell (E2-S1). Three panels — Now Playing, the sidebar, the controls — whose shares and orientation come
     from ShellLayout rather than from AdaptiveTriggers here, because AC-68 is about the proportions and a rule
@@ -35,13 +36,11 @@
                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                            Background="{ThemeResource LayerFillColorDefaultBrush}" />
 
-      <!-- Controls: the transport, progress, volume and mode switcher arrive with E2-S2; this is their slot. -->
+      <!-- Controls: the transport (E2-S2). The mode switcher and the queue button join it in E5-S1 and E2-S5. -->
       <Border x:Name="ControlsPanel"
               BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
               Background="{ThemeResource LayerFillColorDefaultBrush}">
-        <TextBlock x:Name="ControlsPlaceholder" Text="Transport" Margin="12"
-                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"
-                   HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" />
+        <shell:TransportControls x:Name="Transport" VerticalAlignment="Center" />
       </Border>
     </Grid>
 

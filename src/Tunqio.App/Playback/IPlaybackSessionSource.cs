@@ -15,4 +15,11 @@ public interface IPlaybackSessionSource
 
     /// <summary>True once start-up has run: with a null <see cref="Session"/> it means audio is unavailable, not pending.</summary>
     bool Started { get; }
+
+    /// <summary>
+    /// Raised once, on whatever thread start-up finished on, when <see cref="Session"/> becomes non-null. A shell
+    /// control can be built before audio is up — the window is shown first, deliberately — so anything that wants
+    /// the session has to be able to arrive early and be told, rather than reading null once and giving up.
+    /// </summary>
+    event EventHandler<PlaybackSession>? SessionReady;
 }

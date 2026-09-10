@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Tunqio.App.Shell.TransportControls"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:shell="using:Tunqio.App.Shell"
+    mc:Ignorable="d">
+  <UserControl.Resources>
+    <shell:SecondsToTimeConverter x:Key="SecondsToTimeConverter" />
+  </UserControl.Resources>
+  <!--
+    The transport (E2-S2). Every control is a real Button, ToggleButton or Slider, so Tab reaches it, Space and
+    Enter press it and Narrator reads it without any of that being written here (AC-70); what is written here is
+    the AutomationProperties.Name for each, because a glyph is not a name, and the state a name has to carry
+    ("Repeat all", not "Repeat") comes from the view model so it changes when the state does.
+  -->
+  <Grid Padding="12" RowSpacing="8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- Transport buttons -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4">
+      <Button x:Name="PreviousButton" Click="OnPrevious" IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+              AutomationProperties.Name="Previous track" ToolTipService.ToolTip="Previous (Ctrl+Left)">
+        <FontIcon Glyph="&#xE892;" FontSize="14" />
+      </Button>
+      <Button x:Name="PlayPauseButton" Click="OnPlayPause" IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+              Style="{StaticResource AccentButtonStyle}"
+              AutomationProperties.Name="{x:Bind ViewModel.PlayPauseLabel, Mode=OneWay}"
+              ToolTipService.ToolTip="Play/Pause (Space)">
+        <FontIcon Glyph="{x:Bind shell:TransportControls.PlayPauseGlyph(ViewModel.IsPlaying), Mode=OneWay}" FontSize="16" />
+      </Button>
+      <Button x:Name="NextButton" Click="OnNext" IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+              AutomationProperties.Name="Next track" ToolTipService.ToolTip="Next (Ctrl+Right)">
+        <FontIcon Glyph="&#xE893;" FontSize="14" />
+      </Button>
+    </StackPanel>
+
+    <!-- Progress: the scrubber and the two readouts. The elapsed side is a button because it toggles. -->
+    <Grid Grid.Row="1" ColumnSpacing="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <Button x:Name="TimeButton" Grid.Column="0" Click="OnToggleTime" Padding="4,0" Background="Transparent" BorderThickness="0"
+              AutomationProperties.Name="Elapsed time. Activate to show time remaining"
+              ToolTipService.ToolTip="Show elapsed or remaining">
+        <TextBlock Text="{x:Bind ViewModel.PositionText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" />
+      </Button>
+      <Slider x:Name="Scrubber" Grid.Column="1" Minimum="0" StepFrequency="1"
+              Maximum="{x:Bind ViewModel.DurationSeconds, Mode=OneWay}"
+              Value="{x:Bind ViewModel.PositionSeconds, Mode=OneWay}"
+              IsEnabled="{x:Bind ViewModel.HasTrack, Mode=OneWay}"
+              IsThumbToolTipEnabled="True"
+              ThumbToolTipValueConverter="{StaticResource SecondsToTimeConverter}"
+              AutomationProperties.Name="{x:Bind ViewModel.ScrubberLabel, Mode=OneWay}"
+              ValueChanged="OnScrubberValueChanged"
+              PointerPressed="OnScrubberPressed"
+              PointerCaptureLost="OnScrubberReleased"
+              PointerCanceled="OnScrubberReleased"
+              KeyDown="OnScrubberKeyDown" />
+      <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.DurationText, Mode=OneWay}"
+                 Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center"
+                 AutomationProperties.Name="Track length" />
+    </Grid>
+
+    <!-- Modes and volume -->
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4">
+      <ToggleButton x:Name="ShuffleButton" Click="OnShuffle" IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+                    IsChecked="{x:Bind ViewModel.IsShuffled, Mode=OneWay}"
+                    AutomationProperties.Name="{x:Bind ViewModel.ShuffleLabel, Mode=OneWay}"
+                    ToolTipService.ToolTip="Shuffle (S)">
+        <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+      </ToggleButton>
+      <ToggleButton x:Name="RepeatButton" Click="OnRepeat" IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+                    IsChecked="{x:Bind shell:TransportControls.IsRepeatOn(ViewModel.Repeat), Mode=OneWay}"
+                    AutomationProperties.Name="{x:Bind ViewModel.RepeatLabel, Mode=OneWay}"
+                    ToolTipService.ToolTip="Repeat (R)">
+        <FontIcon Glyph="{x:Bind ViewModel.RepeatGlyph, Mode=OneWay}" FontSize="14" />
+      </ToggleButton>
+      <ToggleButton x:Name="MuteButton" Click="OnMute" IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+                    IsChecked="{x:Bind ViewModel.IsMuted, Mode=OneWay}"
+                    AutomationProperties.Name="{x:Bind ViewModel.MuteLabel, Mode=OneWay}"
+                    ToolTipService.ToolTip="Mute (M)">
+        <FontIcon Glyph="{x:Bind shell:TransportControls.MuteGlyph(ViewModel.IsMuted), Mode=OneWay}" FontSize="14" />
+      </ToggleButton>
+      <Slider x:Name="VolumeSlider" Width="90" Minimum="0" Maximum="100" StepFrequency="1"
+              Value="{x:Bind shell:TransportControls.VolumePercent(ViewModel.Volume), Mode=OneWay}"
+              IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+              VerticalAlignment="Center"
+              AutomationProperties.Name="Volume"
+              ValueChanged="OnVolumeChanged" />
+    </StackPanel>
+  </Grid>
+</UserControl>

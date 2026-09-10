@@ -3,6 +3,8 @@ using System.Globalization;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Tunqio.App.Playback;
 using Tunqio.App.Shell;
 using Tunqio.Core;
 using Tunqio.Core.Visualization;
@@ -22,17 +24,20 @@ namespace Tunqio.App;
 /// criteria here are about proportions and about a theme change not flashing, and neither can be asserted about a
 /// rule that exists only as a <c>VisualState</c>.
 /// </remarks>
+#pragma warning disable CA1001 // The window's Closed handler is its teardown; it cannot implement IDisposable.
 public sealed partial class MainWindow : Window
 {
     private readonly bool _forceWarp;
     private readonly ShellChrome _chrome;
     private readonly ISettingsStore? _settings;
+    private readonly TransportViewModel? _transport;
     private NativeRenderer? _renderer;
     private DispatcherQueueTimer? _statsTimer;
 
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
     /// <param name="settings">Read for <c>ui.theme</c>; the system theme is used when it is not supplied.</param>
-    public MainWindow(bool forceWarp = false, ISettingsStore? settings = null)
+    /// <param name="audio">Where the transport finds the session; it may not exist yet, and may never.</param>
+    public MainWindow(bool forceWarp = false, ISettingsStore? settings = null, IPlaybackSessionSource? audio = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
@@ -50,10 +55,21 @@ public sealed partial class MainWindow : Window
         // About-page placeholder (E0-S3): the BASS attribution is shown until E6-S5 builds the real page.
         EngineText.Text = DescribeEngine() + Environment.NewLine + ThirdPartyAttribution.Bass;
 
+        if (audio is not null)
+        {
+            _transport = new TransportViewModel(audio, SynchronizationContext.Current);
+            Transport.ViewModel = _transport;
+            AddTransportShortcuts();
+        }
+
         VisualizerPanel.Loaded += OnPanelLoaded;
         VisualizerPanel.SizeChanged += (_, _) => ForwardPanelSize();
         VisualizerPanel.CompositionScaleChanged += (_, _) => ForwardPanelSize();
-        Closed += (_, _) => TearDownRenderer();
+        Closed += (_, _) =>
+        {
+            _transport?.Dispose();
+            TearDownRenderer();
+        };
     }
 
     /// <summary>The native renderer bound to the panel, once the panel has loaded.</summary>
@@ -157,6 +173,70 @@ public sealed partial class MainWindow : Window
                 ? "applied, but the content object changed — that is a reload, and a reload is where a flash comes from"
                 : $"asked for {wanted} and ActualTheme is {to}; the switch did not take synchronously";
         return new ThemeSwitch(from.ToString(), preference.ToString(), to.ToString(), contentUnchanged, applied, backdrop, pass, note);
+    }
+
+    /// <summary>
+    /// The transport shortcuts from docs/ui-screens-and-flows.md, registered on the shell's root so they work
+    /// wherever focus is (E2-S2, AC-70). The single-letter ones are the reason they are checked rather than simply
+    /// fired: S, M and Space belong to whatever text box has focus first, and a search box that shuffles the queue
+    /// every time someone types an S is not a search box.
+    /// </summary>
+    private void AddTransportShortcuts()
+    {
+        Add(Windows.System.VirtualKey.Space, Windows.System.VirtualKeyModifiers.None, vm => vm.PlayPauseAsync());
+        Add(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.Control, vm => vm.NextAsync());
+        Add(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.Control, vm => vm.PreviousAsync());
+        Add(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.None, vm => vm.NudgeAsync(TimeSpan.FromSeconds(5)));
+        Add(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.None, vm => vm.NudgeAsync(TimeSpan.FromSeconds(-5)));
+        Add(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.Shift, vm => vm.NudgeAsync(TimeSpan.FromSeconds(30)));
+        Add(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.Shift, vm => vm.NudgeAsync(TimeSpan.FromSeconds(-30)));
+        Add(Windows.System.VirtualKey.S, Windows.System.VirtualKeyModifiers.None, vm => vm.ToggleShuffleAsync());
+        Add(Windows.System.VirtualKey.R, Windows.System.VirtualKeyModifiers.None, vm => vm.CycleRepeatAsync());
+        Add(Windows.System.VirtualKey.Up, Windows.System.VirtualKeyModifiers.None, vm => VolumeAsync(vm, +0.05f));
+        Add(Windows.System.VirtualKey.Down, Windows.System.VirtualKeyModifiers.None, vm => VolumeAsync(vm, -0.05f));
+        Add(Windows.System.VirtualKey.M, Windows.System.VirtualKeyModifiers.None, vm => { vm.ToggleMute(); return Task.CompletedTask; });
+
+        static Task VolumeAsync(TransportViewModel vm, float by)
+        {
+            vm.SetVolume(vm.Volume + by);
+            return Task.CompletedTask;
+        }
+
+        void Add(Windows.System.VirtualKey key, Windows.System.VirtualKeyModifiers modifiers, Func<TransportViewModel, Task> action)
+        {
+            var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
+            accelerator.Invoked += (invoked, args) =>
+            {
+                if (_transport is null || IsTypingSomewhere())
+                {
+                    return;
+                }
+
+                args.Handled = true;
+                _ = RunSafelyAsync(action, _transport);
+            };
+            Root.KeyboardAccelerators.Add(accelerator);
+        }
+    }
+
+    /// <summary>
+    /// True when focus is in something that wants the keystroke more than the transport does. Checked for every
+    /// accelerator and not only the single-letter ones: Space in a text box is a space, and the arrows are how
+    /// anyone moves a caret.
+    /// </summary>
+    private static bool IsTypingSomewhere() =>
+        Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement() is TextBox or RichEditBox or AutoSuggestBox or PasswordBox;
+
+    private static async Task RunSafelyAsync(Func<TransportViewModel, Task> action, TransportViewModel vm)
+    {
+        try
+        {
+            await action(vm).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Serilog.Log.Error(e, "A transport shortcut failed");
+        }
     }
 
     /// <summary>Shows a start-up notice in the window's InfoBar (closable; one at a time).</summary>
@@ -270,3 +350,4 @@ public sealed partial class MainWindow : Window
         }
     }
 }
+#pragma warning restore CA1001

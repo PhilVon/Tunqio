@@ -105,7 +105,8 @@ public partial class App : Application
             return;
         }
 
-        var window = new MainWindow(RenderSpikeRunner.WantsWarp(commandLine), settings);
+        var window = new MainWindow(
+            RenderSpikeRunner.WantsWarp(commandLine), settings, _host.Services.GetRequiredService<IPlaybackSessionSource>());
         _window = window;
         s_mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());

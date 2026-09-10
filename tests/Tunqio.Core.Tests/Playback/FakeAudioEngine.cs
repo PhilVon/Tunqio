@@ -117,6 +117,10 @@ internal sealed class FakeAudioEngine : IAudioEngine
     public Task SeekAsync(TimeSpan position)
     {
         Calls.Add("seek:" + Ms(position));
+        // A real engine reports the new position from the next clock read, so the snapshot after a seek is the
+        // seek's target and not the old position. Without this the fake makes a correct session look like one that
+        // jumps back after every seek.
+        Clock = Clock with { Position = position };
         return Task.CompletedTask;
     }
 
