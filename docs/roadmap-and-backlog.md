@@ -277,8 +277,38 @@ same story, since there is nothing yet to save one into.
 
 ### E2-S6 · Keyboard accelerators · **S** · `ui` `a11y`
 Shell-level accelerators from ui-screens-and-flows.md with text-box opt-out.
-- [ ] Space toggles playback unless a text box has focus
-- [ ] All transport shortcuts work in every view
+- [x] Space toggles playback unless a text box has focus
+- [x] All transport shortcuts work in every view
+- [x] The bare keys reach the transport from a control that would otherwise eat them — a list's type-ahead, a focused button's Space — and the arrow keys do not, so a grid stays navigable
+- [x] Q opens the queue panel from anywhere except a text box
+
+Two facts about WinUI's routing decide the whole story, and they point opposite ways. A `KeyboardAccelerator` fires
+only on a key that reached the end of the routed event unhandled, and the controls the user is most often focused on
+handle exactly the keys the shortcut table wants: a library tile is a `Button` and takes Space as a press, a list and
+a `ComboBox` take S, R, M and Q as type-ahead. So a shortcut on a bare key cannot be an accelerator — it has to be
+taken at the shell root's tunnelling `PreviewKeyDown`, before the focused control sees it. The arrows are the exact
+opposite: they are how a grid and a list are navigated, and a shell that took them at the root would trade the
+library's keyboard navigation for a five-second seek. So delivery is a property of each shortcut rather than a
+policy, and `ShellShortcuts` is the table that says which is which — a table for the same reason `ShellLayout` is
+one, since the criteria are about the rules and a rule that lives only in markup can be checked only by pressing
+keys at a running window. Ctrl+Left and Ctrl+Right are the one deliberate loss: a grid moves focus on them without
+changing the selection, and they are pre-empted anyway, because previous and next track are what someone reaches for
+while browsing and moving focus without selecting is not.
+
+`tools/check-shortcuts.ps1` presses real keys at a real window and reads the answer off the automation tree, which
+works because the transport's names already carry their state — "Shuffle off" becoming "Shuffle on" is the effect of
+a keystroke as Narrator would have reported it. Each case is written so the wrong routing gives a different answer
+from the right one; Space with the shuffle button focused is the clearest, since without the pre-empt the focused
+`ToggleButton` presses itself. It earned its keep on the first run: the text-box opt-out had never worked. It called
+the parameterless `FocusManager.GetFocusedElement()`, which answers for the calling thread's `CoreWindow` — a thing a
+desktop WinUI app does not have — so it had returned null since E2-S2 and S typed into the search box shuffled the
+queue, which is the one behaviour the design document names as unacceptable. A check that is always false reads as a
+guard and is not one, and nothing but pressing the key was ever going to say so.
+
+Not here: the media keys, which are `SystemMediaTransportControls` (ADR-006) and belong to E7; and the shortcuts whose
+features do not exist yet — the mode switches, the mini player, Ctrl+P, F2, the rating keys and the preset key —
+because a registered key that does nothing is worse than one that is not registered. Ctrl+F, "/", Ctrl+, and Alt+Left
+stay on `LibraryPane`, where the thing they act on lives.
 
 ### E2-S7 · Error surfaces · **S** · `ui`
 Transient and sticky `InfoBar`s wired to `EngineEvent.Error`, `DeviceLost`, scan reports.

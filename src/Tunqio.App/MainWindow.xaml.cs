@@ -70,7 +70,6 @@ public sealed partial class MainWindow : Window
         {
             _transport = new TransportViewModel(audio, SynchronizationContext.Current);
             Transport.ViewModel = _transport;
-            AddTransportShortcuts();
             // The sidebar's navigator is what makes the artist and album lines links (E2-S3); it is not there in
             // the spike modes, and the panel simply leaves them inert when it is missing.
             _nowPlaying = new NowPlayingViewModel(audio, navigator, SynchronizationContext.Current);
@@ -83,6 +82,10 @@ public sealed partial class MainWindow : Window
                 QueuePanelControl.ViewModel = _queue;
             }
         }
+
+        // Registered whether or not audio came up: a shortcut with nothing to act on leaves the key unhandled,
+        // which is a better shape than a table that exists only on the machines where start-up went well.
+        AddShellShortcuts();
 
         if (_open is not null)
         {
@@ -211,56 +214,135 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The transport shortcuts from docs/ui-screens-and-flows.md, registered on the shell's root so they work
-    /// wherever focus is (E2-S2, AC-70). The single-letter ones are the reason they are checked rather than simply
-    /// fired: S, M and Space belong to whatever text box has focus first, and a search box that shuffles the queue
-    /// every time someone types an S is not a search box.
+    /// Registers the shell's shortcuts (E2-S6). What each one is and how it has to be delivered is
+    /// <see cref="ShellShortcuts"/>'s table; this is the two ways of listening it names — a tunnelling handler at
+    /// the root for the keys an ordinary control would otherwise eat, and a <c>KeyboardAccelerator</c> for the
+    /// arrows, which fire only on a key the focused grid or list did not want.
     /// </summary>
-    private void AddTransportShortcuts()
+    private void AddShellShortcuts()
     {
-        Add(Windows.System.VirtualKey.Space, Windows.System.VirtualKeyModifiers.None, vm => vm.PlayPauseAsync());
-        Add(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.Control, vm => vm.NextAsync());
-        Add(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.Control, vm => vm.PreviousAsync());
-        Add(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.None, vm => vm.NudgeAsync(TimeSpan.FromSeconds(5)));
-        Add(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.None, vm => vm.NudgeAsync(TimeSpan.FromSeconds(-5)));
-        Add(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.Shift, vm => vm.NudgeAsync(TimeSpan.FromSeconds(30)));
-        Add(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.Shift, vm => vm.NudgeAsync(TimeSpan.FromSeconds(-30)));
-        Add(Windows.System.VirtualKey.S, Windows.System.VirtualKeyModifiers.None, vm => vm.ToggleShuffleAsync());
-        Add(Windows.System.VirtualKey.R, Windows.System.VirtualKeyModifiers.None, vm => vm.CycleRepeatAsync());
-        Add(Windows.System.VirtualKey.Up, Windows.System.VirtualKeyModifiers.None, vm => VolumeAsync(vm, +0.05f));
-        Add(Windows.System.VirtualKey.Down, Windows.System.VirtualKeyModifiers.None, vm => VolumeAsync(vm, -0.05f));
-        Add(Windows.System.VirtualKey.M, Windows.System.VirtualKeyModifiers.None, vm => { vm.ToggleMute(); return Task.CompletedTask; });
-
-        static Task VolumeAsync(TransportViewModel vm, float by)
+        Root.PreviewKeyDown += OnShellKeyDown;
+        foreach (ShellShortcut shortcut in ShellShortcuts.Accelerated)
         {
-            vm.SetVolume(vm.Volume + by);
-            return Task.CompletedTask;
-        }
-
-        void Add(Windows.System.VirtualKey key, Windows.System.VirtualKeyModifiers modifiers, Func<TransportViewModel, Task> action)
-        {
-            var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
-            accelerator.Invoked += (invoked, args) =>
-            {
-                if (_transport is null || IsTypingSomewhere())
-                {
-                    return;
-                }
-
-                args.Handled = true;
-                _ = RunSafelyAsync(action, _transport);
-            };
+            var accelerator = new KeyboardAccelerator { Key = shortcut.Key, Modifiers = shortcut.Modifiers };
+            ShellShortcut invoked = shortcut;
+            accelerator.Invoked += (_, args) => args.Handled = Invoke(invoked);
             Root.KeyboardAccelerators.Add(accelerator);
         }
     }
 
     /// <summary>
+    /// The pre-empting half of the table, taken on the way down so a focused <c>Button</c> or list never sees the
+    /// key. <c>PreviewKeyDown</c> tunnels from the root, so this runs before the control that has focus — which is
+    /// the whole point: Space over a library tile has to toggle playback and not press the tile (AC-77).
+    /// </summary>
+    private void OnShellKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e is null || e.Handled)
+        {
+            return;
+        }
+
+        ShellShortcut? found = ShellShortcuts.Find(e.Key, CurrentModifiers(), IsTypingSomewhere());
+        if (found is not { Delivery: ShortcutDelivery.PreEmpt } shortcut)
+        {
+            return;
+        }
+
+        e.Handled = Invoke(shortcut);
+    }
+
+    /// <summary>
+    /// Does what <paramref name="shortcut"/> asks, and says whether it was done — a shortcut with nothing to act
+    /// on leaves the key unhandled, so Q before audio is up is still a Q and not a keystroke swallowed in silence.
+    /// </summary>
+    private bool Invoke(ShellShortcut shortcut)
+    {
+        if (shortcut.Command == ShellCommand.Queue)
+        {
+            // The queue is a flyout on its button (E2-S5); showing it from here is the same gesture as clicking it.
+            if (QueuePanelControl.ViewModel is null)
+            {
+                return false;
+            }
+
+            QueueButton.Flyout.ShowAt(QueueButton);
+            return true;
+        }
+
+        if (_transport is not { } vm)
+        {
+            return false;
+        }
+
+        _ = RunSafelyAsync(
+            transport => shortcut.Command switch
+            {
+                ShellCommand.PlayPause => transport.PlayPauseAsync(),
+                ShellCommand.Next => transport.NextAsync(),
+                ShellCommand.Previous => transport.PreviousAsync(),
+                ShellCommand.Seek => transport.NudgeAsync(TimeSpan.FromSeconds(shortcut.Amount)),
+                ShellCommand.Shuffle => transport.ToggleShuffleAsync(),
+                ShellCommand.Repeat => transport.CycleRepeatAsync(),
+                ShellCommand.Volume => DoneAsync(() => transport.SetVolume(transport.Volume + (float)shortcut.Amount)),
+                _ => DoneAsync(transport.ToggleMute),
+            },
+            vm);
+        return true;
+
+        static Task DoneAsync(Action action)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Which modifiers are down right now. <c>PreviewKeyDown</c> reports the key but not the modifiers, and the
+    /// table matches them exactly, because Ctrl+Space is not Space and Shift+S is a capital S.
+    /// </summary>
+    private static Windows.System.VirtualKeyModifiers CurrentModifiers()
+    {
+        var modifiers = Windows.System.VirtualKeyModifiers.None;
+        if (Controls.Modifiers.Control)
+        {
+            modifiers |= Windows.System.VirtualKeyModifiers.Control;
+        }
+
+        if (Controls.Modifiers.Shift)
+        {
+            modifiers |= Windows.System.VirtualKeyModifiers.Shift;
+        }
+
+        if (Controls.Modifiers.IsDown(Windows.System.VirtualKey.Menu))
+        {
+            modifiers |= Windows.System.VirtualKeyModifiers.Menu;
+        }
+
+        if (Controls.Modifiers.IsDown(Windows.System.VirtualKey.LeftWindows)
+            || Controls.Modifiers.IsDown(Windows.System.VirtualKey.RightWindows))
+        {
+            modifiers |= Windows.System.VirtualKeyModifiers.Windows;
+        }
+
+        return modifiers;
+    }
+
+    /// <summary>
     /// True when focus is in something that wants the keystroke more than the transport does. Checked for every
-    /// accelerator and not only the single-letter ones: Space in a text box is a space, and the arrows are how
+    /// shortcut and not only the single-letter ones: Space in a text box is a space, and the arrows are how
     /// anyone moves a caret.
     /// </summary>
-    private static bool IsTypingSomewhere() =>
-        Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement() is TextBox or RichEditBox or AutoSuggestBox or PasswordBox;
+    /// <remarks>
+    /// The <c>XamlRoot</c> is not optional. The parameterless <c>GetFocusedElement()</c> answers for the calling
+    /// thread's <c>CoreWindow</c>, which a desktop WinUI app does not have, so it returns null however deep in a
+    /// text box the caret is — and a check that is always false is a check that reads as an opt-out and is not one.
+    /// That is what <c>tools/check-shortcuts.ps1</c> caught: S typed into the search box shuffled the queue, which
+    /// is the exact thing the design document says must not happen.
+    /// </remarks>
+    private bool IsTypingSomewhere() =>
+        Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Root.XamlRoot)
+            is TextBox or RichEditBox or AutoSuggestBox or PasswordBox;
 
     private static async Task RunSafelyAsync(Func<TransportViewModel, Task> action, TransportViewModel vm)
     {
