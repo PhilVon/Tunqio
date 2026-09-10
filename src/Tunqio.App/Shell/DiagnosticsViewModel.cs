@@ -30,7 +30,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     private bool _disposed;
 
     [ObservableProperty]
-    private bool _isVisible;
+    public partial bool IsVisible { get; set; }
 
     /// <param name="source">Where the session comes from; without one the overlay says the engine is unavailable.</param>
     /// <param name="renderer">Reads the renderer's statistics; it may not exist, and returns null when it does not.</param>
