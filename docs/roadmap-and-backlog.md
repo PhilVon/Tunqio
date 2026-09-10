@@ -138,10 +138,11 @@ Apply track or album gain and peak with preamp and clipping prevention.
 - [ ] Peak limiting prevents clipping when gain + preamp would exceed 0 dBFS
 
 ### E1-S6 · Exclusive mode and device selection · **M** · `audio` `native`
-Device enumeration, exclusive-mode init following device native rate, fallback to shared on failure.
-- [ ] User can choose a device and mode; exclusive mode on the reference Realtek and a USB DAC plays bit-perfect (verified by loopback capture comparing to the source)
-- [ ] When exclusive init fails, playback continues in shared mode and an `EngineEvent.Error` explains why
-- [ ] Mixer rate follows the device rate in exclusive mode so no resampling occurs for matching sources (*hypothesis*)
+Device enumeration, output init at the device's native rate (both modes, not only exclusive), fallback to shared on failure. `OutputPolicy` turns the stored `output.*` settings into the `OutputConfig` the engine opens; the Settings › Output page that edits them is E6-S3.
+- [x] User can choose a device and mode: the persisted `output.deviceId`/`output.mode`/`output.bufferMs` resolve to an `OutputConfig` the engine opens, and a device that is gone falls back to the default (`OutputPolicy`, remembered by endpoint id so an index shift does not move it)
+- [ ] Exclusive mode on the reference Realtek and a USB DAC plays bit-perfect (verified by loopback capture comparing to the source) — on the reference machine, so assumed passing until that hardware exists and verified in E8-S2
+- [x] When exclusive init fails, playback continues in shared mode and an `EngineEvent.Error` explains why (forced through a test seam in the `MP_STATIC` build: the output starts, `exclusive` reads 0 and the message carries the device and the BASS error)
+- [x] Mixer rate follows the device rate so no resampling occurs for matching sources — and in shared mode as well as exclusive, which the hypothesis missed: BASSWASAPI honours a differing rate in shared mode and Windows resamples for it (measured: a 44.1 kHz device was being driven at the mixer's 48 kHz)
 
 ### E1-S7 · Device change handling · **M** · `audio` `native`
 `BASS_WASAPI_SetNotify` and `IMMNotificationClient` in `mpcore`: default device change, device removal, format change, surfaced as `mp_event`s.

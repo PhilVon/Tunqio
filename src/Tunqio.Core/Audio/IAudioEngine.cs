@@ -12,7 +12,16 @@ public sealed record TrackHandle(long Id, TrackInfo Info);
 /// </summary>
 public interface IAudioEngine : IAsyncDisposable
 {
-    /// <summary>(Re)opens the output. <see cref="OutputConfig.NoDevice"/> renders headless (tests, offline use).</summary>
+    /// <summary>
+    /// (Re)opens the output. <see cref="OutputConfig.NoDevice"/> renders headless (tests, offline use). The device is
+    /// opened at its own mix format in either mode, so a source at that rate is not resampled by anyone, and a playing
+    /// track continues across the change. <see cref="OutputMode.Exclusive"/> is a request a driver may refuse (another
+    /// application holds the device, no offered format is accepted): the device is then opened in shared mode and
+    /// <see cref="EngineEventType.Error"/> carries the reason, rather than the call failing and leaving no output. Read
+    /// <see cref="EngineStats.Exclusive"/> for the mode that was actually granted; a shared-mode failure has nothing to
+    /// fall back to and throws (E1-S6). <c>OutputPolicy</c> is what turns the stored <c>output.*</c> settings into the
+    /// <see cref="OutputConfig"/> to pass here.
+    /// </summary>
     Task InitializeAsync(OutputConfig config, CancellationToken ct = default);
 
     /// <summary>Opens and prescans a file.</summary>

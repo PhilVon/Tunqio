@@ -26,7 +26,10 @@
  * engine-level stub (a stub that only ever returned MP_E_STATE, so no consumer changes behaviour): the gain belongs
  * to the track, is applied by the mixer per source, and so switches on the exact frame of a gapless join. 0.7
  * crossfade (E1-S4): mp_engine_set_crossfade is implemented and mp_engine_preload_next_ex takes the join mode per
- * boundary, since only the caller knows whether two tracks share an album.
+ * boundary, since only the caller knows whether two tracks share an album. E1-S6 (no version change; no export or
+ * struct moved): mp_engine_set_output asks the device for its own mix format rather than whatever rate the mixer was
+ * left at (in either mode: BASSWASAPI honours a differing rate in shared mode too, and Windows then resamples every
+ * frame), and an exclusive mode the driver refuses falls back to shared with MP_EVENT_ERROR saying why.
  */
 #pragma once
 
@@ -117,7 +120,7 @@ typedef struct mp_engine_config {
 typedef struct mp_output_config {
     uint32_t struct_size;
     int32_t device_index; /* index from mp_engine_enum_devices, MP_DEVICE_DEFAULT or MP_DEVICE_NONE */
-    mp_output_mode mode;
+    mp_output_mode mode;  /* MP_OUTPUT_EXCLUSIVE falls back to shared when the device refuses it */
     uint32_t buffer_ms;   /* 0 = device default */
     uint8_t event_driven; /* 1 = WASAPI event-driven buffering (lower latency; buffer becomes one period) */
     uint8_t reserved[3];
@@ -197,7 +200,15 @@ MP_API mp_result MP_CALL mp_engine_create(const mp_engine_config* config, mp_eng
 /* Stops the output, joins the audio thread, frees every track and BASS. No callback fires after return. */
 MP_API mp_result MP_CALL mp_engine_destroy(mp_engine* engine);
 
-/* (Re)opens the output. The mixer adopts the device's mix format; a playing track continues. */
+/* (Re)opens the output. The device is opened at its own mix format (mp_device_info.mix_sample_rate / mix_channels) in
+ * both modes and the mixer adopts what was granted, so a device sitting at 44 100 Hz is driven at 44 100 Hz and a
+ * 44 100 Hz source reaches it without being resampled by anyone; a playing track continues across the change.
+ * MP_OUTPUT_EXCLUSIVE additionally lets BASSWASAPI pick the nearest format the device accepts in exclusive mode when
+ * it will not take that one. Exclusive mode is an opt-in a driver
+ * may refuse (another application holds the device, or no offered format is accepted): rather than leave the caller
+ * without output, the device is then opened in shared mode, MP_EVENT_ERROR carries a message naming the device and
+ * the reason, and mp_engine_stats.exclusive reads 0. A shared-mode failure is the caller's to handle and raises no
+ * event. */
 MP_API mp_result MP_CALL mp_engine_set_output(mp_engine* engine, const mp_output_config* config);
 /* Output devices. Call with out = NULL to get the count; otherwise *count is in/out (capacity/written). */
 MP_API mp_result MP_CALL mp_engine_enum_devices(mp_engine* engine, mp_device_info* out, uint32_t* count);

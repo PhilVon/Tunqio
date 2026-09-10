@@ -134,6 +134,39 @@ mp_result bass_fail(const char* what) {
     }
 }
 
+// The mix format of the device BASS_WASAPI_Init(device_index) will open. MP_DEVICE_DEFAULT is resolved to the
+// output device Windows marks default, since BASS_WASAPI_GetDeviceInfo has no such index.
+bool wasapi_device_info(int32_t device_index, BASS_WASAPI_DEVICEINFO& out) {
+    if (device_index >= 0) {
+        return BASS_WASAPI_GetDeviceInfo(static_cast<DWORD>(device_index), &out) != FALSE;
+    }
+    if (device_index != MP_DEVICE_DEFAULT) {
+        return false;
+    }
+    BASS_WASAPI_DEVICEINFO di{};
+    for (DWORD i = 0; BASS_WASAPI_GetDeviceInfo(i, &di); ++i) {
+        if ((di.flags & (BASS_DEVICE_INPUT | BASS_DEVICE_LOOPBACK)) != 0) {
+            continue;
+        }
+        if ((di.flags & BASS_DEVICE_DEFAULT) != 0) {
+            out = di;
+            return true;
+        }
+    }
+    return false;
+}
+
+#if defined(MP_STATIC)
+std::atomic<bool> g_force_exclusive_failure{false};
+bool exclusive_init_forced_to_fail() noexcept {
+    return g_force_exclusive_failure.load(std::memory_order_relaxed);
+}
+#else
+constexpr bool exclusive_init_forced_to_fail() noexcept {
+    return false;
+}
+#endif
+
 mp_result state_fail(const char* what) {
     mp::abi::set_last_error(what);
     return MP_E_STATE;
@@ -206,6 +239,12 @@ constexpr uint32_t k_guard_wait_ms = 150; // longest a control call waits for a 
 constexpr DWORD k_source_flags = BASS_MIXER_CHAN_NORAMPIN | BASS_MIXER_CHAN_LIMIT;
 
 } // namespace
+
+#if defined(MP_STATIC)
+void testing::force_exclusive_failure(bool on) noexcept {
+    g_force_exclusive_failure.store(on, std::memory_order_relaxed);
+}
+#endif
 
 // ---- lifetime -----------------------------------------------------------------------------------
 
@@ -325,6 +364,95 @@ void engine::free_output() noexcept {
 
 // ---- output -------------------------------------------------------------------------------------
 
+mp_result engine::adopt_output_format() {
+    // The mixer must produce exactly what the device consumes; recreate it at the output format and
+    // re-attach the current source at its position (surprise recorded in the spike doc). In exclusive mode
+    // that rate is the device's own, so a source at the same rate is never resampled (ADR-003 item 2).
+    if (output_rate_ == mixer_rate_ && output_channels_ == mixer_channels_) {
+        return MP_OK;
+    }
+    uint64_t resume_pos = 0;
+    track* const cur = current_.load(std::memory_order_acquire);
+    remove_outgoing(); // the old mixer goes; a fading predecessor is not carried over
+    if (cur != nullptr) {
+        resume_pos = source_position(*cur, 0);
+        BASS_Mixer_ChannelRemove(cur->stream);
+        cur->fade_sync = 0;
+    }
+    if (const mp_result r = create_mixer(output_rate_, output_channels_); r != MP_OK) {
+        return r;
+    }
+    if (cur != nullptr) {
+        set_source_position(*cur, resume_pos);
+        if (const mp_result a = attach_source(*cur); a != MP_OK) {
+            return a;
+        }
+        arm_crossfade();
+    }
+    return MP_OK;
+}
+
+mp_result engine::open_output(const mp_output_config& config, bool exclusive, char* fail_text, size_t fail_cap) {
+    const auto fail = [&](mp_result r) {
+        copy_utf8(fail_text, fail_cap, std::string{mp::abi::last_error()}.c_str());
+        free_output();
+        return r;
+    };
+
+    DWORD flags = 0;
+    // Ask for the device's own mix format, not whatever rate the mixer happens to be running at. In exclusive mode
+    // that is what makes a device left at 44 100 Hz open at 44 100 Hz, so a 44 100 Hz source reaches it unresampled
+    // (E1-S6 AC-51). In shared mode it matters just as much for a different reason: BASSWASAPI honours a rate that
+    // differs from the device's, and Windows then resamples every frame on the way out - measured on the dev machine,
+    // where the mixer's default 48 kHz was driving a 44 100 Hz device.
+    uint32_t request_rate = mixer_rate_;
+    uint32_t request_channels = mixer_channels_;
+    BASS_WASAPI_DEVICEINFO di{};
+    if (wasapi_device_info(config.device_index, di) && di.mixfreq != 0 && di.mixchans != 0) {
+        request_rate = di.mixfreq;
+        request_channels = di.mixchans;
+    }
+    if (exclusive) {
+        // AUTOFORMAT lets BASSWASAPI pick the nearest format the device accepts when it will not take that one.
+        flags |= BASS_WASAPI_EXCLUSIVE | BASS_WASAPI_AUTOFORMAT;
+    }
+    if (config.event_driven != 0) {
+        flags |= BASS_WASAPI_EVENT;
+    }
+    const float buffer_s = config.buffer_ms != 0 ? static_cast<float>(config.buffer_ms) / 1000.0f : 0.0f;
+
+    if (exclusive && exclusive_init_forced_to_fail()) {
+        mp::abi::set_last_error("BASS_WASAPI_Init(exclusive): forced failure (test seam)");
+        return fail(MP_E_DEVICE);
+    }
+    // Both modes are opened at the device's mix format; BASS_WASAPI_GetInfo below says what was actually granted.
+    if (!BASS_WASAPI_Init(config.device_index, request_rate, request_channels, flags, buffer_s, 0.0f, &output_proc,
+                          this)) {
+        return fail(bass_fail(exclusive ? "BASS_WASAPI_Init(exclusive)" : "BASS_WASAPI_Init"));
+    }
+    output_open_ = true;
+
+    BASS_WASAPI_INFO info{};
+    if (!BASS_WASAPI_GetInfo(&info)) {
+        return fail(bass_fail("BASS_WASAPI_GetInfo"));
+    }
+    exclusive_ = (info.initflags & BASS_WASAPI_EXCLUSIVE) != 0;
+    output_rate_ = info.freq;
+    output_channels_ = info.chans;
+    output_buffer_bytes_ = info.buflen;
+    output_format_ = info.format;
+
+    if (const mp_result r = adopt_output_format(); r != MP_OK) {
+        return fail(r);
+    }
+    if (!BASS_WASAPI_Start()) {
+        return fail(bass_fail("BASS_WASAPI_Start"));
+    }
+    output_started_ = true;
+    fail_text[0] = '\0';
+    return MP_OK;
+}
+
 mp_result engine::set_output(const mp_output_config& config) {
     std::lock_guard lock{control_};
     free_output();
@@ -343,66 +471,34 @@ mp_result engine::set_output(const mp_output_config& config) {
         return MP_OK;
     }
 
-    DWORD flags = 0;
-    if (config.mode == MP_OUTPUT_EXCLUSIVE) {
-        // AUTOFORMAT lets BASSWASAPI pick the nearest format the device accepts in exclusive mode.
-        flags |= BASS_WASAPI_EXCLUSIVE | BASS_WASAPI_AUTOFORMAT;
+    const bool wants_exclusive = config.mode == MP_OUTPUT_EXCLUSIVE;
+    char why[512] = {};
+    mp_result r = open_output(config, wants_exclusive, why, sizeof why);
+    if (r != MP_OK && wants_exclusive) {
+        // Exclusive mode is an opt-in and a driver may simply refuse it (another app holds the device, the
+        // hardware takes no format we can offer). Losing the music over that would be the wrong trade: say why
+        // and carry on in shared mode, which is what the user had before they opted in (R-3, E1-S6 AC-50).
+        char message[640];
+        char device[64];
+        if (config.device_index == MP_DEVICE_DEFAULT) {
+            copy_utf8(device, sizeof device, "the default device");
+        } else {
+            std::snprintf(device, sizeof device, "device %d", config.device_index);
+        }
+        std::snprintf(message, sizeof message, "exclusive mode is not available on %s (%s); playing in shared mode",
+                      device, why[0] != '\0' ? why : "no reason given");
+        log(MP_LOG_WARN, "%s", message);
+        emit(MP_EVENT_ERROR, 0, 0, message);
+        r = open_output(config, false, why, sizeof why);
+        if (r == MP_OK) {
+            // The exclusive attempt left its message in the thread's last error; the call succeeded.
+            mp::abi::clear_last_error();
+        }
     }
-    if (config.event_driven != 0) {
-        flags |= BASS_WASAPI_EVENT;
-    }
-    const float buffer_s = config.buffer_ms != 0 ? static_cast<float>(config.buffer_ms) / 1000.0f : 0.0f;
-
-    // Shared mode ignores freq/chans (the device mix format is used); exclusive mode requests the mixer's.
-    if (!BASS_WASAPI_Init(config.device_index, mixer_rate_, mixer_channels_, flags, buffer_s, 0.0f, &output_proc,
-                          this)) {
-        return bass_fail("BASS_WASAPI_Init");
-    }
-    output_open_ = true;
-
-    BASS_WASAPI_INFO info{};
-    if (!BASS_WASAPI_GetInfo(&info)) {
-        const mp_result r = bass_fail("BASS_WASAPI_GetInfo");
-        free_output();
+    if (r != MP_OK) {
         return r;
     }
-    exclusive_ = (info.initflags & BASS_WASAPI_EXCLUSIVE) != 0;
-    output_rate_ = info.freq;
-    output_channels_ = info.chans;
-    output_buffer_bytes_ = info.buflen;
-    output_format_ = info.format;
 
-    // The mixer must produce exactly what the device consumes; recreate it at the output format and
-    // re-attach the current source at its position (surprise recorded in the spike doc).
-    if (output_rate_ != mixer_rate_ || output_channels_ != mixer_channels_) {
-        uint64_t resume_pos = 0;
-        track* const cur = current_.load(std::memory_order_acquire);
-        remove_outgoing(); // the old mixer goes; a fading predecessor is not carried over
-        if (cur != nullptr) {
-            resume_pos = source_position(*cur, 0);
-            BASS_Mixer_ChannelRemove(cur->stream);
-            cur->fade_sync = 0;
-        }
-        const mp_result r = create_mixer(output_rate_, output_channels_);
-        if (r != MP_OK) {
-            free_output();
-            return r;
-        }
-        if (cur != nullptr) {
-            set_source_position(*cur, resume_pos);
-            if (const mp_result a = attach_source(*cur); a != MP_OK) {
-                return a;
-            }
-            arm_crossfade();
-        }
-    }
-
-    if (!BASS_WASAPI_Start()) {
-        const mp_result r = bass_fail("BASS_WASAPI_Start");
-        free_output();
-        return r;
-    }
-    output_started_ = true;
     log(MP_LOG_INFO, "output: %s, %u Hz / %u ch, format %u, buffer %u bytes (%u ms)",
         exclusive_ ? "exclusive" : "shared", output_rate_, output_channels_, output_format_, output_buffer_bytes_,
         output_rate_ != 0 ? output_buffer_bytes_ * 1000u / (output_rate_ * output_channels_ * 4u) : 0u);

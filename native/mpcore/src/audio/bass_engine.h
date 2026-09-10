@@ -17,6 +17,15 @@ namespace mp::audio {
 
 class engine;
 
+#if defined(MP_STATIC)
+// Test seam (E1-S6). Only a busy or unwilling driver makes an exclusive-mode init fail, and a CI runner may
+// have no output device at all, so the fallback path is unreachable from a test on real hardware. The tests
+// compile these sources directly (MP_STATIC); the shipped DLL is built without it and carries no hook.
+namespace testing {
+void force_exclusive_failure(bool on) noexcept;
+} // namespace testing
+#endif
+
 struct track {
     uint32_t stream = 0; // HSTREAM (decode): what the mixer plays
     mp_track_info info{};
@@ -71,6 +80,8 @@ public:
     engine(const engine&) = delete;
     engine& operator=(const engine&) = delete;
 
+    // Opens the device in the requested mode. An exclusive mode that the driver refuses falls back to shared
+    // (MP_EVENT_ERROR says why) rather than leaving the user without output: exclusive is an opt-in.
     mp_result set_output(const mp_output_config& config);
     mp_result enum_devices(mp_device_info* out, uint32_t* count);
     void set_event_callback(mp_event_cb callback, void* user);
@@ -113,6 +124,12 @@ private:
     mp_result create_mixer(uint32_t rate, uint32_t channels);
     void load_plugins(const std::wstring& dir);
     void free_output() noexcept;
+    // One BASSWASAPI init attempt in one mode, through to BASS_WASAPI_Start: adopts the device's format, rebuilds
+    // the mixer at it when it differs and re-attaches the playing source. On failure the output is freed again and
+    // why is copied into fail_text, so the caller can name the exclusive failure while retrying in shared mode.
+    mp_result open_output(const mp_output_config& config, bool exclusive, char* fail_text, size_t fail_cap);
+    // Rebuilds the mixer at the output's rate and channels, carrying the playing source over at its position.
+    mp_result adopt_output_format();
     void emit(mp_event_type type, int64_t a, int64_t b, const char* message) noexcept;
 
     // Control plane: fade the envelope to silence and, on a live device, wait for the audio thread to get there.

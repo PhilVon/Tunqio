@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <!--
     Catch2 v3 tests for mpcore. The tests compile the mpcore sources directly (MP_STATIC) rather than
@@ -74,6 +74,7 @@
     <ClCompile Include="src\test_engine.cpp" />
     <ClCompile Include="src\test_gapless.cpp" />
     <ClCompile Include="src\test_mp4_gapless.cpp" />
+    <ClCompile Include="src\test_output.cpp" />
     <ClCompile Include="src\test_transport.cpp" />
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_replaygain.cpp" />
