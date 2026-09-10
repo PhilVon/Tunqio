@@ -560,7 +560,7 @@ public sealed class LibraryScanner : ILibraryScanner
         run.Report();
     }
 
-    private async Task MarkAsync(IReadOnlyList<long> ids, bool missing, FolderRun state, CancellationToken ct)
+    private async Task MarkAsync(List<long> ids, bool missing, FolderRun state, CancellationToken ct)
     {
         for (int offset = 0; offset < ids.Count; offset += BatchSize)
         {

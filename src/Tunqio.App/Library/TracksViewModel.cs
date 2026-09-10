@@ -33,22 +33,22 @@ public sealed partial class TracksViewModel : ObservableObject
     private readonly HashSet<TrackColumn> _hidden;
 
     [ObservableProperty]
-    private IncrementalItemsSource<TrackDto>? _items;
+    public partial IncrementalItemsSource<TrackDto>? Items { get; set; }
 
     [ObservableProperty]
-    private string _title = string.Empty;
+    public partial string Title { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private TrackSort _sort = TrackSort.Title;
+    public partial TrackSort Sort { get; set; } = TrackSort.Title;
 
     [ObservableProperty]
-    private bool _descending;
+    public partial bool Descending { get; set; }
 
     [ObservableProperty]
-    private bool _canSort = true;
+    public partial bool CanSort { get; set; } = true;
 
     [ObservableProperty]
-    private bool _isEmpty;
+    public partial bool IsEmpty { get; set; }
 
     public TracksViewModel(ITrackRepository tracks, IPlaybackCommands playback, ILibraryNavigator navigator, IFileRevealer revealer, ISettingsStore settings)
     {

@@ -20,10 +20,10 @@ public sealed partial class GenresViewModel : ObservableObject
     private readonly ILibraryNavigator _navigator;
 
     [ObservableProperty]
-    private IReadOnlyList<GenreTag> _tags = [];
+    public partial IReadOnlyList<GenreTag> Tags { get; set; } = [];
 
     [ObservableProperty]
-    private bool _isEmpty;
+    public partial bool IsEmpty { get; set; }
 
     public GenresViewModel(IGenreRepository genres, ILibraryNavigator navigator)
     {
@@ -74,10 +74,10 @@ public sealed partial class FoldersViewModel : ObservableObject
     private readonly ILibraryNavigator _navigator;
 
     [ObservableProperty]
-    private IReadOnlyList<FolderRow> _rows = [];
+    public partial IReadOnlyList<FolderRow> Rows { get; set; } = [];
 
     [ObservableProperty]
-    private bool _isEmpty;
+    public partial bool IsEmpty { get; set; }
 
     public FoldersViewModel(ILibraryFolderRepository folders, ILibraryNavigator navigator)
     {

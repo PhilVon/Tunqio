@@ -36,59 +36,64 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
     private readonly TimeProvider _clock;
     private bool _attached;
 
-    [ObservableProperty]
-    private IReadOnlyList<LibraryFolderRow> _folderRows = [];
+    // Set while the constructor seeds state read out of settings. The seed has to go through the property now
+    // that these are partial properties (there is no backing field to assign around the setter), so the change
+    // handlers below use this to avoid writing a value straight back to the store it just came from.
+    private bool _seeding;
 
     [ObservableProperty]
-    private bool _hasFolders;
+    public partial IReadOnlyList<LibraryFolderRow> FolderRows { get; set; } = [];
 
     [ObservableProperty]
-    private bool _isScanning;
+    public partial bool HasFolders { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsScanning { get; set; }
 
     /// <summary>The running scan, one line; empty when none runs.</summary>
     [ObservableProperty]
-    private string _scanStatus = string.Empty;
+    public partial string ScanStatus { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private bool _hasLastReport;
+    public partial bool HasLastReport { get; set; }
 
     /// <summary>The last shell scan's outcome and counts, one line.</summary>
     [ObservableProperty]
-    private string _lastReport = string.Empty;
+    public partial string LastReport { get; set; } = string.Empty;
 
     /// <summary>"Today at 14:02" for the last report.</summary>
     [ObservableProperty]
-    private string _lastReportWhen = string.Empty;
+    public partial string LastReportWhen { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private IReadOnlyList<string> _failures = [];
+    public partial IReadOnlyList<string> Failures { get; set; } = [];
 
     [ObservableProperty]
-    private bool _hasFailures;
+    public partial bool HasFailures { get; set; }
 
     [ObservableProperty]
-    private bool _splitArtists;
+    public partial bool SplitArtists { get; set; }
 
     [ObservableProperty]
-    private bool _writeRatingsToFiles;
+    public partial bool WriteRatingsToFiles { get; set; }
 
     /// <summary>Tracks Purge missing would delete now.</summary>
     [ObservableProperty]
-    private int _missingCount;
+    public partial int MissingCount { get; set; }
 
     [ObservableProperty]
-    private bool _canPurge;
+    public partial bool CanPurge { get; set; }
 
     /// <summary>A maintenance action (purge, rebuild, regenerate) is running; the buttons wait.</summary>
     [ObservableProperty]
-    private bool _isBusy;
+    public partial bool IsBusy { get; set; }
 
     /// <summary>What the last action did ("Purged 12 missing tracks"); empty when nothing has happened yet.</summary>
     [ObservableProperty]
-    private string _notice = string.Empty;
+    public partial string Notice { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private bool _hasNotice;
+    public partial bool HasNotice { get; set; }
 
     public LibrarySettingsViewModel(
         ILibraryFolderRepository folders,
@@ -117,8 +122,10 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         _picker = picker;
         _art = art;
         _clock = clock ?? TimeProvider.System;
-        _splitArtists = settings.GetValue(SettingsKeys.LibrarySplitArtists, SettingsKeys.Defaults.LibrarySplitArtists);
-        _writeRatingsToFiles = settings.GetValue(SettingsKeys.LibraryWriteRatingsToFiles, SettingsKeys.Defaults.LibraryWriteRatingsToFiles);
+        _seeding = true;
+        SplitArtists = settings.GetValue(SettingsKeys.LibrarySplitArtists, SettingsKeys.Defaults.LibrarySplitArtists);
+        WriteRatingsToFiles = settings.GetValue(SettingsKeys.LibraryWriteRatingsToFiles, SettingsKeys.Defaults.LibraryWriteRatingsToFiles);
+        _seeding = false;
         ReadScanState();
     }
 
@@ -300,9 +307,21 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         return days == 1 ? "yesterday" : days.ToString(CultureInfo.CurrentCulture) + " days ago";
     }
 
-    partial void OnSplitArtistsChanged(bool value) => _settings.SetValue(SettingsKeys.LibrarySplitArtists, value);
+    partial void OnSplitArtistsChanged(bool value)
+    {
+        if (!_seeding)
+        {
+            _settings.SetValue(SettingsKeys.LibrarySplitArtists, value);
+        }
+    }
 
-    partial void OnWriteRatingsToFilesChanged(bool value) => _settings.SetValue(SettingsKeys.LibraryWriteRatingsToFiles, value);
+    partial void OnWriteRatingsToFilesChanged(bool value)
+    {
+        if (!_seeding)
+        {
+            _settings.SetValue(SettingsKeys.LibraryWriteRatingsToFiles, value);
+        }
+    }
 
     partial void OnIsBusyChanged(bool value) => CanPurge = MissingCount > 0 && !value;
 

@@ -19,7 +19,7 @@ public sealed partial class LibraryPane : UserControl
     private const VirtualKey CommaKey = (VirtualKey)188;
 
     /// <summary>The root page of each pane item; a Tracks page is told which fixed view it is.</summary>
-    private static readonly IReadOnlyDictionary<string, (Type Page, object? Parameter)> Routes = new Dictionary<string, (Type, object?)>(StringComparer.Ordinal)
+    private static readonly Dictionary<string, (Type Page, object? Parameter)> Routes = new(StringComparer.Ordinal)
     {
         ["albums"] = (typeof(AlbumsPage), null),
         ["artists"] = (typeof(ArtistsPage), null),
