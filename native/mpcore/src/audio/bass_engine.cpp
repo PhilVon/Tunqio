@@ -813,14 +813,49 @@ mp_result engine::open_track(const char* utf8_path, track*& out) {
             t->trim_delivered = 0;
             t->info.total_frames = static_cast<int64_t>(g->valid_frames);
             t->info.duration_ms = static_cast<int64_t>(g->valid_frames * 1000 / ci.freq);
-            // PROBE (T-109 follow-up, temporary): what the MF stream reports for its own length says whether this
-            // Media Foundation applies the edit list itself. valid_frames means it does and a seek is already in
-            // valid-frame coordinates; valid + priming + padding means it does not, which is what the E1-S2 spike
-            // measured on Windows 10 19045 and what the wrapper's arithmetic currently assumes everywhere.
-            log(MP_LOG_DEBUG, "mp4 gapless: priming %llu, valid %llu frames (%s); MF reports %lld frames",
+            log(MP_LOG_DEBUG, "mp4 gapless: priming %llu, valid %llu frames (%s)",
                 static_cast<unsigned long long>(g->priming_frames), static_cast<unsigned long long>(g->valid_frames),
-                g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list",
-                static_cast<long long>(BASS_ChannelGetLength(stream, BASS_POS_BYTE) / t->frame_bytes));
+                g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list");
+
+            // PROBE (T-109 follow-up, temporary - delete with the fix it informs). The runner's Media Foundation
+            // lands a seek on the valid frame asked for; Windows 10 19045's lands priming frames earlier, and
+            // reported length is 96 000 on both, so it cannot tell them apart. These are the other things the
+            // wrapper could ask at open time. Whichever differs between the two machines is the detector.
+            {
+                const uint32_t fb = t->frame_bytes;
+                const uint64_t priming = g->priming_frames;
+                const uint64_t valid = g->valid_frames;
+
+                // What BASS says the position is after a seek to the middle - does it echo, or adjust?
+                const bool mid_ok = BASS_ChannelSetPosition(stream, valid / 2 * fb, BASS_POS_BYTE) != 0;
+                const QWORD mid_back = BASS_ChannelGetPosition(stream, BASS_POS_BYTE);
+
+                // Where seeking starts being refused: the end of the valid audio, or the end of the raw data.
+                const bool at_valid = BASS_ChannelSetPosition(stream, valid * fb, BASS_POS_BYTE) != 0;
+                const bool past_valid = BASS_ChannelSetPosition(stream, (valid + priming) * fb, BASS_POS_BYTE) != 0;
+
+                // How many frames the inner stream actually hands out from 0: valid means MF applied the edit
+                // list, valid + priming + padding means it did not. The clearest signal, but a whole decode.
+                BASS_ChannelSetPosition(stream, 0, BASS_POS_BYTE);
+                uint64_t decoded = 0;
+                std::vector<char> scratch(8192);
+                for (;;) {
+                    const DWORD got = BASS_ChannelGetData(stream, scratch.data(), static_cast<DWORD>(scratch.size()));
+                    if (got == static_cast<DWORD>(-1) || got == 0) {
+                        break;
+                    }
+                    decoded += got / fb;
+                }
+                BASS_ChannelSetPosition(stream, 0, BASS_POS_BYTE);
+
+                log(MP_LOG_DEBUG,
+                    "PROBE detectors: length %lld, seek(valid/2) %s -> reports %lld, seek(valid) %s, "
+                    "seek(valid+priming) %s, decodable-from-0 %llu frames (valid %llu, valid+priming %llu)",
+                    static_cast<long long>(BASS_ChannelGetLength(stream, BASS_POS_BYTE) / fb),
+                    mid_ok ? "ok" : "refused", static_cast<long long>(mid_back / fb), at_valid ? "ok" : "refused",
+                    past_valid ? "ok" : "refused", static_cast<unsigned long long>(decoded),
+                    static_cast<unsigned long long>(valid), static_cast<unsigned long long>(valid + priming));
+            }
         }
     }
     // The crossfade envelope rides on whichever stream the mixer pulls; it is a no-op until a fade is armed.
