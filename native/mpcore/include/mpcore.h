@@ -32,7 +32,11 @@
  * frame), and an exclusive mode the driver refuses falls back to shared with MP_EVENT_ERROR saying why. E1-S7 (no
  * version change): device changes are watched and raised as MP_EVENT_DEVICE_LOST / MP_EVENT_DEVICE_CHANGED, whose a,
  * b and message are documented at mp_event_type; the engine parks playback when the open device goes and migrates
- * itself only when the caller asked for MP_DEVICE_DEFAULT.
+ * itself only when the caller asked for MP_DEVICE_DEFAULT. E1-S8 (no ABI change): a DSP on the mixer feeds the
+ * analysis tap - fixed 512-frame hops of mixed PCM, each carrying the mixer byte position of its first frame,
+ * through a lock-free ring. That is the audio side of the analysis stream; mp_analysis_try_get_latest stays
+ * unimplemented until E4-S1, which is what turns a hop into an mp_analysis_frame (the spectrum, bands and onset
+ * in that struct are all its work, and half a frame would be worse than none).
  */
 #pragma once
 
@@ -281,7 +285,7 @@ MP_API mp_result MP_CALL mp_preview_start(mp_engine* engine, mp_track* track,
                                           float gain_db);    /* not implemented until E5-S5 */
 MP_API mp_result MP_CALL mp_preview_stop(mp_engine* engine); /* not implemented until E5-S5 */
 
-/* ---- analysis (ABI 0.2 draft; implemented by E1-S8 / E4-S1) ------------------------------------ */
+/* ---- analysis (ABI 0.2 draft; the tap that feeds it is E1-S8, the frame itself E4-S1) ---------- */
 
 #define MP_ANALYSIS_SPECTRUM_BINS 1024u
 #define MP_ANALYSIS_WAVEFORM_SAMPLES 512u
@@ -305,7 +309,7 @@ typedef struct mp_analysis_frame {
 
 /* Copies the newest complete frame. MP_E_STATE when none is available yet. */
 MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* engine,
-                                                    mp_analysis_frame* out_frame); /* not implemented until E1-S8 */
+                                                    mp_analysis_frame* out_frame); /* not implemented until E4-S1 */
 
 /* ---- renderer (ABI 0.3; E0-S5 spike, E4-S3 completes the preset surface) ---------------------- */
 

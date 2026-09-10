@@ -333,7 +333,18 @@ mp_result engine::create_mixer(uint32_t rate, uint32_t channels) {
     mixer_rate_ = rate;
     mixer_channels_ = channels;
     fade_frames_.store(std::max(1u, rate * k_guard_fade_ms / 1000u), std::memory_order_relaxed);
+    // The tap belongs to this mixer: its byte counter is the new mixer's position, and whatever the old one
+    // published is about audio that is no longer being made. The DSP went with the old mixer's handle.
+    tap_.reset(channels);
+    if (BASS_ChannelSetDSP(mixer_, &tap_proc, this, 0) == 0) {
+        return bass_fail("BASS_ChannelSetDSP (analysis tap)");
+    }
     return MP_OK;
+}
+
+void engine::tap_proc(unsigned long, unsigned long, void* buffer, unsigned long length, void* user) {
+    auto* self = static_cast<engine*>(user);
+    self->tap_.write_bytes(static_cast<const float*>(buffer), static_cast<uint32_t>(length), qpc_now());
 }
 
 engine::~engine() {

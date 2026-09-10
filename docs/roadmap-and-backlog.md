@@ -152,9 +152,9 @@ Device enumeration, output init at the device's native rate (both modes, not onl
 - [x] Soak: 200 simulated device changes leave handle counts stable (225 → 229 across 200 notifications including 50 real close/reopen cycles)
 
 ### E1-S8 · Analysis tap and lock-free ring buffer · **M** · `audio` `analysis` `native`
-`mpcore/common` SPSC ring buffer (cache-line-aligned atomics, per performance-optimization.md); DSP callback on the mixer writing float frames plus byte position into it.
-- [ ] Ring buffer stress test (Catch2, multi-threaded): no lost or duplicated frames, no torn positions
-- [ ] Tap adds < 0.2 ms to the DSP callback at 48 kHz stereo (benchmark)
+`mpcore/common` SPSC ring buffer (cache-line-aligned atomics, per performance-optimization.md); `mpcore/analysis/tap.h`, a DSP on the mixer that stages mixed float frames into fixed 512-frame hops (ADR-010) and publishes each with the mixer byte position of its first frame. On the mixer rather than after the engine's own envelope, so the visualization follows the music and not the volume slider. `mp_analysis_try_get_latest` stays E4-S1's: turning a hop into an `mp_analysis_frame` is the analysis, and half a frame would be worse than none.
+- [x] Ring buffer stress test (Catch2, multi-threaded): no lost or duplicated frames, no torn positions (the ring in `test_spsc_ring.cpp`, and the tap over it in `test_analysis_tap.cpp` — 2000 hops written in ragged 1–997-frame pieces, every sample verified against the position the block claims)
+- [x] Tap adds < 0.2 ms to the DSP callback at 48 kHz stereo (benchmark) (measured 0.0008 ms per 480-frame callback, and `rt_guard` proves it allocates nothing)
 
 ### E1-S9 · PlayQueue model · **M** · `core`
 Immutable `PlayQueue` per library-and-data.md.

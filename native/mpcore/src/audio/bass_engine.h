@@ -5,6 +5,8 @@
 
 #include "mpcore.h"
 
+#include "analysis/tap.h"
+
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -170,6 +172,11 @@ private:
     // the default has really moved.
     void remember_open_device();
     static void __stdcall notify_proc(unsigned long notify, unsigned long device, void* user);
+
+    // The analysis tap (E1-S8): a DSP on the mixer, so it sees the mix as the mixer makes it and before the
+    // engine's own envelope and volume - the visualization follows the music, not the volume slider.
+    static void __stdcall tap_proc(unsigned long handle, unsigned long channel, void* buffer, unsigned long length,
+                                   void* user);
     void emit(mp_event_type type, int64_t a, int64_t b, const char* message) noexcept;
 
     // Control plane: fade the envelope to silence and, on a live device, wait for the audio thread to get there.
@@ -201,6 +208,14 @@ private:
                                     void* user);
 
     mutable std::mutex control_; // control-plane calls; never taken on the audio thread
+
+    // Fed by tap_proc on the audio thread, drained by the analysis thread (E4-S1). Public so the tests and, later,
+    // the analysis thread can read it; the engine only ever writes it through the DSP.
+public:
+    mp::analysis::tap& analysis_tap() noexcept { return tap_; }
+
+private:
+    mp::analysis::tap tap_;
 
     uint32_t mixer_ = 0; // HSTREAM (decode, nonstop)
     uint32_t mixer_rate_ = 48000;

@@ -67,6 +67,7 @@
     <ClCompile Include="$(MpCoreDir)src\render\renderer.cpp" />
     <!-- Tests -->
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\test_analysis_tap.cpp" />
     <ClCompile Include="src\test_abi.cpp" />
     <ClCompile Include="src\test_architecture.cpp" />
     <ClCompile Include="src\test_asan_scratch.cpp" />

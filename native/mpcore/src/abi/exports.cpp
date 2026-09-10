@@ -343,7 +343,7 @@ MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* e, mp_analysis_fr
     if (e == nullptr || !size_ok(out_frame)) {
         return invalid("mp_analysis_try_get_latest: NULL engine or bad struct_size");
     }
-    return not_implemented("mp_analysis_try_get_latest", "E1-S8");
+    return not_implemented("mp_analysis_try_get_latest", "E4-S1");
 }
 
 } // extern "C"
