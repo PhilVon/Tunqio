@@ -20,7 +20,9 @@
  * quality are declared and stubbed for E4. 0.4 engine skeleton (E1-S1): MP_DEVICE_NONE output and
  * mp_engine_render for headless use; guard fades on pause/resume/stop/seek; audio-taper volume. 0.5 gapless
  * join (E1-S2 spike): mp_engine_preload_next queues the successor and the mix-time END sync starts it where the
- * current track ends; MP_EVENT_TRACK_STARTED/ENDED carry the mixer byte position of the join in b.
+ * current track ends; MP_EVENT_TRACK_STARTED/ENDED carry the mixer byte position of the join in b. E1-S3: the join
+ * events name the tracks by handle, as the natural end does. The join is heard when mp_clock.mixer_byte_pos minus
+ * output_buffered_bytes passes b.
  */
 #pragma once
 
@@ -162,8 +164,9 @@ typedef struct mp_engine_stats {
 typedef enum mp_event_type {
     MP_EVENT_TRACK_STARTED = 1, /* a = track handle; b = start_ms for mp_engine_play, the mixer byte position at a
                                    gapless join (mp_clock.mixer_byte_pos units) */
-    MP_EVENT_TRACK_ENDED = 2,   /* natural end; a = track handle as integer; b = the mixer byte position when a
-                                   preloaded successor took over, else 0 */
+    MP_EVENT_TRACK_ENDED = 2,   /* natural end; a = track handle (0 only if the source ended before mp_engine_play
+                                   had recorded it); b = the mixer byte position when a preloaded successor took
+                                   over, else 0 */
     MP_EVENT_DEVICE_LOST = 3,
     MP_EVENT_DEVICE_CHANGED = 4,
     MP_EVENT_UNDERRUN = 5,

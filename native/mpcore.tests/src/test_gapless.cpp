@@ -116,6 +116,8 @@ struct event_log {
     int64_t first_ended_b = -1; // a's end: the join position; b ends later on its own with 0
     int64_t last_ended_b = -1;
     int64_t started_b = -1;
+    int64_t first_ended_a = 0; // the handles the join names: a ended, b started
+    int64_t last_started_a = 0;
     int64_t started_at_frame = -1; // output frames rendered before the callback that fired it
     int64_t rendered = 0;
 };
@@ -203,10 +205,12 @@ pair_result measure(const fs::path& dir) {
             if (ev->type == MP_EVENT_TRACK_STARTED) {
                 ++log->started;
                 log->started_b = ev->b;
+                log->last_started_a = ev->a;
                 log->started_at_frame = log->rendered;
             } else if (ev->type == MP_EVENT_TRACK_ENDED) {
                 if (log->ended++ == 0) {
                     log->first_ended_b = ev->b;
+                    log->first_ended_a = ev->a;
                 }
                 log->last_ended_b = ev->b;
             }
@@ -228,6 +232,8 @@ pair_result measure(const fs::path& dir) {
         r.events.rendered += n;
     }
     mp_engine_set_event_callback(fx.engine, nullptr, nullptr);
+    CHECK(r.events.first_ended_a == reinterpret_cast<int64_t>(a)); // E1-S3: the events name the tracks by handle
+    CHECK(r.events.last_started_a == reinterpret_cast<int64_t>(b));
 
     const auto s = [](double seconds) { return static_cast<int64_t>(seconds * k_rate); };
     constexpr int64_t k_range = 6000; // covers MP3 (1105), AAC (2112 + 1024), Opus (312) and a WMA guess

@@ -41,8 +41,21 @@ public sealed record OutputDevice(
 /// <summary>Decoded stream facts for an opened track (<c>mp_track_info</c>).</summary>
 public sealed record TrackInfo(TimeSpan Duration, int SampleRate, int Channels, int BitsPerSample, string Codec, long TotalFrames);
 
-/// <summary>A latency-compensated position reading (<c>mp_clock</c>).</summary>
-public readonly record struct PlaybackClock(TimeSpan Position, long MixerBytePosition, TimeSpan OutputLatency, long QpcTicks, long OutputBufferedBytes);
+/// <summary>
+/// A latency-compensated position reading (<c>mp_clock</c>). <paramref name="MixerBytePosition"/> counts the bytes the
+/// mixer has produced; <paramref name="OutputBufferedBytes"/> of them are still in the output buffer, so what is being
+/// heard is <see cref="AudibleMixerBytePosition"/>. A gapless join is reported by <see cref="EngineEventType.TrackStarted"/>
+/// as soon as it is mixed, up to one output buffer before it is heard: the session changes the now-playing item when
+/// <see cref="HasPlayed"/> says the join position has left the buffer (E1-S3).
+/// </summary>
+public readonly record struct PlaybackClock(TimeSpan Position, long MixerBytePosition, TimeSpan OutputLatency, long QpcTicks, long OutputBufferedBytes)
+{
+    /// <summary>The mixer byte position the listener is hearing now: produced bytes less those still buffered.</summary>
+    public long AudibleMixerBytePosition => MixerBytePosition - OutputBufferedBytes;
+
+    /// <summary>True once the audio mixed at <paramref name="mixerBytePosition"/> (an event's <see cref="EngineEvent.B"/>) has been heard.</summary>
+    public bool HasPlayed(long mixerBytePosition) => AudibleMixerBytePosition >= mixerBytePosition;
+}
 
 /// <summary>Output thread statistics (<c>mp_engine_stats</c>).</summary>
 public sealed record EngineStats(

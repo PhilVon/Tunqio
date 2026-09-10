@@ -801,7 +801,8 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
                 // end_sync swapped the sources inside that read; the read stopped on the last frame of the old
                 // source (LIMIT), so the mixer position now is exactly where the new one starts.
                 const auto at = static_cast<int64_t>(BASS_ChannelGetPosition(mixer_, BASS_POS_BYTE));
-                emit(MP_EVENT_TRACK_ENDED, join_ended_channel_.load(std::memory_order_relaxed), at, nullptr);
+                emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(join_ended_.load(std::memory_order_relaxed)), at,
+                     nullptr);
                 emit(MP_EVENT_TRACK_STARTED, reinterpret_cast<int64_t>(joined), at, nullptr);
             }
             if (n == 0 || n == static_cast<DWORD>(-1)) {
@@ -974,18 +975,24 @@ mp_result engine::render(float* out_interleaved, uint32_t frames) {
 // overlap with 479-frame pulls); with it the read stops on the source's last frame and the successor's first
 // frame is the next one read. The events are raised by pull() after the read, when the mixer position is that
 // frame. BASS drops the ended source from the mixer itself. No allocation and no logging (Interop trampoline rule).
+// The events name the track (mp_track*, as the header promises), not the BASS channel: the source that ran out
+// is current_, which the control plane stores after attaching it, so the one case the two disagree (a source
+// shorter than the buffer it was attached in, ending before play() stored it) reports 0 rather than a wrong
+// handle. The lookup cannot walk tracks_ here (that is the control plane's, under its mutex).
 void __stdcall engine::end_sync(unsigned long /*handle*/, unsigned long channel, unsigned long /*data*/, void* user) {
     auto* self = static_cast<engine*>(user);
+    track* const cur = self->current_.load(std::memory_order_acquire);
+    track* const ended = cur != nullptr && cur->stream == channel ? cur : nullptr;
     track* const next = self->next_.exchange(nullptr, std::memory_order_acq_rel);
     if (next != nullptr && BASS_Mixer_StreamAddChannelEx(self->mixer_, next->stream, k_source_flags, 0, 0)) {
         BASS_Mixer_ChannelSetSync(next->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, self);
         self->current_.store(next, std::memory_order_release);
-        self->join_ended_channel_.store(static_cast<int64_t>(channel), std::memory_order_relaxed);
+        self->join_ended_.store(ended, std::memory_order_relaxed);
         self->join_pending_.store(next, std::memory_order_release);
         return;
     }
     self->playing_.store(false, std::memory_order_release);
-    self->emit(MP_EVENT_TRACK_ENDED, static_cast<int64_t>(channel), 0, nullptr);
+    self->emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(ended), 0, nullptr);
 }
 
 } // namespace mp::audio

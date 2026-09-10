@@ -113,8 +113,8 @@ private:
     std::atomic<track*> current_{nullptr};
     std::atomic<track*> next_{nullptr};
     std::atomic<track*> join_pending_{nullptr}; // set by end_sync, raised as events by pull() after the read
-    std::atomic<int64_t> join_ended_channel_{0};
-    std::atomic<bool> playing_{false}; // read by the audio thread for underrun accounting
+    std::atomic<track*> join_ended_{nullptr};   // the source that ran out at that join
+    std::atomic<bool> playing_{false};          // read by the audio thread for underrun accounting
 
     // Envelope (guard fades) and volume. The audio thread owns env_level_ and volume_current_; the control
     // thread only writes targets and reads the level back to know when a fade has landed.

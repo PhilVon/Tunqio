@@ -23,7 +23,13 @@ public interface IAudioEngine : IAsyncDisposable
 
     Task PlayAsync(TrackHandle track, TimeSpan? startAt = null, CancellationToken ct = default);
 
-    /// <summary>Not implemented until E1-S3 (throws with the story name).</summary>
+    /// <summary>
+    /// Queues <paramref name="nextTrack"/> (rewound) to start at mix time exactly where the playing track ends: no gap,
+    /// no fade (E1-S3). Null clears the queue; so do <see cref="StopAsync"/>, closing the track and playing it by hand.
+    /// A replaced next track is simply no longer queued: its stream lives until <see cref="CloseAsync"/>, which is the
+    /// caller's to do. The join raises <see cref="EngineEventType.TrackEnded"/> then <see cref="EngineEventType.TrackStarted"/>
+    /// with the join's mixer byte position in <see cref="EngineEvent.B"/>.
+    /// </summary>
     Task PreloadNextAsync(TrackHandle? nextTrack, CancellationToken ct = default);
 
     /// <summary>Fades out and holds; the position freezes and <see cref="ResumeAsync"/> is immediate.</summary>

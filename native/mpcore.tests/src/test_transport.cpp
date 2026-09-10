@@ -256,7 +256,7 @@ TEST_CASE("the end of a track is reported once and the engine falls silent", "[t
     CHECK(events.started == 1);
     fx.render(k_rate); // well past the 250 ms of audio
     CHECK(events.ended == 1);
-    CHECK(events.ended_a != 0);
+    CHECK(events.ended_a == reinterpret_cast<int64_t>(t)); // the handle, not the BASS channel
     CHECK(all_zero(fx.render(4800), 0));
     mp_engine_set_event_callback(fx.engine, nullptr, nullptr);
 }
