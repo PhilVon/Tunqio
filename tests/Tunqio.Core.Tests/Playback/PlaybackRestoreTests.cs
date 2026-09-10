@@ -47,7 +47,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Capture_carries_the_queue_the_position_and_the_modes()
+    public async Task Capture_carries_the_queue_the_position_and_the_modes_Async()
     {
         await _session.PlayNowAsync([1, 2, 3], startIndex: 1);
         await _session.SetRepeatAsync(RepeatMode.All);
@@ -62,7 +62,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Stopping_saves_the_queue_and_the_position_it_stopped_at()
+    public async Task Stopping_saves_the_queue_and_the_position_it_stopped_at_Async()
     {
         await _session.PlayNowAsync([1, 2, 3], startIndex: 2);
         _engine.Clock = _engine.Clock with { Position = TimeSpan.FromSeconds(12) };
@@ -74,7 +74,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Disposing_saves_the_queue_so_closing_the_app_is_enough()
+    public async Task Disposing_saves_the_queue_so_closing_the_app_is_enough_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         _engine.Clock = _engine.Clock with { Position = TimeSpan.FromSeconds(5) };
@@ -86,7 +86,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_restarted_session_opens_the_track_it_was_left_on_paused_where_it_was_left()
+    public async Task A_restarted_session_opens_the_track_it_was_left_on_paused_where_it_was_left_Async()
     {
         await _session.PlayNowAsync([1, 2, 3], startIndex: 1);
         _engine.Clock = _engine.Clock with { Position = TimeSpan.FromSeconds(64) };
@@ -108,7 +108,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_restored_shuffle_is_still_shuffled_and_still_undoable()
+    public async Task A_restored_shuffle_is_still_shuffled_and_still_undoable_Async()
     {
         await _session.PlayNowAsync([1, 2, 3]);
         await _session.SetShuffleAsync(true);
@@ -124,7 +124,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Resume_on_launch_turned_off_brings_the_queue_back_without_touching_the_engine()
+    public async Task Resume_on_launch_turned_off_brings_the_queue_back_without_touching_the_engine_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         await _session.DisposeAsync();
@@ -141,14 +141,14 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Nothing_saved_restores_nothing()
+    public async Task Nothing_saved_restores_nothing_Async()
     {
         (await _session.RestoreAsync()).Should().BeFalse();
         _session.Current.Should().Be(PlaybackSnapshot.Idle);
     }
 
     [Fact]
-    public async Task A_saved_queue_whose_tracks_have_all_gone_leaves_the_session_stopped()
+    public async Task A_saved_queue_whose_tracks_have_all_gone_leaves_the_session_stopped_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         await _session.DisposeAsync();
@@ -163,7 +163,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_saved_queue_with_no_current_item_comes_back_without_one()
+    public async Task A_saved_queue_with_no_current_item_comes_back_without_one_Async()
     {
         await _session.PlayNowAsync([1]);
         _engine.Raise(new Core.Audio.EngineEvent(Core.Audio.EngineEventType.TrackEnded, 1, 0, null));
@@ -179,7 +179,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_restored_track_does_not_arrive_with_its_position_already_heard()
+    public async Task A_restored_track_does_not_arrive_with_its_position_already_heard_Async()
     {
         await _session.PlayNowAsync([1]);
         _engine.Clock = _engine.Clock with { Position = TimeSpan.FromSeconds(150) };
@@ -195,7 +195,7 @@ public sealed class PlaybackRestoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_store_that_will_not_answer_costs_the_queue_and_nothing_else()
+    public async Task A_store_that_will_not_answer_costs_the_queue_and_nothing_else_Async()
     {
         _queues.Refuse = new InvalidOperationException("the database is gone");
 

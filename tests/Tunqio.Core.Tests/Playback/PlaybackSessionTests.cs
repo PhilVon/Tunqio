@@ -37,7 +37,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     private string[] Drain() => _engine.Drain();
 
     [Fact]
-    public async Task A_scripted_transport_sequence_produces_the_expected_engine_calls()
+    public async Task A_scripted_transport_sequence_produces_the_expected_engine_calls_Async()
     {
         // Play an album from its second track.
         await _session.PlayNowAsync([1, 2, 3], startIndex: 1);
@@ -85,7 +85,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_snapshot_follows_the_queue()
+    public async Task The_snapshot_follows_the_queue_Async()
     {
         await _session.PlayNowAsync([1, 2, 3], startIndex: 1);
         _engine.Clock = _engine.Clock with { Position = TimeSpan.FromSeconds(12) };
@@ -104,7 +104,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Snapshots_are_published_to_subscribers()
+    public async Task Snapshots_are_published_to_subscribers_Async()
     {
         var seen = new List<PlaybackSnapshot>();
         using IDisposable subscription = _session.Snapshots.Subscribe(seen.Add);
@@ -119,7 +119,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     // ---- the gapless join ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task The_now_playing_item_changes_when_the_join_is_heard_and_not_when_it_is_mixed()
+    public async Task The_now_playing_item_changes_when_the_join_is_heard_and_not_when_it_is_mixed_Async()
     {
         await _session.PlayNowAsync([1, 2, 3]);
         Drain();
@@ -143,7 +143,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_track_that_ends_with_nothing_behind_it_stops_the_session()
+    public async Task A_track_that_ends_with_nothing_behind_it_stops_the_session_Async()
     {
         await _session.PlayNowAsync([1]);
         Drain();
@@ -158,7 +158,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Repeat_all_queues_the_wrap_so_the_last_track_joins_the_first()
+    public async Task Repeat_all_queues_the_wrap_so_the_last_track_joins_the_first_Async()
     {
         await _session.PlayNowAsync([1, 2], startIndex: 1);
         await _session.SetRepeatAsync(RepeatMode.All);
@@ -168,7 +168,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Repeat_one_queues_the_same_track_again_as_its_own_stream()
+    public async Task Repeat_one_queues_the_same_track_again_as_its_own_stream_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         Drain();
@@ -184,7 +184,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     // ---- the joins the policies choose -----------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_boundary_between_albums_takes_the_user_crossfade()
+    public async Task A_boundary_between_albums_takes_the_user_crossfade_Async()
     {
         _tracks.Add(2, albumId: 77);
         _settings.SetValue(SettingsKeys.PlaybackCrossfadeMs, 4000);
@@ -196,7 +196,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Gapless_turned_off_makes_every_boundary_a_crossfade()
+    public async Task Gapless_turned_off_makes_every_boundary_a_crossfade_Async()
     {
         _settings.SetValue(SettingsKeys.PlaybackGapless, false);
 
@@ -206,7 +206,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Each_track_carries_its_own_gain_before_it_is_queued()
+    public async Task Each_track_carries_its_own_gain_before_it_is_queued_Async()
     {
         _tracks.Add(2, gain: new ReplayGainTags(TrackGainDb: -6.5, TrackPeak: 0.9, AlbumGainDb: null, AlbumPeak: null));
         _settings.SetValue(SettingsKeys.PlaybackReplayGain, "track");
@@ -224,7 +224,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     // ---- queue commands ---------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Play_next_re_queues_the_boundary()
+    public async Task Play_next_re_queues_the_boundary_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         Drain();
@@ -239,7 +239,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Enqueue_appends_without_disturbing_a_queued_boundary()
+    public async Task Enqueue_appends_without_disturbing_a_queued_boundary_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         Drain();
@@ -251,7 +251,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Removing_the_playing_item_starts_the_one_that_took_its_place()
+    public async Task Removing_the_playing_item_starts_the_one_that_took_its_place_Async()
     {
         await _session.PlayNowAsync([1, 2, 3]);
         Guid playing = _session.Queue.Items[0].InstanceId;
@@ -264,7 +264,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Removing_a_queued_item_re_queues_the_boundary()
+    public async Task Removing_a_queued_item_re_queues_the_boundary_Async()
     {
         await _session.PlayNowAsync([1, 2, 3]);
         Guid queued = _session.Queue.Items[1].InstanceId;
@@ -277,7 +277,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Moving_a_queue_item_re_queues_the_boundary()
+    public async Task Moving_a_queue_item_re_queues_the_boundary_Async()
     {
         await _session.PlayNowAsync([1, 2, 3]);
         Guid last = _session.Queue.Items[2].InstanceId;
@@ -305,7 +305,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Shuffle_keeps_the_current_track_playing_and_re_queues_what_follows()
+    public async Task Shuffle_keeps_the_current_track_playing_and_re_queues_what_follows_Async()
     {
         await _session.PlayNowAsync([1, 2, 3, 4]);
         long playing = _session.Current.Track!.Id;
@@ -336,7 +336,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     // ---- tracks the library cannot give the engine --------------------------------------------------------------------
 
     [Fact]
-    public async Task A_track_that_left_the_library_is_skipped_rather_than_stopping_the_queue()
+    public async Task A_track_that_left_the_library_is_skipped_rather_than_stopping_the_queue_Async()
     {
         _tracks.Remove(2);
 
@@ -347,7 +347,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_track_whose_file_would_not_open_is_skipped()
+    public async Task A_track_whose_file_would_not_open_is_skipped_Async()
     {
         _engine.Unopenable.Add(@"D:\Music\1.flac");
 
@@ -357,7 +357,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_track_missing_at_the_last_scan_is_skipped()
+    public async Task A_track_missing_at_the_last_scan_is_skipped_Async()
     {
         _tracks.Add(1, missing: true);
 
@@ -367,7 +367,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_queue_of_nothing_playable_stops()
+    public async Task A_queue_of_nothing_playable_stops_Async()
     {
         _tracks.Remove(1);
         _tracks.Remove(2);
@@ -379,7 +379,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Playing_nothing_stops()
+    public async Task Playing_nothing_stops_Async()
     {
         await _session.PlayNowAsync([1]);
         await _session.PlayNowAsync([]);
@@ -392,7 +392,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     // ---- the device going away ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Losing_the_device_parks_the_session_rather_than_stopping_it()
+    public async Task Losing_the_device_parks_the_session_rather_than_stopping_it_Async()
     {
         await _session.PlayNowAsync([1, 2]);
 
@@ -540,7 +540,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     // ---- lifetime ---------------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_session_needs_an_engine_a_library_and_settings()
+    public async Task A_session_needs_an_engine_a_library_and_settings_Async()
     {
         FluentActions.Invoking(() => new PlaybackSession(null!, _tracks, _history, _queues, _settings)).Should().Throw<ArgumentNullException>();
         FluentActions.Invoking(() => new PlaybackSession(_engine, null!, _history, _queues, _settings)).Should().Throw<ArgumentNullException>();
@@ -553,7 +553,7 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Disposing_closes_what_is_open_and_refuses_further_commands()
+    public async Task Disposing_closes_what_is_open_and_refuses_further_commands_Async()
     {
         await _session.PlayNowAsync([1, 2]);
 

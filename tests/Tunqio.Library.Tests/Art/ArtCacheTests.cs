@@ -35,7 +35,7 @@ public sealed class ArtCacheTests : IDisposable
     private string Dir(string hash) => Path.Combine(_cache.Root, hash[..2], hash);
 
     [Fact]
-    public async Task An_embedded_picture_is_rendered_into_the_hash_directory_with_three_sizes_the_original_and_a_palette()
+    public async Task An_embedded_picture_is_rendered_into_the_hash_directory_with_three_sizes_the_original_and_a_palette_Async()
     {
         byte[] png = TestImages.Quadrants(1200, 800);
         string expected = ArtCache.Hash(png);
@@ -64,7 +64,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task A_jpeg_source_keeps_original_jpg_and_a_small_image_is_never_upscaled()
+    public async Task A_jpeg_source_keeps_original_jpg_and_a_small_image_is_never_upscaled_Async()
     {
         byte[] jpeg = await TestImages.JpegAsync(TestImages.Gradient(200, 150));
 
@@ -78,7 +78,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task A_source_over_four_megabytes_is_rendered_but_not_kept()
+    public async Task A_source_over_four_megabytes_is_rendered_but_not_kept_Async()
     {
         byte[] big = TestImages.Noise(1300, 1200);
         big.Length.Should().BeGreaterThan(ArtCache.OriginalLimit, "noise does not compress");
@@ -91,7 +91,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Without_an_embedded_picture_the_folder_image_becomes_the_album_art_only()
+    public async Task Without_an_embedded_picture_the_folder_image_becomes_the_album_art_only_Async()
     {
         string audio = AudioIn("Folder Only");
         byte[] png = TestImages.Gradient(400, 400);
@@ -104,7 +104,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task An_embedded_picture_wins_over_the_folder_image()
+    public async Task An_embedded_picture_wins_over_the_folder_image_Async()
     {
         string audio = AudioIn("Both");
         byte[] folder = TestImages.Gradient(400, 400);
@@ -118,7 +118,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task An_undecodable_picture_falls_back_to_the_folder_image_and_leaves_nothing_behind()
+    public async Task An_undecodable_picture_falls_back_to_the_folder_image_and_leaves_nothing_behind_Async()
     {
         string audio = AudioIn("Bad Embedded");
         byte[] folder = TestImages.Solid(64, 64, 10, 20, 30);
@@ -134,7 +134,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Nothing_to_store_gives_none_and_never_throws()
+    public async Task Nothing_to_store_gives_none_and_never_throws_Async()
     {
         string audio = AudioIn("Plain");
         (await _cache.StoreAsync(null, audio)).Should().Be(ArtHashes.None);
@@ -146,7 +146,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task The_same_picture_is_rendered_once_however_many_files_carry_it()
+    public async Task The_same_picture_is_rendered_once_however_many_files_carry_it_Async()
     {
         byte[] png = TestImages.Gradient(500, 500);
         string a = AudioIn("A", "01.flac");
@@ -163,7 +163,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Concurrent_stores_of_one_picture_share_a_single_render()
+    public async Task Concurrent_stores_of_one_picture_share_a_single_render_Async()
     {
         byte[] png = TestImages.Gradient(800, 800);
         string[] files = Enumerable.Range(1, 12).Select(i => AudioIn("A", $"{i:00}.flac")).ToArray();
@@ -176,7 +176,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Ten_files_of_one_folder_read_the_folder_image_once()
+    public async Task Ten_files_of_one_folder_read_the_folder_image_once_Async()
     {
         string[] files = Enumerable.Range(1, 10).Select(i => AudioIn("Folder", $"{i:00}.wav")).ToArray();
         byte[] png = TestImages.Quadrants(300, 300);
@@ -192,7 +192,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task A_replaced_folder_image_is_noticed()
+    public async Task A_replaced_folder_image_is_noticed_Async()
     {
         string audio = AudioIn("Folder");
         string image = Path.Combine(Path.GetDirectoryName(audio)!, "folder.png");
@@ -209,7 +209,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Paths_are_derived_without_io_and_only_for_real_hashes()
+    public async Task Paths_are_derived_without_io_and_only_for_real_hashes_Async()
     {
         byte[] png = TestImages.Solid(32, 32, 1, 2, 3);
         string hash = ArtCache.Hash(png);
@@ -230,7 +230,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Clearing_removes_every_image_and_a_later_store_renders_again()
+    public async Task Clearing_removes_every_image_and_a_later_store_renders_again_Async()
     {
         byte[] png = TestImages.Gradient(100, 100);
         string audio = AudioIn("A");
@@ -250,7 +250,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task An_incomplete_directory_from_a_crash_is_rendered_over()
+    public async Task An_incomplete_directory_from_a_crash_is_rendered_over_Async()
     {
         byte[] png = TestImages.Gradient(100, 100);
         string hash = ArtCache.Hash(png);
@@ -265,7 +265,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancellation_propagates_and_leaves_no_temporary_directory()
+    public async Task Cancellation_propagates_and_leaves_no_temporary_directory_Async()
     {
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();

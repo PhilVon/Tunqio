@@ -27,7 +27,7 @@ public class LibraryScannerTests
     private static FixtureFileEntry PlainEntry(FixtureManifest manifest) => manifest.Files.First(f => f.AlbumArtist is not null && !f.CorruptTags && f.Format == "flac");
 
     [Fact]
-    public async Task First_scan_imports_every_fixture_file_and_reports_the_corrupt_one()
+    public async Task First_scan_imports_every_fixture_file_and_reports_the_corrupt_one_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         FixtureManifest manifest = ScanHarness.Manifest();
@@ -83,7 +83,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task Second_scan_with_no_changes_reads_nothing_and_writes_nothing()
+    public async Task Second_scan_with_no_changes_reads_nothing_and_writes_nothing_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -107,7 +107,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task A_changed_file_is_read_again_and_keeps_its_id()
+    public async Task A_changed_file_is_read_again_and_keeps_its_id_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -133,7 +133,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task Files_removed_from_disk_are_marked_missing_hidden_from_views_and_reappear_when_restored()
+    public async Task Files_removed_from_disk_are_marked_missing_hidden_from_views_and_reappear_when_restored_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -187,7 +187,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task A_file_that_changed_while_it_was_away_is_read_again_and_no_longer_missing()
+    public async Task A_file_that_changed_while_it_was_away_is_read_again_and_no_longer_missing_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -218,7 +218,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task Cancelling_mid_scan_leaves_every_batch_fully_applied_or_not_at_all()
+    public async Task Cancelling_mid_scan_leaves_every_batch_fully_applied_or_not_at_all_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync(copyFixtures: false);
         const int Files = 1_200;
@@ -261,7 +261,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task Cancellation_before_the_first_batch_writes_nothing()
+    public async Task Cancellation_before_the_first_batch_writes_nothing_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         using var cts = new CancellationTokenSource();
@@ -278,7 +278,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task An_offline_folder_marks_its_tracks_missing_without_purging_them()
+    public async Task An_offline_folder_marks_its_tracks_missing_without_purging_them_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -310,7 +310,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task ForceReread_reads_every_file_again()
+    public async Task ForceReread_reads_every_file_again_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -328,7 +328,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task Only_one_scan_runs_at_a_time()
+    public async Task Only_one_scan_runs_at_a_time_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -352,7 +352,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task Disabled_and_unselected_folders_are_skipped()
+    public async Task Disabled_and_unselected_folders_are_skipped_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         string other = Path.Combine(h.Root, "..", Path.GetFileName(h.Root) + "-other");
@@ -380,7 +380,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task Art_cache_and_duration_probe_fill_what_the_tag_reader_could_not()
+    public async Task Art_cache_and_duration_probe_fill_what_the_tag_reader_could_not_Async()
     {
         var art = new FakeArtCache();
         var probe = new FakeProbe(1234);
@@ -401,7 +401,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task A_changed_file_in_an_untagged_compilation_folder_keeps_Various_Artists()
+    public async Task A_changed_file_in_an_untagged_compilation_folder_keeps_Various_Artists_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -426,7 +426,7 @@ public class LibraryScannerTests
     }
 
     [Fact]
-    public async Task A_folder_with_no_supported_files_completes_with_nothing_to_do()
+    public async Task A_folder_with_no_supported_files_completes_with_nothing_to_do_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync(copyFixtures: false);
         File.WriteAllText(Path.Combine(h.Root, "notes.txt"), "not audio");

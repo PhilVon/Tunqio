@@ -103,7 +103,7 @@ public class GaplessTests
     }
 
     [Fact]
-    public async Task Two_fixture_tracks_join_into_one_continuous_chirp_with_events_naming_the_tracks_and_the_join()
+    public async Task Two_fixture_tracks_join_into_one_continuous_chirp_with_events_naming_the_tracks_and_the_join_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         using var log = new EventLog(engine);
@@ -154,7 +154,7 @@ public class GaplessTests
     }
 
     [Fact]
-    public async Task The_join_event_arrives_within_100_ms_of_the_boundary_when_rendering_at_real_time()
+    public async Task The_join_event_arrives_within_100_ms_of_the_boundary_when_rendering_at_real_time_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         using var log = new EventLog(engine);
@@ -195,7 +195,7 @@ public class GaplessTests
     }
 
     [Fact]
-    public async Task On_a_live_device_the_clock_says_when_the_join_has_been_heard_within_100_ms()
+    public async Task On_a_live_device_the_clock_says_when_the_join_has_been_heard_within_100_ms_Async()
     {
         await using NativeAudioEngine engine = NativeAudioEngine.Create();
         try
@@ -233,7 +233,7 @@ public class GaplessTests
     }
 
     [Fact]
-    public async Task Changing_the_next_track_a_thousand_times_leaves_handles_stable_and_only_the_last_one_queued()
+    public async Task Changing_the_next_track_a_thousand_times_leaves_handles_stable_and_only_the_last_one_queued_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         using var log = new EventLog(engine);

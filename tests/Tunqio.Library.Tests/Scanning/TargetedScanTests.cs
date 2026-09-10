@@ -32,7 +32,7 @@ public class TargetedScanTests
     private static int FilesIn(string directory) => Directory.EnumerateFiles(directory).Count(f => AudioFormats.IsSupported(f));
 
     [Fact]
-    public async Task A_file_path_adds_the_file_reads_nothing_else_and_leaves_the_folder_record_alone()
+    public async Task A_file_path_adds_the_file_reads_nothing_else_and_leaves_the_folder_record_alone_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -64,7 +64,7 @@ public class TargetedScanTests
     }
 
     [Fact]
-    public async Task Missing_marking_stays_inside_the_scope()
+    public async Task Missing_marking_stays_inside_the_scope_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -88,7 +88,7 @@ public class TargetedScanTests
     }
 
     [Fact]
-    public async Task A_rename_is_the_old_path_marked_missing_and_the_new_path_added()
+    public async Task A_rename_is_the_old_path_marked_missing_and_the_new_path_added_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -108,7 +108,7 @@ public class TargetedScanTests
     }
 
     [Fact]
-    public async Task A_removed_directory_marks_every_track_under_it_missing_and_a_new_one_is_walked()
+    public async Task A_removed_directory_marks_every_track_under_it_missing_and_a_new_one_is_walked_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -131,7 +131,7 @@ public class TargetedScanTests
     }
 
     [Fact]
-    public async Task A_changed_file_in_an_untagged_compilation_folder_still_gets_Various_Artists()
+    public async Task A_changed_file_in_an_untagged_compilation_folder_still_gets_Various_Artists_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -150,7 +150,7 @@ public class TargetedScanTests
     }
 
     [Fact]
-    public async Task Paths_outside_the_folder_are_ignored_and_a_targeted_request_names_exactly_one_folder()
+    public async Task Paths_outside_the_folder_are_ignored_and_a_targeted_request_names_exactly_one_folder_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -169,7 +169,7 @@ public class TargetedScanTests
     }
 
     [Fact]
-    public async Task The_folder_root_as_a_path_is_a_whole_folder_walk()
+    public async Task The_folder_root_as_a_path_is_a_whole_folder_walk_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         FixtureManifest manifest = ScanHarness.Manifest();

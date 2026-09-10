@@ -35,7 +35,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task Every_fixture_file_yields_the_expected_ScannedTrack()
+    public async Task Every_fixture_file_yields_the_expected_ScannedTrack_Async()
     {
         FixtureManifest manifest = Manifest();
         Dictionary<string, TagReadResult> results = await ReadAllAsync(manifest, Reader());
@@ -116,7 +116,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task The_reader_and_the_repository_seed_agree_on_every_fixture()
+    public async Task The_reader_and_the_repository_seed_agree_on_every_fixture_Async()
     {
         // LibrarySeed builds the same ScannedTracks from the manifest so repository tests need no reader; keep them in step.
         FixtureManifest manifest = Manifest();
@@ -146,7 +146,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task Corrupt_tag_fixture_is_imported_with_file_name_metadata_and_reported()
+    public async Task Corrupt_tag_fixture_is_imported_with_file_name_metadata_and_reported_Async()
     {
         FixtureFileEntry entry = Manifest().Files.Single(f => f.CorruptTags);
         TagReadResult result = await Reader().ReadAsync(FixturePath(entry), FolderId);
@@ -171,7 +171,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task A_hanging_read_is_skipped_after_the_timeout_and_the_scan_continues()
+    public async Task A_hanging_read_is_skipped_after_the_timeout_and_the_scan_continues_Async()
     {
         TagReaderOptions.DefaultTimeout.Should().Be(TimeSpan.FromSeconds(5), "docs/library-and-data.md: 5 s per file");
 
@@ -217,7 +217,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task An_untagged_file_is_read_from_its_name_without_counting_as_a_failure()
+    public async Task An_untagged_file_is_read_from_its_name_without_counting_as_a_failure_Async()
     {
         string dir = Path.Combine(Path.GetTempPath(), "tunqio-tagreader-" + Guid.NewGuid().ToString("N"), "Some Album");
         Directory.CreateDirectory(dir);
@@ -245,7 +245,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task A_missing_file_fails_without_throwing()
+    public async Task A_missing_file_fails_without_throwing_Async()
     {
         TagReadResult result = await Reader().ReadAsync(Path.Combine(FixtureRoot, "nope", "09 - Gone.flac"), FolderId);
 
@@ -256,7 +256,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task A_file_that_is_not_audio_is_reported_not_thrown()
+    public async Task A_file_that_is_not_audio_is_reported_not_thrown_Async()
     {
         TagReadResult result = await Reader().ReadAsync(Path.Combine(FixtureRoot, "manifest.json"), FolderId);
 
@@ -266,7 +266,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task Cancellation_propagates()
+    public async Task Cancellation_propagates_Async()
     {
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
@@ -278,7 +278,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task Splitting_off_keeps_a_joined_artist_value_whole()
+    public async Task Splitting_off_keeps_a_joined_artist_value_whole_Async()
     {
         FixtureFileEntry joined = Manifest().Files.First(f => f.ArtistsJoinedWithSemicolon);
 
@@ -290,7 +290,7 @@ public class TagLibTagReaderTests
     }
 
     [Fact]
-    public async Task Settings_toggle_is_read_at_every_call()
+    public async Task Settings_toggle_is_read_at_every_call_Async()
     {
         FixtureFileEntry joined = Manifest().Files.First(f => f.ArtistsJoinedWithSemicolon);
         var settings = new JsonSettingsStore(Path.Combine(Path.GetTempPath(), "tunqio-tagreader-" + Guid.NewGuid().ToString("N") + ".json"));

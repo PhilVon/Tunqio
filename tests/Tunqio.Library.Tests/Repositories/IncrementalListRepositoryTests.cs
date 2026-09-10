@@ -32,7 +32,7 @@ public class IncrementalListRepositoryTests : IAsyncLifetime
 
     [Theory]
     [MemberData(nameof(Sorts))]
-    public async Task Tracks_arrive_page_by_page_in_stream_order(TrackSort sort, bool descending)
+    public async Task Tracks_arrive_page_by_page_in_stream_order_Async(TrackSort sort, bool descending)
     {
         var query = new TrackQuery(sort, descending, PageSize: 7, IncludeMissing: true);
         IncrementalList<TrackDto> list = IncrementalList.Tracks(_seed.Tracks, query);
@@ -56,7 +56,7 @@ public class IncrementalListRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_query_cap_limits_the_list_like_the_stream()
+    public async Task The_query_cap_limits_the_list_like_the_stream_Async()
     {
         var query = new TrackQuery(TrackSort.PlayCount, Descending: true, PageSize: 4, Take: 10);
         IncrementalList<TrackDto> list = IncrementalList.Tracks(_seed.Tracks, query);
@@ -70,7 +70,7 @@ public class IncrementalListRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Albums_and_artists_page_the_same_way()
+    public async Task Albums_and_artists_page_the_same_way_Async()
     {
         IncrementalList<AlbumDto> albums = IncrementalList.Albums(_seed.Service.Albums, new AlbumQuery(AlbumSort.Artist, PageSize: 3));
         IncrementalList<ArtistDto> artists = IncrementalList.Artists(_seed.Service.Artists, new ArtistQuery(PageSize: 5));
@@ -96,7 +96,7 @@ public class IncrementalListRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Reset_then_reload_starts_from_the_top()
+    public async Task Reset_then_reload_starts_from_the_top_Async()
     {
         IncrementalList<TrackDto> list = IncrementalList.Tracks(_seed.Tracks, new TrackQuery(PageSize: 5));
         await list.LoadMoreAsync();

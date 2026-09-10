@@ -48,7 +48,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Skipping_a_track_after_ten_seconds_records_a_listen_that_did_not_count()
+    public async Task Skipping_a_track_after_ten_seconds_records_a_listen_that_did_not_count_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         await ListenAsync(TimeSpan.FromSeconds(10));
@@ -63,7 +63,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Listening_past_half_records_a_play()
+    public async Task Listening_past_half_records_a_play_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         await ListenAsync(TimeSpan.FromSeconds(95));
@@ -74,7 +74,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Paused_time_is_not_heard_time()
+    public async Task Paused_time_is_not_heard_time_Async()
     {
         await _session.PlayNowAsync([1]);
         await ListenAsync(TimeSpan.FromSeconds(20));
@@ -92,7 +92,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Seeking_forward_does_not_credit_the_audio_it_jumped_over()
+    public async Task Seeking_forward_does_not_credit_the_audio_it_jumped_over_Async()
     {
         await _session.PlayNowAsync([1]);
         await ListenAsync(TimeSpan.FromSeconds(10));
@@ -110,7 +110,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_gapless_join_closes_one_listen_and_opens_the_next()
+    public async Task A_gapless_join_closes_one_listen_and_opens_the_next_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         await ListenAsync(TimeSpan.FromSeconds(120));
@@ -133,7 +133,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_track_that_ends_on_its_own_is_recorded()
+    public async Task A_track_that_ends_on_its_own_is_recorded_Async()
     {
         await _session.PlayNowAsync([1]);
         await ListenAsync(TimeSpan.FromSeconds(100));
@@ -145,7 +145,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Replacing_the_queue_records_what_was_playing()
+    public async Task Replacing_the_queue_records_what_was_playing_Async()
     {
         await _session.PlayNowAsync([1]);
         await ListenAsync(TimeSpan.FromSeconds(30));
@@ -156,7 +156,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_track_still_playing_when_the_session_is_disposed_is_recorded()
+    public async Task A_track_still_playing_when_the_session_is_disposed_is_recorded_Async()
     {
         await _session.PlayNowAsync([1]);
         await ListenAsync(TimeSpan.FromSeconds(100));
@@ -167,7 +167,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Going_back_records_the_track_that_was_abandoned()
+    public async Task Going_back_records_the_track_that_was_abandoned_Async()
     {
         await _session.PlayNowAsync([1, 2], startIndex: 1);
         await ListenAsync(TimeSpan.FromSeconds(1));
@@ -178,7 +178,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Restarting_the_current_track_is_not_a_new_listen()
+    public async Task Restarting_the_current_track_is_not_a_new_listen_Async()
     {
         await _session.PlayNowAsync([1, 2]);
         await ListenAsync(TimeSpan.FromSeconds(30));
@@ -189,7 +189,7 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_history_that_will_not_take_the_event_does_not_interrupt_the_music()
+    public async Task A_history_that_will_not_take_the_event_does_not_interrupt_the_music_Async()
     {
         _history.Refuse = new InvalidOperationException("the database is gone");
 

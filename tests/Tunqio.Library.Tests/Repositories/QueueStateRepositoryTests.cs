@@ -32,13 +32,13 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     private IQueueStateRepository Queue => _seed.Service.QueueState;
 
     [Fact]
-    public async Task Nothing_was_ever_saved()
+    public async Task Nothing_was_ever_saved_Async()
     {
         (await Queue.LoadAsync()).Should().BeNull();
     }
 
     [Fact]
-    public async Task A_plain_queue_round_trips()
+    public async Task A_plain_queue_round_trips_Async()
     {
         PlayQueue queue = PlayQueue.Empty.PlayNow(_trackIds, startIndex: 2).WithRepeat(RepeatMode.All);
 
@@ -56,7 +56,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_shuffled_queue_comes_back_shuffled_and_can_still_be_unshuffled()
+    public async Task A_shuffled_queue_comes_back_shuffled_and_can_still_be_unshuffled_Async()
     {
         PlayQueue shuffled = PlayQueue.Empty.PlayNow(_trackIds, startIndex: 1).ToggleShuffle(new Random(11));
         shuffled.Items.Should().NotEqual(shuffled.AddedOrder, "the seed actually shuffles this queue");
@@ -71,7 +71,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_same_track_twice_survives_as_two_items()
+    public async Task The_same_track_twice_survives_as_two_items_Async()
     {
         PlayQueue queue = PlayQueue.Empty.PlayNow([_trackIds[0], _trackIds[0]]);
 
@@ -83,7 +83,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Saving_replaces_the_one_row()
+    public async Task Saving_replaces_the_one_row_Async()
     {
         await Queue.SaveAsync(QueueState.Capture(PlayQueue.Empty.PlayNow(_trackIds.Take(3)), null, SavedAt));
         await Queue.SaveAsync(QueueState.Capture(PlayQueue.Empty.PlayNow(_trackIds.Take(2)), null, SavedAt + 1));
@@ -95,7 +95,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Clearing_forgets_the_queue()
+    public async Task Clearing_forgets_the_queue_Async()
     {
         await Queue.SaveAsync(QueueState.Capture(PlayQueue.Empty.PlayNow(_trackIds), null, SavedAt));
 
@@ -106,7 +106,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Tracks_that_have_left_the_library_do_not_come_back_with_the_queue()
+    public async Task Tracks_that_have_left_the_library_do_not_come_back_with_the_queue_Async()
     {
         PlayQueue queue = PlayQueue.Empty.PlayNow(_trackIds.Take(4), startIndex: 1);
         await Queue.SaveAsync(QueueState.Capture(queue, TimeSpan.FromSeconds(5), SavedAt));
@@ -119,7 +119,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Losing_the_current_track_leaves_the_restored_queue_with_nothing_current()
+    public async Task Losing_the_current_track_leaves_the_restored_queue_with_nothing_current_Async()
     {
         PlayQueue queue = PlayQueue.Empty.PlayNow(_trackIds.Take(3), startIndex: 1);
         await Queue.SaveAsync(QueueState.Capture(queue, TimeSpan.FromSeconds(5), SavedAt));
@@ -135,7 +135,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     [Theory]
     [InlineData("not json at all")]
     [InlineData("{\"play\":[0,1]}")]
-    public async Task A_corrupt_row_loses_the_queue_rather_than_failing_the_launch(string json)
+    public async Task A_corrupt_row_loses_the_queue_rather_than_failing_the_launch_Async(string json)
     {
         await Queue.SaveAsync(QueueState.Capture(PlayQueue.Empty.PlayNow(_trackIds), null, SavedAt));
         await SetItemsJsonAsync(json);
@@ -144,7 +144,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_permutation_that_is_not_one_costs_the_shuffle_and_keeps_the_queue()
+    public async Task A_permutation_that_is_not_one_costs_the_shuffle_and_keeps_the_queue_Async()
     {
         PlayQueue queue = PlayQueue.Empty.PlayNow(_trackIds.Take(3));
         await Queue.SaveAsync(QueueState.Capture(queue, null, SavedAt));
@@ -160,7 +160,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     [InlineData(RepeatMode.Off)]
     [InlineData(RepeatMode.All)]
     [InlineData(RepeatMode.One)]
-    public async Task Every_repeat_mode_round_trips(RepeatMode repeat)
+    public async Task Every_repeat_mode_round_trips_Async(RepeatMode repeat)
     {
         await Queue.SaveAsync(QueueState.Capture(PlayQueue.Empty.PlayNow(_trackIds).WithRepeat(repeat), null, SavedAt));
 
@@ -168,7 +168,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task An_unreadable_repeat_mode_reads_as_off()
+    public async Task An_unreadable_repeat_mode_reads_as_off_Async()
     {
         await Queue.SaveAsync(QueueState.Capture(PlayQueue.Empty.PlayNow(_trackIds).WithRepeat(RepeatMode.One), null, SavedAt));
         await ExecuteAsync("UPDATE queue_state SET repeat_mode = 'whatever' WHERE id = 1");
@@ -177,7 +177,7 @@ public sealed class QueueStateRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_repository_needs_a_database_and_a_state()
+    public async Task A_repository_needs_a_database_and_a_state_Async()
     {
         FluentActions.Invoking(() => new SqliteQueueStateRepository(null!)).Should().Throw<ArgumentNullException>();
         await FluentActions.Awaiting(() => Queue.SaveAsync(null!)).Should().ThrowAsync<ArgumentNullException>();

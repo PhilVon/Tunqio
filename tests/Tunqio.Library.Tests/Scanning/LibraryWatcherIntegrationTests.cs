@@ -17,7 +17,7 @@ public sealed class LibraryWatcherIntegrationTests(ITestOutputHelper output)
     private static FixtureFileEntry PlainEntry(FixtureManifest manifest) => manifest.Files.First(f => f.AlbumArtist is not null && !f.CorruptTags && f.Format == "flac");
 
     [Fact]
-    public async Task A_file_added_to_a_watched_folder_is_in_the_library_within_5_s()
+    public async Task A_file_added_to_a_watched_folder_is_in_the_library_within_5_s_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
         await h.ScanAsync();
@@ -42,7 +42,7 @@ public sealed class LibraryWatcherIntegrationTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Five_thousand_files_copied_at_once_give_a_complete_library_with_no_duplicates()
+    public async Task Five_thousand_files_copied_at_once_give_a_complete_library_with_no_duplicates_Async()
     {
         const int Files = 5_000;
         using ScanHarness h = await ScanHarness.CreateAsync(copyFixtures: false);
