@@ -88,10 +88,10 @@ public sealed partial class QueueViewModel : ObservableObject, IDisposable
     private bool _disposed;
 
     [ObservableProperty]
-    private QueueRow? _nowPlaying;
+    public partial QueueRow? NowPlaying { get; set; }
 
     [ObservableProperty]
-    private string _remainingText = string.Empty;
+    public partial string RemainingText { get; set; }
 
     /// <param name="source">Where the session comes from; it may not exist yet, and may never.</param>
     /// <param name="tracks">Resolves queue items to rows; the transient-aware repository, so a dropped file resolves too.</param>
@@ -103,6 +103,10 @@ public sealed partial class QueueViewModel : ObservableObject, IDisposable
         _source = source;
         _tracks = tracks;
         _ui = ui;
+
+        // A partial property has no backing field to initialise, so the empty string starts here instead. Nothing
+        // is subscribed yet and there is no OnRemainingTextChanged, so this seeds the value and does nothing else.
+        RemainingText = string.Empty;
         Upcoming.CollectionChanged += OnUpcomingChanged;
 
         if (source.Session is { } ready)
