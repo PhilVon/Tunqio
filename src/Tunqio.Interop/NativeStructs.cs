@@ -26,6 +26,12 @@ internal enum MpFadeMode
     Guard = 1,
 }
 
+internal enum MpJoinMode
+{
+    Gapless = 0,
+    Crossfade = 1,
+}
+
 /// <summary>Native log levels (<c>mp_log_level</c>).</summary>
 public enum MpLogLevel
 {

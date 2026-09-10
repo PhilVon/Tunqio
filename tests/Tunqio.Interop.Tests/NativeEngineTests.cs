@@ -98,7 +98,7 @@ public class NativeEngineTests
 
         FluentActions.Invoking(() => engine.PreloadNext(track)).Should().NotThrow("the gapless join landed with E1-S2");
         FluentActions.Invoking(() => engine.SetReplayGain(track, -6f, 1f)).Should().NotThrow("ReplayGain landed with E1-S5");
-        FluentActions.Invoking(() => engine.SetCrossfade(TimeSpan.FromSeconds(1))).Should().Throw<NativeException>().WithMessage("*E1-S4*");
+        FluentActions.Invoking(() => engine.SetCrossfade(TimeSpan.FromSeconds(1))).Should().NotThrow("the crossfade landed with E1-S4");
         FluentActions.Invoking(() => engine.StartPreview(track, -6f)).Should().Throw<NativeException>().WithMessage("*E5-S5*");
         FluentActions.Invoking(engine.StopPreview).Should().Throw<NativeException>().WithMessage("*E5-S5*");
 

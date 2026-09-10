@@ -200,7 +200,22 @@ MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* e, mp_track* next) {
         if (next != nullptr && !as_engine(e)->owns(as_track(next))) {
             return invalid("mp_engine_preload_next: track does not belong to this engine");
         }
-        return as_engine(e)->preload_next(as_track(next));
+        return as_engine(e)->preload_next(as_track(next), MP_JOIN_GAPLESS);
+    });
+}
+
+MP_API mp_result MP_CALL mp_engine_preload_next_ex(mp_engine* e, mp_track* next, mp_join_mode mode) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (e == nullptr) {
+            return invalid("mp_engine_preload_next_ex: NULL engine");
+        }
+        if (mode != MP_JOIN_GAPLESS && mode != MP_JOIN_CROSSFADE) {
+            return invalid("mp_engine_preload_next_ex: unknown join mode");
+        }
+        if (next != nullptr && !as_engine(e)->owns(as_track(next))) {
+            return invalid("mp_engine_preload_next_ex: track does not belong to this engine");
+        }
+        return as_engine(e)->preload_next(as_track(next), mode);
     });
 }
 
@@ -269,12 +284,12 @@ MP_API mp_result MP_CALL mp_track_set_replaygain(mp_track* t, float gain_db, flo
     });
 }
 
-MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* e, uint32_t /*ms*/) {
+MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* e, uint32_t ms) {
     return mp::abi::guard([&]() -> mp_result {
         if (e == nullptr) {
             return invalid("mp_engine_set_crossfade: NULL engine");
         }
-        return not_implemented("mp_engine_set_crossfade", "E1-S4");
+        return as_engine(e)->set_crossfade(ms);
     });
 }
 

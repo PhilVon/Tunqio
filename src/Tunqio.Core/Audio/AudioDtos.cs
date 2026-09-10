@@ -14,6 +14,16 @@ public enum FadeMode
     Guard = 1,
 }
 
+/// <summary>How a queued track follows the playing one (<c>mp_join_mode</c>, E1-S4).</summary>
+public enum JoinMode
+{
+    /// <summary>Sample-continuous: the successor's first frame follows the predecessor's last.</summary>
+    Gapless = 0,
+
+    /// <summary>The user crossfade set by <see cref="IAudioEngine.SetCrossfade"/> when one is set; otherwise gapless.</summary>
+    Crossfade = 1,
+}
+
 /// <summary>Output configuration handed to the engine (<c>mp_output_config</c>).</summary>
 /// <param name="DeviceIndex">Index from <see cref="OutputDevice.Index"/>, or -1 for the default device.</param>
 /// <param name="BufferMs">Requested buffer in milliseconds; 0 for the device default.</param>

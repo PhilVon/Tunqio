@@ -24,7 +24,9 @@
  * events name the tracks by handle, as the natural end does. The join is heard when mp_clock.mixer_byte_pos minus
  * output_buffered_bytes passes b. 0.6 ReplayGain (E1-S5): mp_track_set_replaygain replaces the never-implemented
  * engine-level stub (a stub that only ever returned MP_E_STATE, so no consumer changes behaviour): the gain belongs
- * to the track, is applied by the mixer per source, and so switches on the exact frame of a gapless join.
+ * to the track, is applied by the mixer per source, and so switches on the exact frame of a gapless join. 0.7
+ * crossfade (E1-S4): mp_engine_set_crossfade is implemented and mp_engine_preload_next_ex takes the join mode per
+ * boundary, since only the caller knows whether two tracks share an album.
  */
 #pragma once
 
@@ -47,7 +49,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 6u
+#define MP_ABI_MINOR 7u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -95,6 +97,11 @@ typedef struct mp_track mp_track;   /* opaque; owned by the engine that opened i
 
 typedef enum mp_output_mode { MP_OUTPUT_SHARED = 0, MP_OUTPUT_EXCLUSIVE = 1 } mp_output_mode;
 typedef enum mp_fade_mode { MP_FADE_NONE = 0, MP_FADE_GUARD = 1 } mp_fade_mode;
+/* How a queued track follows the playing one (mp_engine_preload_next_ex). */
+typedef enum mp_join_mode {
+    MP_JOIN_GAPLESS = 0,  /* sample-continuous: the successor's first frame follows the predecessor's last */
+    MP_JOIN_CROSSFADE = 1 /* the user crossfade (mp_engine_set_crossfade) when one is set; else gapless */
+} mp_join_mode;
 
 typedef struct mp_engine_config {
     uint32_t struct_size;
@@ -210,6 +217,17 @@ MP_API mp_result MP_CALL mp_engine_play(mp_engine* engine, mp_track* track, int6
  * Encoder delay and padding are removed by the decoder where the format carries them (see
  * docs/spikes/e1-s2-gapless-join.md for the per-format result). */
 MP_API mp_result MP_CALL mp_engine_preload_next(mp_engine* engine, mp_track* next);
+/* mp_engine_preload_next with the join chosen per boundary (ABI 0.7). MP_JOIN_GAPLESS is mp_engine_preload_next.
+ * MP_JOIN_CROSSFADE: when a crossfade is set and the playing track's length is known, next starts crossfade_ms
+ * before the playing track's end and the two overlap on an equal-power curve (the outgoing follows cos, the
+ * incoming sin, so their powers sum to one); each track's ReplayGain still applies under the fade. The crossfade
+ * cannot start exactly on a frame: the incoming starts at the beginning of the output buffer in which the fade
+ * point is mixed, up to one buffer early. MP_EVENT_TRACK_STARTED(next, b = that mixer byte position) fires when the
+ * overlap starts, and MP_EVENT_TRACK_ENDED(previous, b = 0) when the outgoing track's last frame is mixed. The
+ * clock follows next from the start of the overlap. With no crossfade set, an unknown length, or a fade point
+ * already passed (also by a seek into the fade window), the join is the gapless one. The caller decides the mode:
+ * the engine knows nothing of albums. */
+MP_API mp_result MP_CALL mp_engine_preload_next_ex(mp_engine* engine, mp_track* next, mp_join_mode mode);
 /* Fades out over 50 ms on the audio thread, then holds: the output keeps running with silence and the source
  * position freezes, so resume is immediate. Returns at once. */
 MP_API mp_result MP_CALL mp_engine_pause(mp_engine* engine);
@@ -229,7 +247,10 @@ MP_API mp_result MP_CALL mp_engine_set_volume(mp_engine* engine, float linear);
  * exceed full scale, the gain is reduced to 1/peak. A change to the track being heard is ramped by the mixer, not
  * stepped. Non-finite arguments are MP_E_INVALID_ARG. */
 MP_API mp_result MP_CALL mp_track_set_replaygain(mp_track* track, float gain_db, float peak);
-MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* engine, uint32_t ms); /* not implemented until E1-S4 */
+/* User crossfade length for MP_JOIN_CROSSFADE joins: 0 = off (the join is gapless), clamped to 12 000 ms. Takes
+ * effect on the queued join too, unless its fade point has passed. Manual skips, stops and seeks keep the 50 ms
+ * guard fade; the crossfade is only ever between a track and the one queued after it. */
+MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* engine, uint32_t ms);
 /* Lock-free with respect to the audio thread. */
 MP_API mp_result MP_CALL mp_engine_get_clock(mp_engine* engine, mp_clock* out_clock);
 MP_API mp_result MP_CALL mp_engine_get_stats(mp_engine* engine, mp_engine_stats* out_stats);

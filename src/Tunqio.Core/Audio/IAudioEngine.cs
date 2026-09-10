@@ -24,13 +24,19 @@ public interface IAudioEngine : IAsyncDisposable
     Task PlayAsync(TrackHandle track, TimeSpan? startAt = null, CancellationToken ct = default);
 
     /// <summary>
-    /// Queues <paramref name="nextTrack"/> (rewound) to start at mix time exactly where the playing track ends: no gap,
-    /// no fade (E1-S3). Null clears the queue; so do <see cref="StopAsync"/>, closing the track and playing it by hand.
-    /// A replaced next track is simply no longer queued: its stream lives until <see cref="CloseAsync"/>, which is the
-    /// caller's to do. The join raises <see cref="EngineEventType.TrackEnded"/> then <see cref="EngineEventType.TrackStarted"/>
-    /// with the join's mixer byte position in <see cref="EngineEvent.B"/>.
+    /// Queues <paramref name="nextTrack"/> (rewound) to follow the playing track. <see cref="JoinMode.Gapless"/>: it starts
+    /// at mix time exactly where the playing track ends, no gap, no fade (E1-S3); the join raises
+    /// <see cref="EngineEventType.TrackEnded"/> then <see cref="EngineEventType.TrackStarted"/> with the join's mixer byte
+    /// position in <see cref="EngineEvent.B"/>. <see cref="JoinMode.Crossfade"/> (E1-S4): with a crossfade set by
+    /// <see cref="SetCrossfade"/>, it starts that long before the playing track's end and the two overlap on an equal-power
+    /// curve; <see cref="EngineEventType.TrackStarted"/> (B = where the overlap began, within one output buffer) fires
+    /// first and <see cref="EngineEventType.TrackEnded"/> (B = 0) when the outgoing track's last frame is mixed, and the
+    /// clock follows the new track from the start of the overlap. The caller chooses the mode per boundary
+    /// (<c>CrossfadePolicy</c>): the engine knows nothing of albums. Null clears the queue; so do <see cref="StopAsync"/>,
+    /// closing the track and playing it by hand. A replaced next track is simply no longer queued: its stream lives until
+    /// <see cref="CloseAsync"/>, which is the caller's to do.
     /// </summary>
-    Task PreloadNextAsync(TrackHandle? nextTrack, CancellationToken ct = default);
+    Task PreloadNextAsync(TrackHandle? nextTrack, JoinMode join = JoinMode.Gapless, CancellationToken ct = default);
 
     /// <summary>Fades out and holds; the position freezes and <see cref="ResumeAsync"/> is immediate.</summary>
     Task PauseAsync();
@@ -53,7 +59,11 @@ public interface IAudioEngine : IAsyncDisposable
     /// </summary>
     void SetReplayGain(TrackHandle track, float gainDb, float peak);
 
-    /// <summary>Not implemented until E1-S4.</summary>
+    /// <summary>
+    /// The user crossfade for <see cref="JoinMode.Crossfade"/> joins (E1-S4): zero is off (the join is gapless), anything
+    /// over 12 s is clamped. Takes effect on the queued join too. Manual skips, stops and seeks keep the 50 ms guard fade.
+    /// Immediate, like <see cref="SetVolume"/>.
+    /// </summary>
     void SetCrossfade(TimeSpan duration);
 
     /// <summary>Not implemented until E5-S5.</summary>

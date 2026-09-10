@@ -88,13 +88,14 @@ mp_result mp_track_open(mp_engine*, const char* utf8_path, mp_track**);   // dec
 mp_result mp_track_close(mp_track*);
 mp_result mp_track_get_info(mp_track*, mp_track_info*);                     // duration, rate, channels, bits, codec
 mp_result mp_engine_play(mp_engine*, mp_track*, int64_t start_ms);
-mp_result mp_engine_preload_next(mp_engine*, mp_track*);                   // NULL clears
+mp_result mp_engine_preload_next(mp_engine*, mp_track*);                   // NULL clears; the gapless join
+mp_result mp_engine_preload_next_ex(mp_engine*, mp_track*, mp_join_mode);  // MP_JOIN_GAPLESS | MP_JOIN_CROSSFADE, chosen per boundary by the caller
 mp_result mp_engine_pause(mp_engine*); mp_result mp_engine_resume(mp_engine*);
 mp_result mp_engine_stop(mp_engine*, mp_fade_mode);
 mp_result mp_engine_seek(mp_engine*, int64_t position_ms);
 mp_result mp_engine_set_volume(mp_engine*, float linear);
 mp_result mp_track_set_replaygain(mp_track*, float gain_db, float peak); // per track: tag gain + preamp, tagged peak (<= 0 unknown); limited to 1/peak; exact at a gapless join
-mp_result mp_engine_set_crossfade(mp_engine*, uint32_t ms);
+mp_result mp_engine_set_crossfade(mp_engine*, uint32_t ms);                // 0 = off, clamped to 12 000; equal-power, per-source envelope
 mp_result mp_engine_get_clock(mp_engine*, mp_clock*);                      // position ms, mixer byte pos, output latency ms; lock-free
 mp_result mp_engine_get_stats(mp_engine*, mp_engine_stats*);               // underruns, callback max µs
 mp_result mp_preview_start(mp_engine*, mp_track*, float gain_db);          // Discovery hover preview (E5-S5)

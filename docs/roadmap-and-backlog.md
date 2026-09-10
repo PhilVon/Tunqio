@@ -128,9 +128,9 @@ Depends on: E1-S2. `PreloadNextAsync` opens and prescans the next track; join at
 - [ ] Changing the "next" track after preload discards the preloaded stream without leaking handles (*hypothesis*: handle count stable over 1000 changes)
 
 ### E1-S4 · Crossfade and guard fades · **S** · `audio` `native`
-User crossfade 0–12 s via attribute slides; guard fade on stop/seek/manual skip.
-- [ ] Crossfade of 5 s overlaps tracks with equal-power curve (verified by RMS across the overlap staying within 3 dB)
-- [ ] Crossfade is not applied at gapless album boundaries when gapless is on and the tracks are from the same album
+User crossfade 0–12 s as a per-source equal-power envelope run by the mixer (attribute slides do not advance inside a mixer, E1-S5); guard fade on stop/seek/manual skip (E1-S1). The join mode is chosen per boundary by the caller (`mp_engine_preload_next_ex`, `CrossfadePolicy`).
+- [x] Crossfade of 5 s overlaps tracks with equal-power curve (verified by RMS across the overlap staying within 3 dB: measured within 0.5 dB, `[crossfade]`)
+- [x] Crossfade is not applied at gapless album boundaries when gapless is on and the tracks are from the same album (`CrossfadePolicy.Resolve`; a `MP_JOIN_GAPLESS` join ignores the crossfade setting, measured)
 
 ### E1-S5 · ReplayGain · **S** · `audio` `native`
 Apply track or album gain and peak with preamp and clipping prevention.

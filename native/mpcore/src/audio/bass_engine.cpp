@@ -18,6 +18,15 @@
 // position, so the successor's first frame follows the predecessor's last with nothing between them. BASS
 // itself removes encoder delay and padding for MP3 (LAME/Xing/VBRI/iTunes headers) unless
 // BASS_MP3_IGNOREDELAY is passed; what each other format gives is measured in docs/spikes/e1-s2-gapless-join.md.
+//
+// Crossfade (E1-S4): the engine's envelope above is one gain on the mixed output, so it cannot fade two sources
+// against each other, and a BASS_ChannelSlideAttribute on a source inside a mixer never advances (measured in
+// E1-S5). Each source therefore carries its own equal-power envelope in a DSP (fade_proc) that the mixer runs as
+// it decodes that source, keyed to the source's own frame position; BASSmix then applies the source's
+// BASS_ATTRIB_VOL (ReplayGain) on top. A mix-time POS sync on the playing source (fade_sync) adds the queued one
+// at the fade point, the way end_sync adds it at the end for a gapless join. A source added mid-buffer starts at
+// that buffer's beginning (spike finding 1), which for a user crossfade of seconds is an alignment error of one
+// output buffer and accepted; the gapless join keeps its LIMIT exactness.
 #include "audio/bass_engine.h"
 
 #include "abi/last_error.h"
@@ -368,9 +377,11 @@ mp_result engine::set_output(const mp_output_config& config) {
     if (output_rate_ != mixer_rate_ || output_channels_ != mixer_channels_) {
         uint64_t resume_pos = 0;
         track* const cur = current_.load(std::memory_order_acquire);
+        remove_outgoing(); // the old mixer goes; a fading predecessor is not carried over
         if (cur != nullptr) {
             resume_pos = source_position(*cur, 0);
             BASS_Mixer_ChannelRemove(cur->stream);
+            cur->fade_sync = 0;
         }
         const mp_result r = create_mixer(output_rate_, output_channels_);
         if (r != MP_OK) {
@@ -382,6 +393,7 @@ mp_result engine::set_output(const mp_output_config& config) {
             if (const mp_result a = attach_source(*cur); a != MP_OK) {
                 return a;
             }
+            arm_crossfade();
         }
     }
 
@@ -510,6 +522,12 @@ mp_result engine::open_track(const char* utf8_path, track*& out) {
                 g->from == mp4_gapless::source::itunsmpb ? "iTunSMPB" : "edit list");
         }
     }
+    // The crossfade envelope rides on whichever stream the mixer pulls; it is a no-op until a fade is armed.
+    if (BASS_ChannelSetDSP(t->stream, &fade_proc, t.get(), 0) == 0) {
+        const mp_result r = bass_fail("BASS_ChannelSetDSP (fade)");
+        free_track_streams(*t);
+        return r;
+    }
     out = t.get();
     tracks_.push_back(std::move(t));
     return MP_OK;
@@ -529,9 +547,14 @@ mp_result engine::close_track(track* t) {
     }
     if (next_.load(std::memory_order_acquire) == t) {
         next_.store(nullptr, std::memory_order_release);
+        arm_crossfade(); // nothing to fade into any more
+    }
+    if (outgoing_.load(std::memory_order_acquire) == t) {
+        remove_outgoing(); // its tail is cut; the incoming is what is heard
     }
     if (current_.load(std::memory_order_acquire) == t) {
         guard_out();
+        remove_outgoing();
         BASS_Mixer_ChannelRemove(t->stream);
         current_.store(nullptr, std::memory_order_release);
         playing_.store(false, std::memory_order_release);
@@ -574,12 +597,18 @@ mp_result engine::play(track* t, int64_t start_ms) {
     }
     if (track* const cur = current_.load(std::memory_order_acquire); cur != nullptr) {
         guard_out();
+        remove_outgoing();
         BASS_Mixer_ChannelRemove(cur->stream);
+        cur->fade_sync = 0; // went with the channel
+        cur->fade_out_start.store(track::k_no_fade, std::memory_order_release);
         current_.store(nullptr, std::memory_order_release);
     }
     if (next_.load(std::memory_order_acquire) == t) {
         next_.store(nullptr, std::memory_order_release); // playing the preloaded track by hand consumes it
     }
+    // A manual play is the guard envelope's fade-in, not a crossfade's: no per-source fades on this one.
+    t->fade_in_frames.store(0, std::memory_order_release);
+    t->fade_out_start.store(track::k_no_fade, std::memory_order_release);
     const QWORD start = BASS_ChannelSeconds2Bytes(t->stream, static_cast<double>(start_ms) / 1000.0);
     if (!set_source_position(*t, start)) {
         return bass_fail("BASS_ChannelSetPosition");
@@ -591,6 +620,7 @@ mp_result engine::play(track* t, int64_t start_ms) {
     env_level_.store(0.0f, std::memory_order_release);
     begin_fade_in();
     playing_.store(true, std::memory_order_release);
+    arm_crossfade(); // a track queued before this play still follows it
     if (!output_started_) {
         if (!BASS_WASAPI_Start()) {
             return bass_fail("BASS_WASAPI_Start");
@@ -601,22 +631,90 @@ mp_result engine::play(track* t, int64_t start_ms) {
     return MP_OK;
 }
 
-mp_result engine::preload_next(track* next) {
+mp_result engine::preload_next(track* next, mp_join_mode mode) {
     std::lock_guard lock{control_};
     if (next == nullptr) {
         next_.store(nullptr, std::memory_order_release);
+        next_crossfade_.store(false, std::memory_order_release);
+        arm_crossfade();
         return MP_OK;
     }
     if (next == current_.load(std::memory_order_acquire)) {
         mp::abi::set_last_error("mp_engine_preload_next: the track is already playing");
         return MP_E_INVALID_ARG;
     }
+    if (next == outgoing_.load(std::memory_order_acquire)) {
+        mp::abi::set_last_error("mp_engine_preload_next: the track is still fading out");
+        return MP_E_INVALID_ARG;
+    }
     // Rewind here, on the control thread; the audio thread only adds it to the mixer.
     if (!set_source_position(*next, 0)) {
         return bass_fail("BASS_ChannelSetPosition (preload)");
     }
+    next->fade_out_start.store(track::k_no_fade, std::memory_order_release); // armed once it is the current
+    next_crossfade_.store(mode == MP_JOIN_CROSSFADE, std::memory_order_release);
     next_.store(next, std::memory_order_release);
+    arm_crossfade();
     return MP_OK;
+}
+
+mp_result engine::set_crossfade(uint32_t ms) {
+    std::lock_guard lock{control_};
+    const uint32_t clamped = std::min(ms, k_max_crossfade_ms);
+    crossfade_ms_.store(clamped, std::memory_order_release);
+    log(MP_LOG_DEBUG, "crossfade: %u ms%s", clamped, clamped != ms ? " (clamped)" : "");
+    arm_crossfade();
+    return MP_OK;
+}
+
+// Makes the current source's fade-out and fade-point sync match what is queued. Position based throughout: the
+// fade-out is armed as "from frame S over N frames" and the DSP takes the gain from where the source is, so it
+// needs no state machine; the sync at S adds the queued source. Nothing is armed when the crossfade is off, the
+// join is gapless, the current length is unknown, or the source is already past S (then the END sync makes the
+// gapless join, which is the fallback everywhere).
+void engine::arm_crossfade() {
+    track* const cur = current_.load(std::memory_order_acquire);
+    if (cur == nullptr) {
+        return;
+    }
+    if (cur->fade_sync != 0) {
+        BASS_Mixer_ChannelRemoveSync(cur->stream, cur->fade_sync);
+        cur->fade_sync = 0;
+    }
+    cur->fade_out_start.store(track::k_no_fade, std::memory_order_release);
+
+    const uint32_t ms = crossfade_ms_.load(std::memory_order_acquire);
+    if (next_.load(std::memory_order_acquire) == nullptr || !next_crossfade_.load(std::memory_order_acquire) ||
+        ms == 0 || cur->info.total_frames <= 0 || cur->info.sample_rate == 0 || cur->frame_bytes == 0) {
+        return;
+    }
+    const auto total = static_cast<uint64_t>(cur->info.total_frames);
+    const uint64_t len = std::min<uint64_t>(total, static_cast<uint64_t>(ms) * cur->info.sample_rate / 1000u);
+    const uint64_t start = total - len;
+    // dsp_pos is what the DSP has already seen; behind it the fade could only be joined late.
+    const uint64_t seen = cur->dsp_pos.load(std::memory_order_acquire);
+    if (seen >= start || start < cur->trim_origin) {
+        return;
+    }
+    cur->fade_out_frames.store(static_cast<uint32_t>(len), std::memory_order_relaxed);
+    cur->fade_out_start.store(start, std::memory_order_release);
+    // The sync position is in the stream's own counter, which for a wrapper starts at trim_origin.
+    const QWORD sync_pos = (start - cur->trim_origin) * cur->frame_bytes;
+    cur->fade_sync = BASS_Mixer_ChannelSetSync(cur->stream, BASS_SYNC_POS | BASS_SYNC_MIXTIME | BASS_SYNC_ONETIME,
+                                               sync_pos, &fade_sync, this);
+    if (cur->fade_sync == 0) {
+        cur->fade_out_start.store(track::k_no_fade, std::memory_order_release);
+        log(MP_LOG_WARN, "crossfade: BASS_Mixer_ChannelSetSync(POS) failed (BASS error %d); the join will be gapless",
+            BASS_ErrorGetCode());
+    }
+}
+
+void engine::remove_outgoing() noexcept {
+    if (track* const out = outgoing_.exchange(nullptr, std::memory_order_acq_rel); out != nullptr) {
+        BASS_Mixer_ChannelRemove(out->stream);
+        out->fade_out_start.store(track::k_no_fade, std::memory_order_release);
+        emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(out), 0, nullptr);
+    }
 }
 
 mp_result engine::pause() {
@@ -648,6 +746,7 @@ mp_result engine::stop(mp_fade_mode fade) {
     std::lock_guard lock{control_};
     playing_.store(false, std::memory_order_release);
     next_.store(nullptr, std::memory_order_release); // nothing to join to any more
+    next_crossfade_.store(false, std::memory_order_release);
     if (track* const cur = current_.load(std::memory_order_acquire); cur != nullptr) {
         if (fade == MP_FADE_GUARD) {
             guard_out();
@@ -656,7 +755,10 @@ mp_result engine::stop(mp_fade_mode fade) {
             env_target_.store(0.0f, std::memory_order_release);
             env_level_.store(0.0f, std::memory_order_release);
         }
+        remove_outgoing();
         BASS_Mixer_ChannelRemove(cur->stream);
+        cur->fade_sync = 0;
+        cur->fade_out_start.store(track::k_no_fade, std::memory_order_release);
         current_.store(nullptr, std::memory_order_release);
     }
     hold_.store(false, std::memory_order_release);
@@ -672,14 +774,19 @@ mp_result engine::seek(int64_t position_ms) {
     const bool was_held = hold_.load(std::memory_order_acquire);
     const bool was_playing = playing_.load(std::memory_order_acquire);
     guard_out();
+    remove_outgoing(); // a seek is a hard cut of what was fading under this track
     const QWORD pos = BASS_ChannelSeconds2Bytes(cur->stream, static_cast<double>(position_ms) / 1000.0);
     bool ok;
     if (cur->inner == 0) {
         // MIXER_RESET drops what the mixer already buffered from the old position.
         ok = BASS_Mixer_ChannelSetPosition(cur->stream, pos, BASS_POS_BYTE | BASS_POS_MIXER_RESET);
+        if (ok && cur->frame_bytes != 0) {
+            cur->dsp_pos.store(pos / cur->frame_bytes, std::memory_order_release);
+        }
     } else {
         // A user stream only resets: take the wrapper out (its syncs go with it), reposition, put it back.
         BASS_Mixer_ChannelRemove(cur->stream);
+        cur->fade_sync = 0;
         ok = set_source_position(*cur, pos) && attach_source(*cur) == MP_OK;
     }
     if (!ok) {
@@ -689,6 +796,9 @@ mp_result engine::seek(int64_t position_ms) {
         }
         return r;
     }
+    // Re-arm from the new position: a seek into or past the fade window makes the join gapless (the sync would
+    // not fire and the fade-out would start part-way down), a seek back before it restores the crossfade.
+    arm_crossfade();
     if (was_held || !was_playing) {
         // Paused: stay silent and held at the new position; resume fades in from there.
         hold_.store(true, std::memory_order_release);
@@ -827,11 +937,16 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
         while (got < bytes) {
             const DWORD n = BASS_ChannelGetData(mixer_, static_cast<char*>(buffer) + got, bytes - got);
             if (track* const joined = join_pending_.exchange(nullptr, std::memory_order_acq_rel); joined != nullptr) {
-                // end_sync swapped the sources inside that read; the read stopped on the last frame of the old
-                // source (LIMIT), so the mixer position now is exactly where the new one starts.
-                const auto at = static_cast<int64_t>(BASS_ChannelGetPosition(mixer_, BASS_POS_BYTE));
-                emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(join_ended_.load(std::memory_order_relaxed)), at,
-                     nullptr);
+                // A gapless join: end_sync swapped the sources inside that read; the read stopped on the last frame
+                // of the old source (LIMIT), so the mixer position now is exactly where the new one starts. A
+                // crossfade: fade_sync added the new source under the old one and noted where.
+                track* const ended = join_ended_.load(std::memory_order_relaxed);
+                const int64_t at = ended != nullptr
+                                       ? static_cast<int64_t>(BASS_ChannelGetPosition(mixer_, BASS_POS_BYTE))
+                                       : join_at_.load(std::memory_order_relaxed);
+                if (ended != nullptr) {
+                    emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(ended), at, nullptr);
+                }
                 emit(MP_EVENT_TRACK_STARTED, reinterpret_cast<int64_t>(joined), at, nullptr);
             }
             if (n == 0 || n == static_cast<DWORD>(-1)) {
@@ -942,7 +1057,11 @@ unsigned long __stdcall engine::trim_proc(unsigned long /*handle*/, void* buffer
 // Media Foundation seek, which is not sample-accurate (spike doc), as it was before the wrapper.
 bool engine::set_source_position(track& t, uint64_t bytes) noexcept {
     if (t.inner == 0) {
-        return BASS_ChannelSetPosition(t.stream, bytes, BASS_POS_BYTE) != 0;
+        if (!BASS_ChannelSetPosition(t.stream, bytes, BASS_POS_BYTE)) {
+            return false;
+        }
+        t.dsp_pos.store(t.frame_bytes != 0 ? bytes / t.frame_bytes : 0, std::memory_order_release);
+        return true;
     }
     if (t.frame_bytes == 0 || !BASS_ChannelSetPosition(t.stream, 0, BASS_POS_BYTE)) {
         return false;
@@ -961,6 +1080,7 @@ bool engine::set_source_position(track& t, uint64_t bytes) noexcept {
     }
     t.trim_delivered = frames;
     t.trim_origin = frames;
+    t.dsp_pos.store(frames, std::memory_order_release);
     return true;
 }
 
@@ -1010,6 +1130,14 @@ mp_result engine::render(float* out_interleaved, uint32_t frames) {
 // handle. The lookup cannot walk tracks_ here (that is the control plane's, under its mutex).
 void __stdcall engine::end_sync(unsigned long /*handle*/, unsigned long channel, unsigned long /*data*/, void* user) {
     auto* self = static_cast<engine*>(user);
+    // The tail of a crossfade: the predecessor has faded to its last frame under the current source. BASS drops
+    // it from the mixer; nothing follows it, since its successor is already playing.
+    if (track* const out = self->outgoing_.load(std::memory_order_acquire); out != nullptr && out->stream == channel) {
+        self->outgoing_.store(nullptr, std::memory_order_release);
+        out->fade_out_start.store(track::k_no_fade, std::memory_order_release);
+        self->emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(out), 0, nullptr);
+        return;
+    }
     track* const cur = self->current_.load(std::memory_order_acquire);
     track* const ended = cur != nullptr && cur->stream == channel ? cur : nullptr;
     track* const next = self->next_.exchange(nullptr, std::memory_order_acq_rel);
@@ -1022,6 +1150,99 @@ void __stdcall engine::end_sync(unsigned long /*handle*/, unsigned long channel,
     }
     self->playing_.store(false, std::memory_order_release);
     self->emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(ended), 0, nullptr);
+}
+
+// ---- crossfade (E1-S4) --------------------------------------------------------------------------
+
+// Mix-time POS sync at the fade point of the current source, from inside the BASS_ChannelGetData in pull(). Adds
+// the queued source with its fade-in armed and makes it the current one; the old current keeps playing as
+// outgoing_ with the fade-out arm_crossfade gave it, until its END sync. The queued source starts at the
+// beginning of the buffer being mixed (spike finding 1): join_at_ records that position for the event. No
+// allocation and no logging. A third source is never kept: a crossfade that starts while the previous one is
+// still fading cuts the older tail.
+void __stdcall engine::fade_sync(unsigned long /*handle*/, unsigned long channel, unsigned long /*data*/, void* user) {
+    auto* self = static_cast<engine*>(user);
+    track* const cur = self->current_.load(std::memory_order_acquire);
+    if (cur == nullptr || cur->stream != channel) {
+        return;
+    }
+    if (!self->next_crossfade_.load(std::memory_order_acquire)) {
+        cur->fade_out_start.store(track::k_no_fade, std::memory_order_release);
+        return;
+    }
+    track* const next = self->next_.exchange(nullptr, std::memory_order_acq_rel);
+    if (next == nullptr) {
+        cur->fade_out_start.store(track::k_no_fade, std::memory_order_release); // nothing to fade into: play out
+        return;
+    }
+    const uint32_t ms = self->crossfade_ms_.load(std::memory_order_acquire);
+    uint64_t len_in = static_cast<uint64_t>(ms) * next->info.sample_rate / 1000u;
+    if (next->info.total_frames > 0) {
+        len_in = std::min<uint64_t>(len_in, static_cast<uint64_t>(next->info.total_frames));
+    }
+    next->fade_in_frames.store(static_cast<uint32_t>(len_in), std::memory_order_release);
+    if (!BASS_Mixer_StreamAddChannelEx(self->mixer_, next->stream, k_source_flags, 0, 0)) {
+        next->fade_in_frames.store(0, std::memory_order_release);
+        cur->fade_out_start.store(track::k_no_fade, std::memory_order_release);
+        self->next_.store(next, std::memory_order_release); // the END sync will still join it
+        return;
+    }
+    BASS_Mixer_ChannelSetSync(next->stream, BASS_SYNC_END | BASS_SYNC_MIXTIME, 0, &end_sync, self);
+    if (track* const older = self->outgoing_.exchange(cur, std::memory_order_acq_rel); older != nullptr) {
+        BASS_Mixer_ChannelRemove(older->stream);
+        older->fade_out_start.store(track::k_no_fade, std::memory_order_release);
+        self->emit(MP_EVENT_TRACK_ENDED, reinterpret_cast<int64_t>(older), 0, nullptr);
+    }
+    self->join_at_.store(static_cast<int64_t>(BASS_ChannelGetPosition(self->mixer_, BASS_POS_BYTE)),
+                         std::memory_order_relaxed);
+    self->current_.store(next, std::memory_order_release);
+    self->join_ended_.store(nullptr, std::memory_order_relaxed);
+    self->join_pending_.store(next, std::memory_order_release);
+}
+
+// The per-source envelope, run by the mixer on the audio thread as it decodes the source (BASS applies a decoding
+// channel's DSPs inside BASS_ChannelGetData). Equal power: the incoming follows sin, the outgoing cos, over the
+// same fraction of their fades, so the sum of their powers is constant across the overlap. The gain is a function
+// of the source frame, which the DSP counts itself. Nothing here when no fade is armed. No allocation, no logging.
+void __stdcall engine::fade_proc(unsigned long /*handle*/, unsigned long /*channel*/, void* buffer,
+                                 unsigned long length, void* user) {
+    auto* t = static_cast<track*>(user);
+    const uint32_t frame_bytes = t->frame_bytes;
+    if (frame_bytes == 0) {
+        return;
+    }
+    const uint32_t frames = static_cast<uint32_t>(length / frame_bytes);
+    const uint64_t pos = t->dsp_pos.load(std::memory_order_relaxed);
+    t->dsp_pos.store(pos + frames, std::memory_order_relaxed);
+
+    const uint32_t in_frames = t->fade_in_frames.load(std::memory_order_acquire);
+    const uint64_t out_start = t->fade_out_start.load(std::memory_order_acquire);
+    const uint32_t out_frames = t->fade_out_frames.load(std::memory_order_relaxed);
+    const bool fading_in = in_frames != 0 && pos < in_frames;
+    const bool fading_out = out_start != track::k_no_fade && pos + frames > out_start;
+    if (!fading_in && !fading_out) {
+        return;
+    }
+    constexpr float k_half_pi = 1.5707963f;
+    const float in_step = fading_in ? k_half_pi / static_cast<float>(in_frames) : 0.0f;
+    const float out_step = fading_out && out_frames != 0 ? k_half_pi / static_cast<float>(out_frames) : 0.0f;
+    auto* samples = static_cast<float*>(buffer);
+    const uint32_t channels = frame_bytes / static_cast<uint32_t>(sizeof(float));
+    for (uint32_t f = 0; f < frames; ++f) {
+        const uint64_t p = pos + f;
+        float g = 1.0f;
+        if (fading_in && p < in_frames) {
+            g *= std::sin(in_step * static_cast<float>(p));
+        }
+        if (fading_out && p >= out_start) {
+            const uint64_t into = p - out_start;
+            g *= into >= out_frames ? 0.0f : std::cos(out_step * static_cast<float>(into));
+        }
+        float* frame = samples + static_cast<size_t>(f) * channels;
+        for (uint32_t c = 0; c < channels; ++c) {
+            frame[c] *= g;
+        }
+    }
 }
 
 } // namespace mp::audio

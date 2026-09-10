@@ -157,8 +157,10 @@ public sealed unsafe class NativeEngine : IDisposable
     public void Play(NativeTrack track, TimeSpan startAt = default) =>
         NativeException.ThrowIfFailed(NativeMethods.EnginePlay(RequireHandle(), track.RequireHandle(), (long)startAt.TotalMilliseconds), "mp_engine_play");
 
-    public void PreloadNext(NativeTrack? next) =>
-        NativeException.ThrowIfFailed(NativeMethods.EnginePreloadNext(RequireHandle(), next?.RequireHandle() ?? nint.Zero), "mp_engine_preload_next");
+    public void PreloadNext(NativeTrack? next, JoinMode join = JoinMode.Gapless) =>
+        NativeException.ThrowIfFailed(
+            NativeMethods.EnginePreloadNextEx(RequireHandle(), next?.RequireHandle() ?? nint.Zero, (MpJoinMode)join),
+            "mp_engine_preload_next_ex");
 
     public void Pause() => NativeException.ThrowIfFailed(NativeMethods.EnginePause(RequireHandle()), "mp_engine_pause");
 
@@ -181,8 +183,9 @@ public sealed unsafe class NativeEngine : IDisposable
         NativeException.ThrowIfFailed(NativeMethods.TrackSetReplayGain(track.RequireHandle(), gainDb, peak), "mp_track_set_replaygain");
     }
 
+    /// <summary>User crossfade length (<c>mp_engine_set_crossfade</c>): 0 = off; the core clamps to 12 s.</summary>
     public void SetCrossfade(TimeSpan duration) =>
-        NativeException.ThrowIfFailed(NativeMethods.EngineSetCrossfade(RequireHandle(), (uint)Math.Max(0, duration.TotalMilliseconds)), "mp_engine_set_crossfade");
+        NativeException.ThrowIfFailed(NativeMethods.EngineSetCrossfade(RequireHandle(), (uint)Math.Clamp(duration.TotalMilliseconds, 0, uint.MaxValue)), "mp_engine_set_crossfade");
 
     public void StartPreview(NativeTrack track, float gainDb) =>
         NativeException.ThrowIfFailed(NativeMethods.PreviewStart(RequireHandle(), track.RequireHandle(), gainDb), "mp_preview_start");

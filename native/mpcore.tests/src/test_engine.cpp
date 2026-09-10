@@ -150,8 +150,6 @@ TEST_CASE("device enumeration honours the count protocol", "[engine][device]") {
 
 TEST_CASE("unimplemented exports say which story implements them", "[engine][abi]") {
     engine_fixture fx;
-    CHECK(mp_engine_set_crossfade(fx.engine, 100) == MP_E_STATE);
-    CHECK(last_error().find("E1-S4") != std::string::npos);
     mp_analysis_frame frame{};
     frame.struct_size = sizeof frame;
     CHECK(mp_analysis_try_get_latest(fx.engine, &frame) == MP_E_STATE);

@@ -72,10 +72,10 @@ public sealed class NativeAudioEngine : IAudioEngine
         return RunAsync(() => Native.Play(native, startAt ?? TimeSpan.Zero), ct);
     }
 
-    public Task PreloadNextAsync(TrackHandle? nextTrack, CancellationToken ct = default)
+    public Task PreloadNextAsync(TrackHandle? nextTrack, JoinMode join = JoinMode.Gapless, CancellationToken ct = default)
     {
         NativeTrack? native = nextTrack is null ? null : Resolve(nextTrack);
-        return RunAsync(() => Native.PreloadNext(native), ct);
+        return RunAsync(() => Native.PreloadNext(native, join), ct);
     }
 
     public Task PauseAsync() => RunAsync(Native.Pause, CancellationToken.None);

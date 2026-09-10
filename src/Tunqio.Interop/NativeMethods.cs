@@ -107,6 +107,10 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult TrackSetReplayGain(nint track, float gainDb, float peak);
 
+    [LibraryImport(LibraryName, EntryPoint = "mp_engine_preload_next_ex")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult EnginePreloadNextEx(nint engine, nint next, MpJoinMode mode);
+
     [LibraryImport(LibraryName, EntryPoint = "mp_engine_set_crossfade")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult EngineSetCrossfade(nint engine, uint ms);
