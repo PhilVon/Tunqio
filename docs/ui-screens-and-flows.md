@@ -30,6 +30,8 @@ Tray icon + flyout
 
 Navigation inside the sidebar uses a `Frame` with a back stack (Alt+Left). The Now Playing panel never navigates; it reflects `PlaybackSession`.
 
+The shell's three panels (E2-S1) take their shares and their orientation from `ShellLayout`, a table rather than a set of `AdaptiveTrigger`s: the criterion is about proportions, and a rule that exists only as a `VisualState` can be checked only by looking at a running window. `ShellChrome` is the one piece that touches the visual tree. Below 800 px the panels stack with the controls as a bar across the bottom; between 800 and 1200 the sidebar gives its share to Now Playing; from 1200 up it is the documented 60 / 25 / 15. Each panel has a floor (400 / 200 / 120 px) which wins over its share where the two disagree — around 900 px they do, and `ShellLayout.FloorsBind` is what says so, since "the shares are 60/25/15" and "they are not" are both true of this layout at different widths. `Tunqio.exe --shell-spike` measures the panels on the live tree at five widths and switches every theme, and writes the table to `shell-spike.json`. The backdrop is Mica on Windows 11 and desktop acrylic on Windows 10, which is half the supported range (Q-4); the root paints nothing when there is a backdrop, so the layered surfaces show through it, and paints an opaque brush when there is neither. A theme change is a `RequestedTheme` on that root, so it repaints brushes already in the tree with nothing unloaded and no frame of bare window.
+
 ## Modes, defined precisely
 
 | | Discovery | Focus | Curation |

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Serilog;
 using Tunqio.App.Library;
 using Tunqio.App.Playback;
+using Tunqio.App.Shell;
 using Tunqio.Core;
 using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
@@ -104,9 +105,10 @@ public partial class App : Application
             return;
         }
 
-        var window = new MainWindow(forceWarp: RenderSpikeRunner.WantsWarp(commandLine));
+        var window = new MainWindow(RenderSpikeRunner.WantsWarp(commandLine), settings);
         _window = window;
         s_mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
         _window.Closed += OnWindowClosed;
         if (databaseNotice is not null)
         {
@@ -121,6 +123,12 @@ public partial class App : Application
         if (RenderSpikeRunner.IsRequested(commandLine))
         {
             new RenderSpikeRunner(window, logger, commandLine, Path.Combine(paths.LogsDirectory, "render-spike.json")).Start();
+        }
+
+        if (ShellSpikeRunner.IsRequested(commandLine))
+        {
+            // E2-S1 measurement mode: resize through the documented widths and report what the panels came out at.
+            new ShellSpikeRunner(window, logger, commandLine, Path.Combine(paths.LogsDirectory, "shell-spike.json")).Start();
         }
     }
 

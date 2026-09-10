@@ -4,24 +4,48 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:library="using:Tunqio.App.Library">
-  <!-- Two columns until E2-S1 builds the shell's three-panel layout: Now Playing (the visualizer) and the sidebar (the library pane). -->
-  <Grid ColumnDefinitions="3*,2*">
-    <Grid RowDefinitions="*,Auto">
-      <!-- The visualizer surface: the native core renders into this panel's composition swap chain (ADR-002). -->
-      <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
-      <!-- Start-up notices (E3-S1 database recovery). E2-S7 replaces this with the shell's error surfaces. -->
-      <InfoBar x:Name="NoticeBar" VerticalAlignment="Top" Margin="12" IsOpen="False" />
-      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
-        <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
-        <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />
-      </StackPanel>
-      <StackPanel Grid.Row="1" Padding="12" Spacing="4" Background="#A0101014">
-        <TextBlock x:Name="RenderText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap" />
-        <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
-      </StackPanel>
+  <!--
+    The shell (E2-S1). Three panels — Now Playing, the sidebar, the controls — whose shares and orientation come
+    from ShellLayout rather than from AdaptiveTriggers here, because AC-68 is about the proportions and a rule
+    living in a VisualState can only be checked by looking at a running window. Root carries RequestedTheme, and
+    ApplyBackdrop decides its background: transparent so Mica or acrylic shows through the layered surfaces, opaque
+    on a machine with neither, where something has to be painted or the theme change has nothing to repaint (AC-69).
+  -->
+  <Grid x:Name="Root">
+    <Grid x:Name="ShellGrid">
+
+      <!-- Now Playing: the visualizer surface with the metadata block over it. E2-S3 replaces the placeholder. -->
+      <Grid x:Name="NowPlayingPanel" RowDefinitions="*,Auto">
+        <!-- The native core renders into this panel's composition swap chain (ADR-002). -->
+        <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
+        <StackPanel x:Name="NowPlayingPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+          <TextBlock x:Name="ProductText" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
+          <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.8" />
+          <TextBlock Text="Nothing playing" Style="{StaticResource BodyTextBlockStyle}" HorizontalAlignment="Center" Opacity="0.6" />
+        </StackPanel>
+        <!-- E0-S5's renderer readout and E0-S3's attribution; E2-S8 builds the real diagnostics overlay. -->
+        <StackPanel Grid.Row="1" Padding="12" Spacing="4" Background="#A0101014">
+          <TextBlock x:Name="RenderText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap" />
+          <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
+        </StackPanel>
+      </Grid>
+
+      <!-- Sidebar: the library pane's NavigationView and page frame (E3-S8). -->
+      <library:LibraryPane x:Name="SidebarPanel"
+                           BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                           Background="{ThemeResource LayerFillColorDefaultBrush}" />
+
+      <!-- Controls: the transport, progress, volume and mode switcher arrive with E2-S2; this is their slot. -->
+      <Border x:Name="ControlsPanel"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+              Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <TextBlock x:Name="ControlsPlaceholder" Text="Transport" Margin="12"
+                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" />
+      </Border>
     </Grid>
 
-    <library:LibraryPane Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                         Background="{ThemeResource LayerFillColorDefaultBrush}" />
+    <!-- Start-up notices (E3-S1 database recovery, E1-S10e audio). E2-S7 replaces this with the error surfaces. -->
+    <InfoBar x:Name="NoticeBar" VerticalAlignment="Top" Margin="12" IsOpen="False" />
   </Grid>
 </Window>

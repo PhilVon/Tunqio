@@ -191,8 +191,12 @@ Goal: a usable player window over E1.
 
 ### E2-S1 · Shell layout and breakpoints · **M** · `ui`
 Three-panel grid with compact (< 800) and medium (< 1200) breakpoints; Mica on Win11; theme switching.
-- [ ] Layout matches user-interface.md proportions at 1600 px and collapses correctly at 700 px
-- [ ] Theme follows system and can be overridden; switching is instant with no white flash
+- [x] Layout matches user-interface.md proportions at 1600 px and collapses correctly at 700 px (`--shell-spike` measures the live tree: 960/400/240 px at 1600, all three panels spanning the client at 700)
+- [x] Theme follows system and can be overridden; switching is instant with no white flash (measured: every switch applies synchronously and the shell's content object is unchanged, so it is a repaint and not a reload)
+
+Between the breakpoints the per-panel floors (400 / 200 / 120 px) win over the shares — around 900 px a sixth of the
+window is a 150 px sidebar, which is not a sidebar. `ShellLayout.FloorsBind` names that regime, because otherwise
+anything checking the proportions reports a bug against a rule that does not apply there.
 
 ### E2-S2 · Transport controls panel · **M** · `ui`
 Play/pause, previous, next, progress with hover tooltip and drag seek, elapsed/remaining toggle, volume with mute, shuffle, repeat.
