@@ -20,15 +20,10 @@
     <Grid x:Name="ShellGrid">
 
       <!-- Now Playing: the visualizer surface with the metadata block over it (E2-S3). -->
-      <Grid x:Name="NowPlayingColumn" RowDefinitions="*,Auto">
+      <Grid x:Name="NowPlayingColumn">
         <!-- The native core renders into this panel's composition swap chain (ADR-002). -->
-        <SwapChainPanel x:Name="VisualizerPanel" Grid.RowSpan="2" />
+        <SwapChainPanel x:Name="VisualizerPanel" />
         <shell:NowPlayingPanel x:Name="NowPlaying" />
-        <!-- E0-S5's renderer readout and E0-S3's attribution; E2-S8 builds the real diagnostics overlay. -->
-        <StackPanel Grid.Row="1" Padding="12" Spacing="4" Background="#A0101014">
-          <TextBlock x:Name="RenderText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap" />
-          <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
-        </StackPanel>
       </Grid>
 
       <!-- Sidebar: the library pane's NavigationView and page frame (E3-S8). -->
@@ -68,6 +63,13 @@
       so the empty area over the shell is not a lid on the window.
     -->
     <shell:NoticePanel x:Name="Notices" VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="12" MaxWidth="720" />
+
+    <!--
+      The diagnostics overlay (E2-S8), Ctrl+Shift+D. It took over E0-S5's renderer readout and E0-S3's attribution
+      line, which until now were drawn over the user's album art.
+    -->
+    <shell:DiagnosticsOverlay x:Name="Diagnostics" Visibility="Collapsed"
+                              VerticalAlignment="Top" HorizontalAlignment="Left" Margin="12,64,12,12" />
 
     <!-- What a drag looks like while it is over the window. Hit-testing off, or it would steal its own drop. -->
     <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"

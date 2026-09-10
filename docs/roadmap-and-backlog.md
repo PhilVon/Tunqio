@@ -348,7 +348,26 @@ action behind it is asserted in `Tunqio.App.Tests`.
 
 ### E2-S8 · Debug/diagnostics overlay · **S** · `ui` `perf`
 Toggle (Ctrl+Shift+D) showing output latency, underruns, engine state, frame time (once E4 exists).
-- [ ] Overlay values update live and can be copied to clipboard
+- [x] Overlay values update live and can be copied to clipboard (`tools/check-shortcuts.ps1` opens it with the chord, checks the rows are there, presses Copy and reads the clipboard back)
+- [x] Ctrl+Shift+D is the one shortcut that still works while someone is typing
+- [x] Anything that is not there — no session, no engine, no renderer — is reported as missing and with its reason, rather than left out
+
+`Diagnostics` is a pure function of the three things the overlay reports on: the playback snapshot, `EngineStats`
+and `RenderStats`. That is what makes the criterion assertable — a number formatted inside a `TextBlock` can only be
+checked by reading it off a screen — and it is also what makes the copied text trustworthy, since the clipboard gets
+the same rows the panel drew rather than a second rendering of them. `PlaybackSession` grew an `EngineStats` property
+for it, which adds nothing of its own: the session is simply the only thing that holds an `IAudioEngine` (ADR-008).
+
+The refresh runs at 2 Hz and only while the overlay is open. Not 10 Hz, because these are numbers a person reads
+rather than a position a thumb follows, and a value that changes ten times a second cannot be read; and not at all
+when it is closed, because a hidden overlay still polling the engine is a leak with a lid on.
+
+Ctrl+Shift+D carries the table's one `WhileTyping` exception. The blanket rule from E2-S6 — nothing fires while
+focus is in a text box — is right for every chord a text box has an opinion about, and Ctrl+Shift+D is not one of
+them; the moment an overlay is most wanted is the moment something has gone wrong wherever the user happened to be.
+
+The overlay is also where E0-S5's renderer readout and E0-S3's attribution line finally go. Those were a developer's
+text drawn over the user's album art, and moving them is as much the point of this story as the new numbers.
 
 ---
 

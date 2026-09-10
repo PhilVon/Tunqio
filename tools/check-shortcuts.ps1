@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  E2-S6 AC-77 and AC-78: the shell's shortcuts reach the transport from wherever focus is, and get out of the way
+  E2-S6 AC-77 and AC-78, and E2-S8's overlay toggle: the shell's shortcuts reach the transport from wherever focus is, and get out of the way
   where the keystroke belongs to something else.
 
   The table itself is asserted in Tunqio.App.Tests. What cannot be asserted there is the thing the table is *for*:
@@ -188,6 +188,51 @@ try {
         Send-Keys 'q'
         if (-not (Get-ElementNamed 'Upcoming tracks' 'List')) { 'the queue panel did not open' }
         Send-Keys '{ESC}'
+    }
+
+    # ---- E2-S8: the diagnostics overlay, which is the one chord that still works while typing --------------------
+
+    Test-Case 'Ctrl+Shift+D opens the diagnostics overlay' {
+        Set-FocusTo $typeAhead
+        Send-Keys '^+d'
+        if (-not (Get-ElementNamed 'Copy diagnostics' 'Button')) { 'the overlay did not open' }
+    }
+
+    Test-Case 'the overlay is showing live numbers rather than an empty frame' {
+        $panel = Get-ElementNamed 'Diagnostics' 'Group'
+        if (-not $panel) { return 'no overlay in the tree' }
+        $labels = @()
+        foreach ($e in $panel.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+            if ($e.Current.Name) { $labels += $e.Current.Name }
+        }
+
+        foreach ($want in @('Playback', 'Output', 'Renderer', 'Frame rate', 'Underruns')) {
+            if ($labels -notcontains $want) { return "the overlay has no '$want' row" }
+        }
+    }
+
+    Test-Case 'Copy puts the whole report on the clipboard' {
+        $button = Get-ElementNamed 'Copy diagnostics' 'Button'
+        if (-not $button) { return 'no Copy button to press' }
+        $before = Get-Clipboard -Raw -ErrorAction SilentlyContinue
+        try {
+            $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            Start-Sleep -Milliseconds 600
+            $copied = Get-Clipboard -Raw
+            foreach ($want in '[Playback]', '[Output]', '[Renderer]', '[Build]') {
+                if ($copied -notlike "*$want*") { return "the clipboard has no $want section" }
+            }
+        }
+        finally {
+            # The clipboard is the user's, not the test's.
+            if ($before) { Set-Clipboard -Value $before } else { Set-Clipboard -Value '' }
+        }
+    }
+
+    Test-Case 'Ctrl+Shift+D closes it again' {
+        Send-Keys '^+d'
+        if (Get-ElementNamed 'Copy diagnostics' 'Button') { 'the overlay stayed open' }
     }
 
     Write-Output ''

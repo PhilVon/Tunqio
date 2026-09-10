@@ -34,9 +34,9 @@ public sealed partial class MainWindow : Window
     private readonly NowPlayingViewModel? _nowPlaying;
     private readonly QueueViewModel? _queue;
     private readonly ShellNotices _notices;
+    private readonly DiagnosticsViewModel _diagnostics;
     private readonly OpenCoordinator? _open;
     private NativeRenderer? _renderer;
-    private DispatcherQueueTimer? _statsTimer;
 
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
     /// <param name="settings">Read for <c>ui.theme</c>; the system theme is used when it is not supplied.</param>
@@ -66,13 +66,15 @@ public sealed partial class MainWindow : Window
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
         _chrome.ApplyLayout(ShellLayout.MediumThreshold);
         Root.SizeChanged += (_, e) => _chrome.ApplyLayout(e.NewSize.Width);
-        // About-page placeholder (E0-S3): the BASS attribution is shown until E6-S5 builds the real page.
-        EngineText.Text = DescribeEngine() + Environment.NewLine + ThirdPartyAttribution.Bass;
-
         // The error surfaces (E2-S7). Built before the session is attached below, so a failure during start-up has
         // somewhere to be said.
         _notices = new ShellNotices(audio, scans, SynchronizationContext.Current);
         Notices.ViewModel = _notices;
+
+        // The diagnostics overlay (E2-S8). It reads the renderer through a delegate rather than being handed one,
+        // because the renderer does not exist until the swap-chain panel has loaded and may never exist at all.
+        _diagnostics = new DiagnosticsViewModel(audio, RendererStats, DescribeEngine(), SynchronizationContext.Current);
+        Diagnostics.ViewModel = _diagnostics;
 
         if (audio is not null)
         {
@@ -109,6 +111,7 @@ public sealed partial class MainWindow : Window
             _nowPlaying?.Dispose();
             _queue?.Dispose();
             _notices.Dispose();
+            _diagnostics.Dispose();
             TearDownRenderer();
         };
     }
@@ -267,6 +270,13 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private bool Invoke(ShellShortcut shortcut)
     {
+        if (shortcut.Command == ShellCommand.Diagnostics)
+        {
+            _diagnostics.Toggle();
+            Diagnostics.Visibility = _diagnostics.IsVisible ? Visibility.Visible : Visibility.Collapsed;
+            return true;
+        }
+
         if (shortcut.Command == ShellCommand.Queue)
         {
             // The queue is a flyout on its button (E2-S5); showing it from here is the same gesture as clicking it.
@@ -493,15 +503,17 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is NativeException or DllNotFoundException)
         {
-            RenderText.Text = "Renderer unavailable: " + ex.Message;
-            return;
+            _diagnostics.RendererProblem = "unavailable: " + ex.Message;
+            _diagnostics.Refresh();
+            Serilog.Log.Warning(ex, "The renderer could not be created");
         }
-
-        _statsTimer = DispatcherQueue.CreateTimer();
-        _statsTimer.Interval = TimeSpan.FromMilliseconds(500);
-        _statsTimer.Tick += (_, _) => RenderText.Text = DescribeRenderer();
-        _statsTimer.Start();
     }
+
+    /// <summary>
+    /// The renderer's statistics for the overlay, or null when there is no renderer. Called on the UI thread by
+    /// the overlay's own refresh, so nothing here has to marshal.
+    /// </summary>
+    private RenderStats? RendererStats() => _renderer?.GetStats();
 
     private (int Width, int Height) PanelPixelSize()
     {
@@ -523,23 +535,8 @@ public sealed partial class MainWindow : Window
 
     private void TearDownRenderer()
     {
-        _statsTimer?.Stop();
-        _statsTimer = null;
         _renderer?.Dispose();
         _renderer = null;
-    }
-
-    private string DescribeRenderer()
-    {
-        if (_renderer is null)
-        {
-            return string.Empty;
-        }
-
-        RenderStats s = _renderer.GetStats();
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{s.Adapter}{(s.Warp ? " (WARP)" : string.Empty)} · {s.Width}×{s.Height} · {s.Fps:F1} fps · frame avg {s.FrameAverage.TotalMilliseconds:F2} ms, max {s.FrameMax.TotalMilliseconds:F1} ms · missed refreshes {s.DxgiMissedRefreshes} · histogram [{string.Join(", ", s.FrameHistogram)}]");
     }
 
     private static string DescribeEngine()

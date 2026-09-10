@@ -168,6 +168,13 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     /// <summary>The queue as it stands.</summary>
     public PlayQueue Queue => _queue;
 
+    /// <summary>
+    /// What the engine reports about the open output — buffer, format, underruns (E2-S8's overlay). Read through
+    /// the session because the session is the only thing that holds an <see cref="IAudioEngine"/> (ADR-008), not
+    /// because it has anything to add.
+    /// </summary>
+    public EngineStats EngineStats => _engine.Stats;
+
     public Task PlayNowAsync(IReadOnlyList<long> trackIds, int startIndex = 0, bool shuffle = false, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(trackIds);

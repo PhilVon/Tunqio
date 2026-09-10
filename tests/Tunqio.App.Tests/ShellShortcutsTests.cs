@@ -56,11 +56,22 @@ public class ShellShortcutsTests
     [Fact]
     public void Nothing_fires_while_the_focus_is_in_something_being_typed_into()
     {
-        foreach (ShellShortcut shortcut in ShellShortcuts.All)
+        foreach (ShellShortcut shortcut in ShellShortcuts.All.Where(s => !s.WhileTyping))
         {
             ShellShortcuts.Find(shortcut.Key, shortcut.Modifiers, typing: true)
                 .Should().BeNull("'{0}' is part of typing before it is part of the transport", shortcut.Key);
         }
+    }
+
+    /// <summary>
+    /// The exception, and it has to stay one. A chord a text box has no opinion about is not the typist's to keep,
+    /// and the moment a diagnostic overlay is most wanted is the moment something has gone wrong where the user was.
+    /// </summary>
+    [Fact]
+    public void Only_the_diagnostics_overlay_is_the_typists_to_lose()
+    {
+        ShellShortcuts.All.Where(s => s.WhileTyping)
+            .Should().ContainSingle().Which.Command.Should().Be(ShellCommand.Diagnostics);
     }
 
     [Fact]

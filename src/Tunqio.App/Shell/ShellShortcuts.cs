@@ -21,6 +21,9 @@ public enum ShellCommand
 
     /// <summary>Open the queue panel.</summary>
     Queue,
+
+    /// <summary>Show or hide the diagnostics overlay (E2-S8).</summary>
+    Diagnostics,
 }
 
 /// <summary>
@@ -50,12 +53,17 @@ public enum ShortcutDelivery
 /// <param name="Command">What it asks for.</param>
 /// <param name="Amount">Seconds for <see cref="ShellCommand.Seek"/>, a fraction for <see cref="ShellCommand.Volume"/>, zero otherwise.</param>
 /// <param name="Delivery">How it reaches the shell.</param>
+/// <param name="WhileTyping">
+/// True for the few chords that mean nothing to a text box and so are not the typist's to keep. The default is
+/// false, which is the rule: Ctrl+Left is how a caret moves by word, and Space is a space.
+/// </param>
 public readonly record struct ShellShortcut(
     VirtualKey Key,
     VirtualKeyModifiers Modifiers,
     ShellCommand Command,
     double Amount,
-    ShortcutDelivery Delivery);
+    ShortcutDelivery Delivery,
+    bool WhileTyping = false);
 
 /// <summary>
 /// The shell's keyboard shortcuts (E2-S6, docs/ui-screens-and-flows.md, "Keyboard shortcuts"), as a table rather
@@ -125,6 +133,15 @@ public static class ShellShortcuts
         new(VirtualKey.Left, VirtualKeyModifiers.Shift, ShellCommand.Seek, -30, ShortcutDelivery.Accelerator),
         new(VirtualKey.Up, VirtualKeyModifiers.None, ShellCommand.Volume, VolumeStep, ShortcutDelivery.Accelerator),
         new(VirtualKey.Down, VirtualKeyModifiers.None, ShellCommand.Volume, -VolumeStep, ShortcutDelivery.Accelerator),
+
+        // The one chord a text box has no opinion about, so it is the one shortcut that still works while typing.
+        new(
+            VirtualKey.D,
+            VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift,
+            ShellCommand.Diagnostics,
+            0,
+            ShortcutDelivery.Accelerator,
+            WhileTyping: true),
     ];
 
     /// <summary>Every shortcut the shell registers, in the order the design document lists them.</summary>
@@ -140,21 +157,16 @@ public static class ShellShortcuts
 
     /// <summary>
     /// The shortcut for <paramref name="key"/> with exactly <paramref name="modifiers"/> down, or null — including
-    /// for every shortcut while <paramref name="typing"/>, since focus is then in something the keystroke belongs
-    /// to more than the transport.
+    /// for all but the <see cref="ShellShortcut.WhileTyping"/> ones while <paramref name="typing"/>, since focus is
+    /// then in something the keystroke belongs to more than the transport.
     /// </summary>
     public static ShellShortcut? Find(VirtualKey key, VirtualKeyModifiers modifiers, bool typing)
     {
-        if (typing)
-        {
-            return null;
-        }
-
         foreach (ShellShortcut shortcut in Table)
         {
             if (shortcut.Key == key && shortcut.Modifiers == modifiers)
             {
-                return shortcut;
+                return typing && !shortcut.WhileTyping ? null : shortcut;
             }
         }
 
