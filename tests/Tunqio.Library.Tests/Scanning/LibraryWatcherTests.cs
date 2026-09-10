@@ -210,9 +210,13 @@ public class LibraryWatcherTests
         await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         w.Source.Raise(FolderChangeKind.Created, added);
-        await Task.Delay(WatchHarness.Debounce * 4);
-        w.Scanner.Requests.Should().BeEmpty("the watcher does not scan while the manual scan runs");
-        w.Watcher.Stats.Pending.Should().Be(1, "the path is still queued, not dropped");
+
+        // Held over the window, not sampled once at the end of it: the claim is that the path is queued the whole
+        // time the manual scan is in the way, never briefly neither pending nor running.
+        await WatchHarness.StaysTrueAsync(
+            () => w.Scanner.Requests.IsEmpty && w.Watcher.Stats.Pending == 1,
+            WatchHarness.Debounce * 4,
+            () => $"the watcher does not scan while the manual scan runs and the path is still queued, not dropped (requests: {w.Scanner.Requests.Count}, pending: {w.Watcher.Stats.Pending})");
 
         w.Scan.Reader.BeforeRead = null;
         gate.SetResult();

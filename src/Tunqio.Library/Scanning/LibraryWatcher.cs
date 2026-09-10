@@ -375,7 +375,7 @@ public sealed class LibraryWatcher : ILibraryWatcher
     {
         while (!ct.IsCancellationRequested)
         {
-            Work? work = TakeDue(out TimeSpan? wait);
+            Work? work = TakeDue(_scanner.IsScanning, out TimeSpan? wait);
             if (work is null)
             {
                 if (wait is null)
@@ -384,13 +384,6 @@ public sealed class LibraryWatcher : ILibraryWatcher
                 }
 
                 await Task.Delay(wait.Value, _clock, ct).ConfigureAwait(false);
-                continue;
-            }
-
-            if (_scanner.IsScanning)
-            {
-                Requeue(work);
-                await Task.Delay(_busyPoll, _clock, ct).ConfigureAwait(false);
                 continue;
             }
 
@@ -428,8 +421,12 @@ public sealed class LibraryWatcher : ILibraryWatcher
         }
     }
 
-    /// <summary>One due piece of work (a folder rescan first, else the folder's due paths), or the time until the earliest one.</summary>
-    private Work? TakeDue(out TimeSpan? wait)
+    /// <summary>
+    /// One due piece of work (a folder rescan first, else the folder's due paths), or the time until the earliest
+    /// one. When <paramref name="busy"/> (another scan is running), due work is left where it is rather than taken
+    /// and put back, so it is never briefly neither pending nor running; the caller comes back in a busy poll.
+    /// </summary>
+    private Work? TakeDue(bool busy, out TimeSpan? wait)
     {
         long now = _clock.GetTimestamp();
         long? earliest = null;
@@ -441,6 +438,12 @@ public sealed class LibraryWatcher : ILibraryWatcher
                 {
                     if (rescan <= now)
                     {
+                        if (busy)
+                        {
+                            wait = _busyPoll;
+                            return null;
+                        }
+
                         watch.RescanDue = null;
                         watch.Pending.Clear();
                         wait = null;
@@ -471,6 +474,12 @@ public sealed class LibraryWatcher : ILibraryWatcher
 
                 if (ready is not null)
                 {
+                    if (busy)
+                    {
+                        wait = _busyPoll;
+                        return null;
+                    }
+
                     foreach (string path in ready)
                     {
                         watch.Pending.Remove(path);
@@ -493,7 +502,7 @@ public sealed class LibraryWatcher : ILibraryWatcher
         return null;
     }
 
-    /// <summary>Puts work back, due now, for after the scan that is in the way.</summary>
+    /// <summary>Puts work back, due now, for after a scan that started between the check and the call.</summary>
     private void Requeue(Work work)
     {
         long now = _clock.GetTimestamp();
