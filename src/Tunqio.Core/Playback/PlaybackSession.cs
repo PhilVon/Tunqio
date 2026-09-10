@@ -65,7 +65,9 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
 
     private readonly IAudioEngine _engine;
     private readonly ITrackRepository _tracks;
+    private readonly IPlayHistoryRepository _history;
     private readonly ISettingsStore _settings;
+    private readonly TimeProvider _time;
     private readonly Random _rng;
     private readonly ILogger _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -75,6 +77,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
 
     private PlayQueue _queue = PlayQueue.Empty;
     private LoadedTrack? _current;
+    private Listen? _listen;
     private LoadedTrack? _next;
     private PendingJoin? _join;
     private bool _ended;
@@ -84,6 +87,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
 
     /// <param name="engine">The engine this session drives; it is the session's alone.</param>
     /// <param name="tracks">Resolves the queue's track ids to the files and tags the engine needs.</param>
+    /// <param name="history">Takes a play event for every track that stops being current (E3-S11).</param>
     /// <param name="settings">Read for gapless, crossfade and ReplayGain at every boundary, so a change applies to the next one.</param>
     /// <param name="clock">Drives the 10 Hz snapshot timer; pass a fake and call <see cref="PollAsync"/> by hand in tests.</param>
     /// <param name="rng">The shuffle's randomness; fixed in tests.</param>
@@ -92,6 +96,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     public PlaybackSession(
         IAudioEngine engine,
         ITrackRepository tracks,
+        IPlayHistoryRepository history,
         ISettingsStore settings,
         TimeProvider? clock = null,
         Random? rng = null,
@@ -100,17 +105,20 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(tracks);
+        ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(settings);
 
         _engine = engine;
         _tracks = tracks;
+        _history = history;
         _settings = settings;
+        _time = clock ?? TimeProvider.System;
         _rng = rng ?? Random.Shared;
         _log = logger ?? (ILogger)NullLogger<PlaybackSession>.Instance;
         _events = engine.Events.Subscribe(OnEngineEvent);
         if (autoPoll)
         {
-            _timer = (clock ?? TimeProvider.System).CreateTimer(
+            _timer = _time.CreateTimer(
                 _ => _ = PollAsync(), null, SnapshotInterval, SnapshotInterval);
         }
     }
@@ -272,6 +280,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     /// </summary>
     public Task PollAsync(CancellationToken ct = default) => LockedAsync(async () =>
     {
+        Accrue();
         if (_join is PendingJoin join && _engine.Clock.HasPlayed(join.MixerBytePosition))
         {
             await CommitJoinAsync(join, ct).ConfigureAwait(false);
@@ -333,9 +342,12 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
         _join = null;
         _next = null;
         LoadedTrack? outgoing = _current;
+        Accrue();
+        await RecordListenAsync().ConfigureAwait(false);
         _queue = _queue.Advance(manual: false);
         _current = join.Track;
         _state = PlaybackState.Playing;
+        BeginListen(join.Track, TimeSpan.Zero);
         if (outgoing is not null)
         {
             await _engine.CloseAsync(outgoing.Handle).ConfigureAwait(false);
@@ -373,6 +385,7 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
             }
 
             _current = loaded;
+            BeginListen(loaded, startAt);
             await _engine.PlayAsync(loaded.Handle, startAt, ct).ConfigureAwait(false);
             _state = PlaybackState.Playing;
             await RefreshPreloadCoreAsync(ct).ConfigureAwait(false);
@@ -468,11 +481,68 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     {
         _join = null;
         _ended = false;
+        Accrue();
+        await RecordListenAsync().ConfigureAwait(false);
         await ClearPreloadAsync().ConfigureAwait(false);
         if (_current is LoadedTrack playing)
         {
             _current = null;
             await _engine.CloseAsync(playing.Handle).ConfigureAwait(false);
+        }
+    }
+
+    // ---- what was heard ------------------------------------------------------------------------------------------
+
+    private void BeginListen(LoadedTrack track, TimeSpan startAt) =>
+        _listen = new Listen(track, _time.GetUtcNow().ToUnixTimeMilliseconds(), startAt, _time.GetTimestamp());
+
+    /// <summary>
+    /// Adds what has become audible since the last call. Heard time follows the <em>position</em>, capped by the
+    /// wall clock: a pause advances neither, and a seek moves the position without crediting the audio it jumped
+    /// over. A backward seek adds nothing for the jump itself and then counts the re-heard audio again, which is
+    /// what the Last.fm rule this feeds counts too.
+    /// </summary>
+    private void Accrue()
+    {
+        if (_listen is not Listen listen)
+        {
+            return;
+        }
+
+        long now = _time.GetTimestamp();
+        TimeSpan position = _current is null ? listen.LastPosition : _engine.Clock.Position;
+        TimeSpan advanced = position - listen.LastPosition;
+        if (_state == PlaybackState.Playing && advanced > TimeSpan.Zero)
+        {
+            TimeSpan wall = _time.GetElapsedTime(listen.LastTicks, now);
+            listen.Heard += advanced < wall ? advanced : wall;
+        }
+
+        listen.LastPosition = position;
+        listen.LastTicks = now;
+    }
+
+    /// <summary>
+    /// Hands the finished listen to the history (E3-S11) and forgets it. A history that will not take it is logged
+    /// and dropped: losing a play count is not a reason to interrupt the music.
+    /// </summary>
+    private async Task RecordListenAsync()
+    {
+        if (_listen is not Listen listen)
+        {
+            return;
+        }
+
+        _listen = null;
+        try
+        {
+            await _history.RecordAsync(
+                PlayEvent.For(listen.Track.Item.TrackId, listen.StartedAt, listen.Heard, listen.Track.Handle.Info.Duration))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "Could not record the play of track {TrackId}", listen.Track.Item.TrackId);
         }
     }
 
@@ -523,6 +593,20 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     }
 
     private sealed record LoadedTrack(QueueItem Item, TrackDto Dto, TrackHandle Handle);
+
+    /// <summary>One listen in progress: when it began, what has been heard, and where the last reading left it.</summary>
+    private sealed class Listen(LoadedTrack track, long startedAt, TimeSpan position, long ticks)
+    {
+        public LoadedTrack Track { get; } = track;
+
+        public long StartedAt { get; } = startedAt;
+
+        public TimeSpan Heard { get; set; }
+
+        public TimeSpan LastPosition { get; set; } = position;
+
+        public long LastTicks { get; set; } = ticks;
+    }
 
     private sealed record PendingJoin(LoadedTrack Track, long MixerBytePosition);
 }

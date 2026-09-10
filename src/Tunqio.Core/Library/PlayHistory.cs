@@ -8,8 +8,9 @@ namespace Tunqio.Core.Library;
 /// </summary>
 /// <param name="TrackId">The track that was heard.</param>
 /// <param name="StartedAt">When the listen began, Unix milliseconds UTC; also what "Recently played" sorts by.</param>
-/// <param name="PlayedMs">Heard time — time the track was actually audible, so it excludes pauses and does not
-/// advance while seeking backwards over the same audio twice.</param>
+/// <param name="PlayedMs">Heard time — time the track was actually audible. It does not advance while paused, and
+/// a seek moves the position without crediting the audio it jumped over; audio heard twice counts twice, which is
+/// what the Last.fm rule this feeds counts too.</param>
 /// <param name="Completed">Whether the listen counts as a play (see <see cref="PlayCompletion"/>).</param>
 public sealed record PlayEvent(long TrackId, long StartedAt, long PlayedMs, bool Completed)
 {

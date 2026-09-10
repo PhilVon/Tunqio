@@ -16,11 +16,13 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     private readonly FakeAudioEngine _engine = new();
     private readonly FakeTrackRepository _tracks = FakeTrackRepository.With(1, 2, 3, 4);
     private readonly FakeSettingsStore _settings = new();
+    private readonly FakePlayHistory _history = new();
+    private readonly ManualTimeProvider _time = new(DateTimeOffset.Parse("2026-09-10T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
     private PlaybackSession _session = null!;
 
     public Task InitializeAsync()
     {
-        _session = new PlaybackSession(_engine, _tracks, _settings, rng: new Random(1), autoPoll: false);
+        _session = new PlaybackSession(_engine, _tracks, _history, _settings, _time, new Random(1), autoPoll: false);
         return Task.CompletedTask;
     }
 
@@ -390,9 +392,10 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
     [Fact]
     public async Task A_session_needs_an_engine_a_library_and_settings()
     {
-        FluentActions.Invoking(() => new PlaybackSession(null!, _tracks, _settings)).Should().Throw<ArgumentNullException>();
-        FluentActions.Invoking(() => new PlaybackSession(_engine, null!, _settings)).Should().Throw<ArgumentNullException>();
-        FluentActions.Invoking(() => new PlaybackSession(_engine, _tracks, null!)).Should().Throw<ArgumentNullException>();
+        FluentActions.Invoking(() => new PlaybackSession(null!, _tracks, _history, _settings)).Should().Throw<ArgumentNullException>();
+        FluentActions.Invoking(() => new PlaybackSession(_engine, null!, _history, _settings)).Should().Throw<ArgumentNullException>();
+        FluentActions.Invoking(() => new PlaybackSession(_engine, _tracks, null!, _settings)).Should().Throw<ArgumentNullException>();
+        FluentActions.Invoking(() => new PlaybackSession(_engine, _tracks, _history, null!)).Should().Throw<ArgumentNullException>();
         await FluentActions.Awaiting(() => _session.PlayNowAsync(null!)).Should().ThrowAsync<ArgumentNullException>();
         await FluentActions.Awaiting(() => _session.PlayNextAsync(null!)).Should().ThrowAsync<ArgumentNullException>();
         await FluentActions.Awaiting(() => _session.EnqueueAsync(null!)).Should().ThrowAsync<ArgumentNullException>();
