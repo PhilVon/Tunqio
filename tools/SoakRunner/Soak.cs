@@ -221,14 +221,20 @@ internal sealed class Soak : IAsyncDisposable
         await QueueNextAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Somewhere in the first four fifths of the playing track, so a seek has somewhere to land and still leaves
+    /// audio behind it. The floor is a tenth of a second rather than a couple of seconds: the checked-in fixture
+    /// library is one second a track, and a guard written in whole seconds turned <c>-seek-every</c> into a flag
+    /// that silently did nothing there.
+    /// </summary>
     private async Task SeekSomewhereAsync()
     {
-        if (_current is not { } playing || playing.Info.Duration <= TimeSpan.FromSeconds(2))
+        if (_current is not { } playing || playing.Info.Duration < TimeSpan.FromMilliseconds(100))
         {
             return;
         }
 
-        double seconds = _rng.NextDouble() * (playing.Info.Duration.TotalSeconds - 1);
+        double seconds = _rng.NextDouble() * playing.Info.Duration.TotalSeconds * 0.8;
         await _engine!.SeekAsync(TimeSpan.FromSeconds(seconds)).ConfigureAwait(false);
         _seeks++;
     }
