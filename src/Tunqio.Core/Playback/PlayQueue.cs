@@ -69,6 +69,12 @@ public sealed class PlayQueue
     /// <summary>The queue in play order — the shuffled order while <see cref="Shuffle"/> is on.</summary>
     public IReadOnlyList<QueueItem> Items => _items;
 
+    /// <summary>
+    /// The queue in the order its items were added — what turning <see cref="Shuffle"/> off restores, and what a
+    /// saved queue has to carry alongside <see cref="Items"/> for a restored shuffle to still be undoable.
+    /// </summary>
+    public IReadOnlyList<QueueItem> AddedOrder => _addedOrder;
+
     /// <summary>The index into <see cref="Items"/> of the current item, or null when nothing is current.</summary>
     public int? CurrentIndex { get; }
 
@@ -274,6 +280,28 @@ public sealed class PlayQueue
         }
 
         return Repeat == RepeatMode.Off ? null : _items[0];
+    }
+
+    /// <summary>
+    /// Rebuilds a queue from a saved one (E1-S10). <paramref name="playOrder"/> is the order it was playing in —
+    /// null, or the same list, when it was not shuffled — and must hold the same items as
+    /// <paramref name="addedOrder"/>; the caller that reads a saved queue is the one that checks that, because a
+    /// corrupt row is a storage problem and not a queue rule. A current index outside the queue restores as
+    /// nothing current.
+    /// </summary>
+    public static PlayQueue Restore(
+        IEnumerable<QueueItem> addedOrder,
+        IEnumerable<QueueItem>? playOrder,
+        int? currentIndex,
+        bool shuffle,
+        RepeatMode repeat)
+    {
+        ArgumentNullException.ThrowIfNull(addedOrder);
+
+        QueueItem[] added = addedOrder.ToArray();
+        QueueItem[] items = playOrder is null ? added : playOrder.ToArray();
+        int? index = currentIndex is int at && at >= 0 && at < items.Length ? at : null;
+        return new PlayQueue(items, added, index, shuffle, repeat);
     }
 
     private static QueueItem[] Materialise(IEnumerable<long> trackIds)

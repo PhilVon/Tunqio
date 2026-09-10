@@ -1,3 +1,5 @@
+using Tunqio.Core.Playback;
+
 namespace Tunqio.Core.Library;
 
 /// <summary>
@@ -135,6 +137,9 @@ public interface ILibraryService
 
     /// <summary>Play events and the counts they feed (E3-S11).</summary>
     IPlayHistoryRepository PlayHistory { get; }
+
+    /// <summary>The queue that survives a restart (E1-S10).</summary>
+    IQueueStateRepository QueueState { get; }
 
     ILibraryScanner Scanner { get; }
 

@@ -45,6 +45,7 @@ public static class LibraryServiceCollectionExtensions
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Folders);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Search);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().PlayHistory);
+        services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().QueueState);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Scanner);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Watcher);
         services.TryAddSingleton<ITagReader>(provider => new TagLibTagReader(provider.GetRequiredService<ISettingsStore>(), provider.GetService<ILogger<TagLibTagReader>>()));

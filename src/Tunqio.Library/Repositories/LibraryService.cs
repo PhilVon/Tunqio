@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Tunqio.Core.Library;
+using Tunqio.Core.Playback;
 using Tunqio.Library.Database;
 using Tunqio.Library.Scanning;
 using Tunqio.Library.Tags;
@@ -35,6 +36,7 @@ public sealed class LibraryService : ILibraryService
         Folders = folders;
         Search = new SqliteSearchService(db);
         PlayHistory = new SqlitePlayHistoryRepository(db);
+        QueueState = new SqliteQueueStateRepository(db);
         Scanner = new LibraryScanner(
             tracks,
             folders,
@@ -59,6 +61,8 @@ public sealed class LibraryService : ILibraryService
     public ISearchService Search { get; }
 
     public IPlayHistoryRepository PlayHistory { get; }
+
+    public IQueueStateRepository QueueState { get; }
 
     public ILibraryScanner Scanner { get; }
 

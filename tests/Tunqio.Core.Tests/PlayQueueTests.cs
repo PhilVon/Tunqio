@@ -471,4 +471,79 @@ public class PlayQueueTests
         after.Items[1].InstanceId.Should().Be(last);
         Order(after.ToggleShuffle(new Random(6))).Should().Equal(1, 2, 3, 4, 5);
     }
+
+    // ---- restoring a saved queue (E1-S10) --------------------------------------------------------------------------
+
+    [Fact]
+    public void A_queue_that_was_never_shuffled_restores_from_one_order()
+    {
+        PlayQueue original = Queue(1, 2, 3);
+
+        PlayQueue restored = PlayQueue.Restore(original.AddedOrder, null, 1, shuffle: false, RepeatMode.All);
+
+        restored.Items.Should().Equal(original.Items);
+        restored.AddedOrder.Should().Equal(original.Items);
+        restored.CurrentIndex.Should().Be(1);
+        restored.Shuffle.Should().BeFalse();
+        restored.Repeat.Should().Be(RepeatMode.All);
+    }
+
+    [Fact]
+    public void A_shuffled_queue_restores_both_orders_so_it_can_still_be_unshuffled()
+    {
+        PlayQueue shuffled = PlayQueue.Empty.PlayNow([1, 2, 3, 4, 5, 6, 7, 8]).ToggleShuffle(new Random(4));
+
+        PlayQueue restored = PlayQueue.Restore(
+            shuffled.AddedOrder, shuffled.Items, shuffled.CurrentIndex, shuffle: true, shuffled.Repeat);
+
+        restored.Items.Should().Equal(shuffled.Items);
+        restored.Current.Should().Be(shuffled.Current);
+        Order(restored.ToggleShuffle(new Random(4))).Should().Equal(InOrder);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(-1)]
+    [InlineData(3)]
+    public void A_current_index_outside_the_restored_queue_restores_as_nothing_current(int? currentIndex)
+    {
+        PlayQueue restored = PlayQueue.Restore(Queue(1, 2, 3).Items, null, currentIndex, shuffle: false, RepeatMode.Off);
+
+        restored.Count.Should().Be(3);
+        restored.CurrentIndex.Should().BeNull();
+    }
+
+    [Fact]
+    public void Restoring_needs_an_order()
+    {
+        FluentActions.Invoking(() => PlayQueue.Restore(null!, null, 0, false, RepeatMode.Off))
+            .Should().Throw<ArgumentNullException>();
+    }
+
+    // ---- capture ---------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_capture_carries_both_orders_and_the_position()
+    {
+        PlayQueue shuffled = PlayQueue.Empty.PlayNow([1, 2, 3, 4, 5, 6, 7, 8], startIndex: 2)
+            .WithRepeat(RepeatMode.One)
+            .ToggleShuffle(new Random(4));
+
+        QueueState state = QueueState.Capture(shuffled, TimeSpan.FromSeconds(9), 1_700_000_000_000);
+
+        state.Items.Should().Equal(shuffled.Items);
+        state.AddedOrder.Should().Equal(shuffled.AddedOrder);
+        state.CurrentIndex.Should().Be(shuffled.CurrentIndex);
+        state.Position.Should().Be(TimeSpan.FromSeconds(9));
+        state.Shuffle.Should().BeTrue();
+        state.Repeat.Should().Be(RepeatMode.One);
+        state.SavedAt.Should().Be(1_700_000_000_000);
+        state.ToQueue().Items.Should().Equal(shuffled.Items);
+    }
+
+    [Fact]
+    public void Capturing_needs_a_queue()
+    {
+        FluentActions.Invoking(() => QueueState.Capture(null!, null, 0)).Should().Throw<ArgumentNullException>();
+    }
 }
