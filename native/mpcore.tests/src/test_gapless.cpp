@@ -94,6 +94,16 @@ double residual(const std::vector<float>& out, int64_t from, int64_t to, int64_t
     return sig == 0 ? 0.0 : std::sqrt(err / sig);
 }
 
+// Where out[from, to) runs out of audio: the start of the silent tail, or `to` if there is none. Only reported
+// when a match fails, to say whether the window measured the signal or the end of it.
+int64_t first_silent_frame(const std::vector<float>& out, int64_t from, int64_t to) {
+    int64_t k = to;
+    while (k > from && left(out, k - 1) == 0.0f) {
+        --k;
+    }
+    return k;
+}
+
 double max_step_left(const std::vector<float>& out, int64_t from, int64_t to) {
     double worst = 0;
     for (int64_t k = from + 1; k < to; ++k) {
@@ -406,9 +416,24 @@ TEST_CASE("an AAC track seeks and pauses through the trimming wrapper", "[gaples
     // Foundation seek lands near, not on, the frame) and the clock follows the wrapper's position.
     const std::vector<float> after = fx.render(k_rate);
     const int64_t expected_lag = -static_cast<int64_t>(k_rate); // output frame k holds chirp frame k + 48000
-    const int64_t lag = best_lag(after, 100 + mp::tests::k_fade_frames, k_rate - 100, 6000, expected_lag);
-    CHECK(std::llabs(lag - expected_lag) < 4800); // within 100 ms: inexact, as documented
-    CHECK(residual(after, 100 + mp::tests::k_fade_frames, k_rate - 100, lag) < 0.05);
+    // The seek's inexactness bounds the measurement at both ends. The lag may miss by k_seek_slack; and because
+    // the seek is at the track's midpoint, leaving exactly the 1 s being rendered, a seek that lands that much
+    // late leaves that many frames of the render past the track's end. Measuring the whole render left 100
+    // frames of margin against a seek documented as accurate only to 100 ms, and CI found the edge: on
+    // windows-2025-vs2026 Media Foundation landed about one AAC frame (1024) later than it does here, so the
+    // window's last 923 frames were the silence after the track and the residual read 0.143 - which is
+    // sqrt(coding^2 + 923/45400) exactly, the end of the audio rather than a bad join. So measure only what the
+    // seek guarantees. The bound stays where it was: a real misalignment still fails it.
+    constexpr int64_t k_seek_slack = k_rate / 10; // 100 ms
+    {
+        const int64_t from = 100 + mp::tests::k_fade_frames;
+        const int64_t to = k_rate - 100 - k_seek_slack;
+        const int64_t lag = best_lag(after, from, to, 6000, expected_lag);
+        INFO("lag " << lag << " (expected " << expected_lag << "), audio to frame "
+                    << first_silent_frame(after, from, to) << " of " << to);
+        CHECK(std::llabs(lag - expected_lag) < k_seek_slack); // within 100 ms: inexact, as documented
+        CHECK(residual(after, from, to, lag) < 0.05);
+    }
     CHECK(fx.position_ms() == Catch::Approx(2000).margin(150));
 
     // The wrapper ends at the valid count: the track ends exactly when its 96 000 frames are out.
