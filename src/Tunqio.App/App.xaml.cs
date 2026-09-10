@@ -29,7 +29,7 @@ public partial class App : Application
 
     private IHost? _host;
     private Window? _window;
-    private static nint s_mainWindowHandle;
+    private static nint _mainWindowHandle;
 
     public App()
     {
@@ -38,7 +38,7 @@ public partial class App : Application
     }
 
     /// <summary>The main window's HWND for pickers and dialogs that need an owner; zero before the window exists.</summary>
-    public static nint MainWindowHandle => s_mainWindowHandle;
+    public static nint MainWindowHandle => _mainWindowHandle;
 
     /// <summary>The application's service provider, available after <see cref="OnLaunched"/>.</summary>
     public static IServiceProvider Services => ((App)Current)._host?.Services
@@ -114,7 +114,7 @@ public partial class App : Application
             _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRepository>(),
             _host.Services.GetRequiredService<Library.LibraryScanCoordinator>());
         _window = window;
-        s_mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
         _window.Closed += OnWindowClosed;
         if (databaseNotice is not null)

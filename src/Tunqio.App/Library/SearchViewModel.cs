@@ -70,24 +70,24 @@ public sealed partial class SearchViewModel : ObservableObject
     private SearchGroupKind? _expanded;
 
     [ObservableProperty]
-    private string _text = string.Empty;
+    public partial string Text { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private SearchResults? _results;
+    public partial SearchResults? Results { get; set; }
 
     [ObservableProperty]
-    private IReadOnlyList<SearchGroup> _groups = [];
+    public partial IReadOnlyList<SearchGroup> Groups { get; set; } = [];
 
     /// <summary>The box has text: the results replace the page.</summary>
     [ObservableProperty]
-    private bool _isActive;
+    public partial bool IsActive { get; set; }
 
     /// <summary>A query has answered and found nothing.</summary>
     [ObservableProperty]
-    private bool _isEmpty;
+    public partial bool IsEmpty { get; set; }
 
     [ObservableProperty]
-    private bool _isSearching;
+    public partial bool IsSearching { get; set; }
 
     public SearchViewModel(ISearchService search, IPlaybackCommands playback, ILibraryNavigator navigator, AlbumActions albums, IFileRevealer revealer)
         : this(search, playback, navigator, albums, revealer, TimeProvider.System, DefaultDebounce)

@@ -24,7 +24,7 @@ public sealed partial class TracksList : UserControl
     public static readonly DependencyProperty CanSortProperty =
         DependencyProperty.Register(nameof(CanSort), typeof(bool), typeof(TracksList), new PropertyMetadata(true, (d, _) => ((TracksList)d).UpdateHeader()));
 
-    private static readonly IReadOnlyDictionary<TrackColumn, string> Labels = new Dictionary<TrackColumn, string>
+    private static readonly Dictionary<TrackColumn, string> Labels = new()
     {
         [TrackColumn.Number] = "#",
         [TrackColumn.Title] = "Title",

@@ -25,37 +25,37 @@ public sealed partial class AlbumDetailViewModel : ObservableObject
     private readonly IFileRevealer _revealer;
 
     [ObservableProperty]
-    private AlbumDto? _album;
+    public partial AlbumDto? Album { get; set; }
 
     [ObservableProperty]
-    private string _title = string.Empty;
+    public partial string Title { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _artistName = string.Empty;
+    public partial string ArtistName { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private bool _hasArtistLink;
+    public partial bool HasArtistLink { get; set; }
 
     [ObservableProperty]
-    private string _subline = string.Empty;
+    public partial string Subline { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _summary = string.Empty;
+    public partial string Summary { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string? _artHash;
+    public partial string? ArtHash { get; set; }
 
     [ObservableProperty]
-    private IReadOnlyList<AlbumTrackRow> _rows = [];
+    public partial IReadOnlyList<AlbumTrackRow> Rows { get; set; } = [];
 
     [ObservableProperty]
-    private IReadOnlyList<DiscGroup> _discs = [];
+    public partial IReadOnlyList<DiscGroup> Discs { get; set; } = [];
 
     [ObservableProperty]
-    private bool _hasMultipleDiscs;
+    public partial bool HasMultipleDiscs { get; set; }
 
     [ObservableProperty]
-    private bool _notFound;
+    public partial bool NotFound { get; set; }
 
     public AlbumDetailViewModel(IAlbumRepository albums, IPlaybackCommands playback, ILibraryNavigator navigator, IFileRevealer revealer)
     {

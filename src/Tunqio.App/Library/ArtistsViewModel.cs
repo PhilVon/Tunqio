@@ -19,10 +19,10 @@ public sealed partial class ArtistsViewModel : ObservableObject
     private readonly ILibraryNavigator _navigator;
 
     [ObservableProperty]
-    private IncrementalItemsSource<ArtistDto>? _items;
+    public partial IncrementalItemsSource<ArtistDto>? Items { get; set; }
 
     [ObservableProperty]
-    private bool _isEmpty;
+    public partial bool IsEmpty { get; set; }
 
     public ArtistsViewModel(IArtistRepository artists, ILibraryNavigator navigator)
     {
@@ -92,31 +92,31 @@ public sealed partial class ArtistDetailViewModel : ObservableObject
     private readonly AlbumActions _actions;
 
     [ObservableProperty]
-    private ArtistDto? _artist;
+    public partial ArtistDto? Artist { get; set; }
 
     [ObservableProperty]
-    private string _name = string.Empty;
+    public partial string Name { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _summary = string.Empty;
+    public partial string Summary { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string? _artHash;
+    public partial string? ArtHash { get; set; }
 
     [ObservableProperty]
-    private IReadOnlyList<AlbumDto> _albums = [];
+    public partial IReadOnlyList<AlbumDto> Albums { get; set; } = [];
 
     [ObservableProperty]
-    private IReadOnlyList<AlbumDto> _appearsOn = [];
+    public partial IReadOnlyList<AlbumDto> AppearsOn { get; set; } = [];
 
     [ObservableProperty]
-    private bool _hasAlbums;
+    public partial bool HasAlbums { get; set; }
 
     [ObservableProperty]
-    private bool _hasAppearsOn;
+    public partial bool HasAppearsOn { get; set; }
 
     [ObservableProperty]
-    private bool _notFound;
+    public partial bool NotFound { get; set; }
 
     public ArtistDetailViewModel(IArtistRepository artists, ITrackRepository tracks, IPlaybackCommands playback, AlbumActions actions)
     {

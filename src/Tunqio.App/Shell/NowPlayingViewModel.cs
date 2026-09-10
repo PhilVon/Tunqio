@@ -38,7 +38,7 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     private bool _disposed;
 
     [ObservableProperty]
-    private TrackDto? _track;
+    public partial TrackDto? Track { get; set; }
 
     /// <param name="source">Where the session comes from; it may not exist yet, and may never.</param>
     /// <param name="navigator">The sidebar, for the artist and album links. Null leaves them inert.</param>

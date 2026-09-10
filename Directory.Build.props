@@ -26,13 +26,20 @@
     <TargetFramework>$(TunqioTargetFramework)</TargetFramework>
     <TargetPlatformMinVersion>$(TunqioMinOsVersion)</TargetPlatformMinVersion>
     <SupportedOSPlatformVersion>$(TunqioMinOsVersion)</SupportedOSPlatformVersion>
-    <LangVersion>12</LangVersion>
+    <!-- C# 14 for partial properties: [ObservableProperty] on a field generates CsWinRT-incompatible marshalling
+         (MVVMTK0045), and the partial-property form is the toolkit's fix. Partial properties are C# 13, but the
+         implementation CommunityToolkit.Mvvm 8.4.2 generates for them uses the 'field' keyword, which is C# 14;
+         at 13 the generator emits nothing and every property fails with CS9248. Hence the .NET 10 SDK pin. -->
+    <LangVersion>14</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Pinned rather than latest-recommended: the analyser set is a deliberate choice, not a function of
+         whichever SDK is installed. Raising it is its own change (as of .NET 10 it adds CA1873 and CA1859,
+         ~96 findings), not a side effect of a toolchain bump. -->
+    <AnalysisLevel>8.0-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>

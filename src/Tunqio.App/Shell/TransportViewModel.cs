@@ -34,25 +34,25 @@ public sealed partial class TransportViewModel : ObservableObject, IDisposable
     private bool _disposed;
 
     [ObservableProperty]
-    private PlaybackSnapshot _snapshot = PlaybackSnapshot.Idle;
+    public partial PlaybackSnapshot Snapshot { get; set; } = PlaybackSnapshot.Idle;
 
     [ObservableProperty]
-    private double _positionSeconds;
+    public partial double PositionSeconds { get; set; }
 
     [ObservableProperty]
-    private double _durationSeconds;
+    public partial double DurationSeconds { get; set; }
 
     [ObservableProperty]
-    private bool _isScrubbing;
+    public partial bool IsScrubbing { get; set; }
 
     [ObservableProperty]
-    private bool _showRemaining;
+    public partial bool ShowRemaining { get; set; }
 
     [ObservableProperty]
-    private float _volume = 1f;
+    public partial float Volume { get; set; } = 1f;
 
     [ObservableProperty]
-    private bool _isMuted;
+    public partial bool IsMuted { get; set; }
 
     /// <param name="source">Where the session comes from; it may not exist yet, and may never.</param>
     /// <param name="ui">The XAML thread's context. Null runs updates inline, which is what the tests want.</param>

@@ -38,36 +38,41 @@ public sealed partial class AlbumsViewModel : ObservableObject
     private readonly ISettingsStore _settings;
     private bool _ready;
 
-    [ObservableProperty]
-    private IncrementalItemsSource<AlbumDto>? _items;
+    // Set while the constructor seeds state read out of settings. The seed has to go through the property now
+    // that these are partial properties (there is no backing field to assign around the setter), so the change
+    // handlers below use this to avoid writing a value straight back to the store it just came from.
+    private bool _seeding;
 
     [ObservableProperty]
-    private FacetOption _selectedSort = SortOptions[0];
+    public partial IncrementalItemsSource<AlbumDto>? Items { get; set; }
 
     [ObservableProperty]
-    private bool _descending;
+    public partial FacetOption SelectedSort { get; set; } = SortOptions[0];
 
     [ObservableProperty]
-    private IReadOnlyList<FacetOption> _genreOptions = [AllGenres];
+    public partial bool Descending { get; set; }
 
     [ObservableProperty]
-    private IReadOnlyList<FacetOption> _decadeOptions = [AllDecades];
+    public partial IReadOnlyList<FacetOption> GenreOptions { get; set; } = [AllGenres];
 
     [ObservableProperty]
-    private IReadOnlyList<FacetOption> _codecOptions = [AllFormats];
+    public partial IReadOnlyList<FacetOption> DecadeOptions { get; set; } = [AllDecades];
 
     [ObservableProperty]
-    private FacetOption _selectedGenre = AllGenres;
+    public partial IReadOnlyList<FacetOption> CodecOptions { get; set; } = [AllFormats];
 
     [ObservableProperty]
-    private FacetOption _selectedDecade = AllDecades;
+    public partial FacetOption SelectedGenre { get; set; } = AllGenres;
 
     [ObservableProperty]
-    private FacetOption _selectedCodec = AllFormats;
+    public partial FacetOption SelectedDecade { get; set; } = AllDecades;
+
+    [ObservableProperty]
+    public partial FacetOption SelectedCodec { get; set; } = AllFormats;
 
     /// <summary>True when the library has no albums at all (the "add folders" prompt), never for an empty filter result.</summary>
     [ObservableProperty]
-    private bool _isEmpty;
+    public partial bool IsEmpty { get; set; }
 
     public AlbumsViewModel(IAlbumRepository albums, IGenreRepository genres, AlbumActions actions, ISettingsStore settings)
     {
@@ -80,9 +85,11 @@ public sealed partial class AlbumsViewModel : ObservableObject
         _actions = actions;
         _settings = settings;
         string saved = settings.GetValue(SettingsKeys.UiAlbumsSort, SettingsKeys.Defaults.UiAlbumsSort);
-        _selectedSort = SortOptions.FirstOrDefault(o => string.Equals(o.Label, saved, StringComparison.OrdinalIgnoreCase)
+        _seeding = true;
+        SelectedSort = SortOptions.FirstOrDefault(o => string.Equals(o.Label, saved, StringComparison.OrdinalIgnoreCase)
             || string.Equals(((AlbumSort)o.Value!).ToString(), saved, StringComparison.OrdinalIgnoreCase)) ?? SortOptions[0];
-        _descending = OpensDescending((AlbumSort)_selectedSort.Value!);
+        Descending = OpensDescending((AlbumSort)SelectedSort.Value!);
+        _seeding = false;
     }
 
     public AlbumSort Sort => (AlbumSort)SelectedSort.Value!;
@@ -116,6 +123,11 @@ public sealed partial class AlbumsViewModel : ObservableObject
 
     partial void OnSelectedSortChanged(FacetOption value)
     {
+        if (_seeding)
+        {
+            return;
+        }
+
         _settings.SetValue(SettingsKeys.UiAlbumsSort, ((AlbumSort)value.Value!).ToString().ToLowerInvariant());
         bool descending = OpensDescending((AlbumSort)value.Value!);
         if (Descending != descending)
