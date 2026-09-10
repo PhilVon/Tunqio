@@ -75,16 +75,24 @@
     <Content Include="Assets\**\*.png" />
   </ItemGroup>
 
-  <!-- mpcore.dll is built by native/mpcore/mpcore.vcxproj (solution build order); copy it next to the exe. -->
+  <!-- mpcore.dll is built by native/mpcore/mpcore.vcxproj (solution build order); it and the BASS runtime it links
+       (tools/fetch-native.ps1) go next to the exe. The copy is conditional and only warns when the native build is
+       missing: the shell still launches and browses the library, and AudioStartup shows an "audio unavailable"
+       notice instead of failing (E1-S10e). -->
   <PropertyGroup>
     <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
     <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
   </PropertyGroup>
-  <Target Name="TunqioCopyNativeCore" AfterTargets="Build" Condition="Exists('$(TunqioNativeOut)mpcore.dll')">
+  <Target Name="TunqioCopyNativeCore" AfterTargets="Build">
+    <Warning Condition="!Exists('$(TunqioNativeOut)mpcore.dll')"
+             Text="mpcore.dll not found at $(TunqioNativeOut); this build of Tunqio will run without audio. Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
+    <Warning Condition="Exists('$(TunqioNativeOut)mpcore.dll') and !Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
+             Text="native/bass is empty; mpcore.dll will not load. Run tools/fetch-native.ps1 first." />
     <ItemGroup>
-      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" Condition="Exists('$(TunqioNativeOut)mpcore.dll')" />
+      <_TunqioNativeFiles Include="$(TunqioBassRoot)bin\x64\*.dll" />
     </ItemGroup>
-    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="'@(_TunqioNativeFiles)' != ''" />
   </Target>
 
   <!-- Third-party notices and licence texts for the About page: THIRD-PARTY-NOTICES.md plus the BASS texts
@@ -93,10 +101,8 @@
     <ItemGroup>
       <_TunqioLicenseFiles Include="$(TunqioRepoRoot)THIRD-PARTY-NOTICES.md" />
       <_TunqioLicenseFiles Include="$(TunqioBassRoot)licenses\*.txt" />
-      <_TunqioBassDlls Include="$(TunqioBassRoot)bin\x64\*.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_TunqioLicenseFiles)" DestinationFolder="$(OutDir)licenses\" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(_TunqioBassDlls)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="'@(_TunqioBassDlls)' != ''" />
   </Target>
 
 </Project>

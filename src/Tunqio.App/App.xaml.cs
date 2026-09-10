@@ -68,8 +68,9 @@ public partial class App : Application
             {
                 services.AddSingleton<IAppPaths>(paths);
                 services.AddLibrary();
-                // The library views' play/enqueue actions (E3-S8) target the session; until E1-S10 the stand-in logs them.
-                services.AddSingleton<IPlaybackCommands, PendingPlaybackCommands>();
+                // The library views' play/enqueue actions (E3-S8) target the session, which AudioStartup creates
+                // after the first frame; until then AppPlaybackCommands carries the requests.
+                services.AddPlayback();
                 services.AddLibraryViews(SynchronizationContext.Current);
             })
             .Build();
@@ -114,6 +115,7 @@ public partial class App : Application
 
         _window.Activate();
         logger.LogInformation("Main window shown after {ElapsedMs} ms", startup.ElapsedMilliseconds);
+        _ = StartAudioAsync(window, logger);
         _ = StartLibraryWatcherAsync(logger);
 
         if (RenderSpikeRunner.IsRequested(commandLine))
@@ -156,6 +158,26 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Start-up step 3 (docs/solution-structure.md): the engine, the output and the saved queue, all after the first
+    /// frame because loading mpcore and opening a WASAPI device are not worth delaying the window for. Nothing here
+    /// can fail the launch — <see cref="AudioStartup"/> returns a notice instead, and the app runs without audio.
+    /// </summary>
+    private async Task StartAudioAsync(MainWindow window, ILogger<App> logger)
+    {
+        try
+        {
+            if (await _host!.Services.GetRequiredService<AudioStartup>().StartAsync().ConfigureAwait(true) is { } notice)
+            {
+                window.ShowNotice(notice);
+            }
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            logger.LogError(e, "Audio did not start; this session has no playback");
+        }
+    }
+
+    /// <summary>
     /// Live library updates (E3-S6) start once the window is up, and the launch scan (E3-S12) follows after the
     /// coordinator's delay so the UI is interactive first (docs/library-and-data.md, "Scheduling"). Stopping is
     /// part of host disposal.
@@ -182,6 +204,10 @@ public partial class App : Application
 
         try
         {
+            // Shutdown step 1-3: the queue and position are written back, and the device released, before the
+            // library database and the settings file close under them. Container disposal would reach AudioStartup
+            // first anyway, but only because it was created last; saying it here does not leave that to luck.
+            _host.Services.GetRequiredService<AudioStartup>().Dispose();
             _host.Services.GetRequiredService<ISettingsStore>().Flush();
             _host.Services.GetRequiredService<ILogger<App>>().LogInformation("Session {SessionId} ending", SessionId);
         }

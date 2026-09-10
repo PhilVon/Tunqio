@@ -27,6 +27,15 @@ internal sealed class FakeAudioEngine : IAudioEngine
     /// <summary>Paths that fail to open, so the session's skip-past-unplayable path can be exercised.</summary>
     public HashSet<string> Unopenable { get; } = [];
 
+    /// <summary>What <see cref="EnumerateDevices"/> reports; empty is a machine the engine sees no outputs on.</summary>
+    public List<OutputDevice> Devices { get; } = [];
+
+    /// <summary>Device indices <see cref="InitializeAsync"/> refuses, so the host's output fallbacks can be exercised.</summary>
+    public HashSet<int> UnopenableDevices { get; } = [];
+
+    /// <summary>The exception a refused device throws; the host only falls back for the ones the interop raises.</summary>
+    public Exception? RefuseOutput { get; set; }
+
     public TimeSpan Duration { get; set; } = TimeSpan.FromMinutes(3);
 
     public EngineStats Stats { get; } = new(0, 0, TimeSpan.Zero, 48000, 2, TimeSpan.Zero, false, true, "48000/2/32");
@@ -45,7 +54,12 @@ internal sealed class FakeAudioEngine : IAudioEngine
 
     public Task InitializeAsync(OutputConfig config, CancellationToken ct = default)
     {
-        Calls.Add("init");
+        Calls.Add("init:" + config.DeviceIndex + ":" + (config.Mode == OutputMode.Exclusive ? "exclusive" : "shared") + ":" + config.BufferMs);
+        if (UnopenableDevices.Contains(config.DeviceIndex))
+        {
+            throw RefuseOutput ?? new InvalidOperationException("device " + config.DeviceIndex + " will not open");
+        }
+
         return Task.CompletedTask;
     }
 
@@ -117,7 +131,7 @@ internal sealed class FakeAudioEngine : IAudioEngine
 
     public Task StopPreviewAsync() => throw new NotSupportedException();
 
-    public IReadOnlyList<OutputDevice> EnumerateDevices() => [];
+    public IReadOnlyList<OutputDevice> EnumerateDevices() => Devices;
 
     public ValueTask DisposeAsync()
     {

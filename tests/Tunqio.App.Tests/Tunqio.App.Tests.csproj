@@ -25,4 +25,14 @@
     <ProjectReference Include="..\..\src\Tunqio.App\Tunqio.App.csproj" />
   </ItemGroup>
 
+  <!-- AC-186 drives a real PlaybackSession from a view model, so it needs the fake engine, play history and queue
+       store the session's own tests use. Linked rather than copied: they are internal to Tunqio.Core.Tests, and a
+       second copy is a second thing to keep true. FakeLibrary.cs is deliberately not linked: its track repository
+       and settings store would collide with this project's own (Fakes.cs), which serve the same purpose here. -->
+  <ItemGroup>
+    <Compile Include="..\Tunqio.Core.Tests\Playback\FakeAudioEngine.cs" LinkBase="Playback" />
+    <Compile Include="..\Tunqio.Core.Tests\Playback\FakePlayHistory.cs" LinkBase="Playback" />
+    <Compile Include="..\Tunqio.Core.Tests\Playback\FakeQueueStore.cs" LinkBase="Playback" />
+  </ItemGroup>
+
 </Project>
