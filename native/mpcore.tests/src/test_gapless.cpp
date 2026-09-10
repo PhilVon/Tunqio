@@ -449,10 +449,8 @@ TEST_CASE("PROBE: where an MF seek lands on the machine running this suite", "[g
     }
 
     g_probe_log.clear();
-    REQUIRE(mp_log_set_sink(
-                [](mp_log_level, const char* message, void*) { g_probe_log.emplace_back(message); },
-                nullptr,
-                MP_LOG_DEBUG) == MP_OK);
+    REQUIRE(mp_log_set_sink([](mp_log_level, const char* message, void*) { g_probe_log.emplace_back(message); },
+                            nullptr, MP_LOG_DEBUG) == MP_OK);
 
     offline_engine fx;
     mp_track* a = fx.open(utf8(track_file(root / "m4a", "a")));
