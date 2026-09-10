@@ -101,6 +101,22 @@ public interface ILibraryFolderRepository
     Task RecordScanAsync(long id, long scannedAt, string status, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Play history (E3-S11, docs/library-and-data.md, "Play history rules"): the write side of the counts that
+/// "Recently played" and "Most played" (E3-S8) sort by. <c>PlaybackSession</c> (E1-S10) is the only caller.
+/// </summary>
+public interface IPlayHistoryRepository
+{
+    /// <summary>
+    /// Records <paramref name="playEvent"/>, and for a completed one bumps the track's <c>play_count</c> and sets
+    /// its <c>last_played_at</c> to the listen's start — in the same transaction, so a count never exists without
+    /// the event that justifies it. Returns false, having written nothing, when the track is no longer in the
+    /// library: a purge can land between the listen and the record, and losing one play beats throwing at the end
+    /// of a track.
+    /// </summary>
+    Task<bool> RecordAsync(PlayEvent playEvent, CancellationToken ct = default);
+}
+
 /// <summary>The library layer's front door (docs/solution-structure.md).</summary>
 public interface ILibraryService
 {
@@ -116,6 +132,9 @@ public interface ILibraryService
 
     /// <summary>As-you-type search over the FTS index the track repository maintains (E3-S9).</summary>
     ISearchService Search { get; }
+
+    /// <summary>Play events and the counts they feed (E3-S11).</summary>
+    IPlayHistoryRepository PlayHistory { get; }
 
     ILibraryScanner Scanner { get; }
 

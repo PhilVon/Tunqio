@@ -34,6 +34,7 @@ public sealed class LibraryService : ILibraryService
         Genres = new SqliteGenreRepository(db);
         Folders = folders;
         Search = new SqliteSearchService(db);
+        PlayHistory = new SqlitePlayHistoryRepository(db);
         Scanner = new LibraryScanner(
             tracks,
             folders,
@@ -56,6 +57,8 @@ public sealed class LibraryService : ILibraryService
     public ILibraryFolderRepository Folders { get; }
 
     public ISearchService Search { get; }
+
+    public IPlayHistoryRepository PlayHistory { get; }
 
     public ILibraryScanner Scanner { get; }
 

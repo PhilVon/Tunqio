@@ -157,12 +157,12 @@ Device enumeration, output init at the device's native rate (both modes, not onl
 - [x] Tap adds < 0.2 ms to the DSP callback at 48 kHz stereo (benchmark) (measured 0.0008 ms per 480-frame callback, and `rt_guard` proves it allocates nothing)
 
 ### E1-S9 · PlayQueue model · **M** · `core`
-Immutable `PlayQueue` per library-and-data.md.
-- [ ] Shuffle on then off restores original order with the current track in place
-- [ ] Repeat One: natural end replays; manual Next advances
-- [ ] Repeat All: end of queue wraps; Off: stops
-- [ ] Same track twice in the queue behaves as two items
-- [ ] 100% branch coverage on `PlayQueue`
+Immutable `PlayQueue` per library-and-data.md. Shuffle is a second ordering rather than a rearrangement: the queue keeps the order items were added in behind the play order, and shuffling only ever touches what is still ahead, so Previous walks back through what was actually heard. A `Move` made while shuffled reorders the play order alone, because the added order is what unshuffling restores.
+- [x] Shuffle on then off restores original order with the current track in place (and shuffle survives a `PlayNow`, which is why it takes an rng of its own: a user who shuffled and then picked an album expects that album shuffled)
+- [x] Repeat One: natural end replays; manual Next advances — `Advance(manual)` is the only place the queue needs to know *why* the track ended
+- [x] Repeat All: end of queue wraps; Off: stops (leaving the queue loaded with nothing current, so the session decides what happens next). Previous wraps at the front under the same rule.
+- [x] Same track twice in the queue behaves as two items (`QueueItem.InstanceId`; an index would shift under every mutation and a track id would name both copies)
+- [x] 100% branch coverage on `PlayQueue` (coverlet: line-rate 1, branch-rate 1)
 
 ### E1-S10 · PlaybackSession · **L** · `core`
 Depends on: E1-S1, E1-S3, E1-S9. C# single owner of state; drives `IAudioEngine`; snapshots at 10 Hz; queue persistence; history events.
@@ -282,8 +282,12 @@ Single and batch tag editing, temp-write-verify-replace, undo stack, active-trac
 - [ ] Batch edit of 12 tracks shows progress and can be undone in the session (flow 8)
 
 ### E3-S11 · Play history and counts · **S** · `library`
-Record events from `PlaybackSession`, update counts, Recently/Most played views.
-- [ ] Skipping a track after 10 s does not increment play count; listening past half does
+`PlayCompletion` in Core decides the verdict and `SqlitePlayHistoryRepository` stores it; `PlaybackSession` (E1-S10) is the caller. The Recently/Most played views are E3-S8's and already read the columns this story writes.
+- [x] Skipping a track after 10 s does not increment play count; listening past half does
+- [x] A completed play writes the `play_event` row and bumps `track.play_count`/`last_played_at` in one transaction; an incomplete play writes the event only. `last_played_at` takes the listen's *start*, and never moves backwards for a record that arrives out of order
+- [x] The 4-minute cap completes a long track before its half is heard (the Last.fm rule, so 1.1 scrobbling can send these events rather than re-decide them). A track of unknown length falls back to the cap alone, because without a length there is no half to be past
+- [x] Recording a play for a track purged from the library is dropped rather than throwing on the foreign key — one lost play is cheaper than throwing at the end of a track
+- [x] Recently played and Most played (E3-S8) reflect a recorded completed play
 
 ### E3-S12 · Library settings page · **S** · `ui` `library`
 Folders CRUD, scan status, split artists, purge missing, rebuild index, import/export playlists.
