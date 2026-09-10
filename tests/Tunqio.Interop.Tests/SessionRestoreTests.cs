@@ -44,7 +44,7 @@ public class SessionRestoreTests
     }
 
     [Fact]
-    public async Task The_queue_and_the_position_survive_a_restart_against_the_real_engine()
+    public async Task The_queue_and_the_position_survive_a_restart_against_the_real_engine_Async()
     {
         var tracks = new StubTracks { [1] = Fixture("a"), [2] = Fixture("b") };
         var queues = new StubQueueStore();

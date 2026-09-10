@@ -24,7 +24,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task Start_watches_every_enabled_folder_and_refresh_follows_the_folder_list()
+    public async Task Start_watches_every_enabled_folder_and_refresh_follows_the_folder_list_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync(initialScan: false);
         string other = w.Scan.Root + "-other";
@@ -66,7 +66,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task A_folder_whose_root_is_away_gets_no_watch_until_it_is_back()
+    public async Task A_folder_whose_root_is_away_gets_no_watch_until_it_is_back_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync(initialScan: false);
         string away = w.Scan.Root + "-away";
@@ -87,7 +87,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task Events_on_one_path_coalesce_into_one_targeted_scan_after_the_debounce()
+    public async Task Events_on_one_path_coalesce_into_one_targeted_scan_after_the_debounce_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();
@@ -108,7 +108,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task A_rename_scans_the_old_path_and_the_new_one()
+    public async Task A_rename_scans_the_old_path_and_the_new_one_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();
@@ -126,7 +126,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task Only_supported_files_gone_paths_and_new_directories_are_taken()
+    public async Task Only_supported_files_gone_paths_and_new_directories_are_taken_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();
@@ -154,7 +154,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task An_overflow_drops_the_pending_paths_and_rescans_the_whole_folder()
+    public async Task An_overflow_drops_the_pending_paths_and_rescans_the_whole_folder_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();
@@ -175,7 +175,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task Too_many_pending_paths_collapse_into_a_folder_rescan()
+    public async Task Too_many_pending_paths_collapse_into_a_folder_rescan_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync(maxPendingPaths: 3);
         await w.Watcher.StartAsync();
@@ -194,7 +194,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task Work_waits_while_another_scan_is_running_and_nothing_is_dropped()
+    public async Task Work_waits_while_another_scan_is_running_and_nothing_is_dropped_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();
@@ -224,7 +224,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task A_scan_that_throws_is_counted_and_the_watcher_keeps_going()
+    public async Task A_scan_that_throws_is_counted_and_the_watcher_keeps_going_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();
@@ -245,7 +245,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task A_scan_refused_because_one_just_started_is_retried()
+    public async Task A_scan_refused_because_one_just_started_is_retried_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();
@@ -261,7 +261,7 @@ public class LibraryWatcherTests
     }
 
     [Fact]
-    public async Task Stop_drops_pending_work_and_disposes_the_watches()
+    public async Task Stop_drops_pending_work_and_disposes_the_watches_Async()
     {
         using WatchHarness w = await WatchHarness.CreateAsync();
         await w.Watcher.StartAsync();

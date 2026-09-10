@@ -60,7 +60,7 @@ public class ReplayGainTests
     }
 
     [Fact]
-    public async Task A_track_set_to_minus_6_dB_is_heard_6_dB_quieter()
+    public async Task A_track_set_to_minus_6_dB_is_heard_6_dB_quieter_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         string path = WavFixture.WriteSine("replaygain-6db", seconds: 1.5, amplitude: 0.1);
@@ -74,7 +74,7 @@ public class ReplayGainTests
     }
 
     [Fact]
-    public async Task A_gain_that_would_clip_is_held_at_full_scale()
+    public async Task A_gain_that_would_clip_is_held_at_full_scale_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         string path = WavFixture.WriteSine("replaygain-peak", seconds: 1.5, amplitude: 0.5);
@@ -90,7 +90,7 @@ public class ReplayGainTests
     }
 
     [Fact]
-    public async Task The_next_tracks_gain_is_in_force_from_the_first_frame_after_the_join()
+    public async Task The_next_tracks_gain_is_in_force_from_the_first_frame_after_the_join_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         TrackHandle a = await engine.OpenAsync(WavFixture.WriteSine("replaygain-join-a", seconds: 1.0, frequencyHz: 10, amplitude: 0.5));
@@ -115,7 +115,7 @@ public class ReplayGainTests
     }
 
     [Fact]
-    public async Task A_closed_or_foreign_handle_is_rejected()
+    public async Task A_closed_or_foreign_handle_is_rejected_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         TrackHandle track = await engine.OpenAsync(WavFixture.WriteSine("replaygain-closed"));

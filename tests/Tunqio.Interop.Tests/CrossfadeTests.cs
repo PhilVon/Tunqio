@@ -82,7 +82,7 @@ public class CrossfadeTests
     }
 
     [Fact]
-    public async Task A_5_s_crossfade_overlaps_two_tracks_with_the_level_held_within_3_dB()
+    public async Task A_5_s_crossfade_overlaps_two_tracks_with_the_level_held_within_3_dB_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         using var log = new EventLog(engine);
@@ -123,7 +123,7 @@ public class CrossfadeTests
     }
 
     [Fact]
-    public async Task A_gapless_join_ignores_the_crossfade_setting()
+    public async Task A_gapless_join_ignores_the_crossfade_setting_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         using var log = new EventLog(engine);
@@ -149,7 +149,7 @@ public class CrossfadeTests
     }
 
     [Fact]
-    public async Task The_crossfade_setting_is_clamped_not_refused()
+    public async Task The_crossfade_setting_is_clamped_not_refused_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         FluentActions.Invoking(() => engine.SetCrossfade(TimeSpan.FromMinutes(1))).Should().NotThrow();

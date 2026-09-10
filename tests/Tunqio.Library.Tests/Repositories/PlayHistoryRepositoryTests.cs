@@ -35,7 +35,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     private IPlayHistoryRepository History => _seed.Service.PlayHistory;
 
     [Fact]
-    public async Task Skipping_a_track_records_the_listen_without_counting_it_as_a_play()
+    public async Task Skipping_a_track_records_the_listen_without_counting_it_as_a_play_Async()
     {
         bool recorded = await History.RecordAsync(PlayEvent.For(_trackId, Started, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(3)));
 
@@ -48,7 +48,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Listening_past_half_counts_as_a_play_and_moves_the_counts()
+    public async Task Listening_past_half_counts_as_a_play_and_moves_the_counts_Async()
     {
         await History.RecordAsync(PlayEvent.For(_trackId, Started, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(3)));
 
@@ -60,7 +60,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Each_completed_listen_counts_once_and_the_latest_start_wins()
+    public async Task Each_completed_listen_counts_once_and_the_latest_start_wins_Async()
     {
         await History.RecordAsync(PlayEvent.For(_trackId, Started, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(3)));
         await History.RecordAsync(PlayEvent.For(_trackId, Started + 600_000, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(3)));
@@ -72,7 +72,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_listen_recorded_out_of_order_does_not_drag_the_last_played_time_backwards()
+    public async Task A_listen_recorded_out_of_order_does_not_drag_the_last_played_time_backwards_Async()
     {
         await History.RecordAsync(PlayEvent.For(_trackId, Started, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(3)));
         await History.RecordAsync(PlayEvent.For(_trackId, Started - 600_000, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(3)));
@@ -83,7 +83,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_play_for_a_track_that_is_no_longer_in_the_library_is_dropped()
+    public async Task A_play_for_a_track_that_is_no_longer_in_the_library_is_dropped_Async()
     {
         long gone = await MaxTrackIdAsync() + 1;
 
@@ -94,7 +94,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Recently_played_and_Most_played_pick_the_track_up()
+    public async Task Recently_played_and_Most_played_pick_the_track_up_Async()
     {
         TrackDto other = (await _seed.Tracks.ListAsync(new TrackQuery(PageSize: 2)))[1];
 
@@ -113,7 +113,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_real_track_duration_decides_the_verdict()
+    public async Task A_real_track_duration_decides_the_verdict_Async()
     {
         _duration.Should().BeGreaterThan(TimeSpan.Zero, "the fixture tracks carry a measured length");
 
@@ -123,7 +123,7 @@ public sealed class PlayHistoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_repository_needs_a_database_and_an_event()
+    public async Task A_repository_needs_a_database_and_an_event_Async()
     {
         FluentActions.Invoking(() => new SqlitePlayHistoryRepository(null!)).Should().Throw<ArgumentNullException>();
         await FluentActions.Awaiting(() => History.RecordAsync(null!)).Should().ThrowAsync<ArgumentNullException>();

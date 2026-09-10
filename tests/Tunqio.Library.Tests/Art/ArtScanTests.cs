@@ -27,7 +27,7 @@ public sealed class ArtScanTests : IDisposable
     }
 
     [Fact]
-    public async Task Folder_only_albums_and_embedded_albums_both_end_up_with_art()
+    public async Task Folder_only_albums_and_embedded_albums_both_end_up_with_art_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync(artCache: _cache);
         FixtureManifest manifest = ScanHarness.Manifest();
@@ -70,7 +70,7 @@ public sealed class ArtScanTests : IDisposable
     }
 
     [Fact]
-    public async Task The_front_cover_is_preferred_over_other_embedded_pictures()
+    public async Task The_front_cover_is_preferred_over_other_embedded_pictures_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync(artCache: _cache);
         FixtureManifest manifest = ScanHarness.Manifest();

@@ -7,7 +7,7 @@ namespace Tunqio.Library.Tests.Repositories;
 public class StringPoolTests
 {
     [Fact]
-    public async Task Rows_from_different_pages_share_album_codec_and_artist_instances()
+    public async Task Rows_from_different_pages_share_album_codec_and_artist_instances_Async()
     {
         using LibrarySeed seed = await LibrarySeed.CreateAsync();
         var query = new TrackQuery(TrackSort.Album, PageSize: 3);
@@ -24,7 +24,7 @@ public class StringPoolTests
     }
 
     [Fact]
-    public async Task A_renamed_artist_gets_a_fresh_credit()
+    public async Task A_renamed_artist_gets_a_fresh_credit_Async()
     {
         using LibrarySeed seed = await LibrarySeed.CreateAsync();
         TrackDto before = (await seed.Tracks.ListAsync(new TrackQuery(PageSize: 1)))[0];

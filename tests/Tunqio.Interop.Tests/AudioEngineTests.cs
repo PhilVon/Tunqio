@@ -45,7 +45,7 @@ public class AudioEngineTests
     }
 
     [Fact]
-    public async Task Plays_pauses_seeks_and_stops_headless_with_a_clock_that_follows()
+    public async Task Plays_pauses_seeks_and_stops_headless_with_a_clock_that_follows_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         TrackHandle track = await engine.OpenAsync(WavFixture.WriteSine("audio-engine", seconds: 3.0));
@@ -78,7 +78,7 @@ public class AudioEngineTests
     }
 
     [Fact]
-    public async Task Events_carry_the_track_id_and_the_natural_end_is_reported()
+    public async Task Events_carry_the_track_id_and_the_natural_end_is_reported_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         var received = new List<EngineEvent>();
@@ -102,7 +102,7 @@ public class AudioEngineTests
     }
 
     [Fact]
-    public async Task A_track_from_elsewhere_and_calls_after_dispose_are_rejected()
+    public async Task A_track_from_elsewhere_and_calls_after_dispose_are_rejected_Async()
     {
         NativeAudioEngine engine = await CreateHeadlessAsync();
         var foreign = new TrackHandle(12345, new TrackInfo(TimeSpan.Zero, Rate, 2, 16, "wav", 0));
@@ -117,7 +117,7 @@ public class AudioEngineTests
     }
 
     [Fact]
-    public async Task Volume_is_applied_at_the_output()
+    public async Task Volume_is_applied_at_the_output_Async()
     {
         await using NativeAudioEngine engine = await CreateHeadlessAsync();
         TrackHandle track = await engine.OpenAsync(WavFixture.WriteSine("audio-engine-volume", seconds: 2.0));

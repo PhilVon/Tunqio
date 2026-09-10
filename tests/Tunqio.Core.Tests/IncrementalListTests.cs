@@ -43,7 +43,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task Pages_are_appended_in_order_and_a_short_page_ends_the_list()
+    public async Task Pages_are_appended_in_order_and_a_short_page_ends_the_list_Async()
     {
         var loader = new FakeLoader(450, 200);
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
@@ -64,7 +64,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task An_exact_multiple_of_the_page_size_needs_one_empty_page_to_finish()
+    public async Task An_exact_multiple_of_the_page_size_needs_one_empty_page_to_finish_Async()
     {
         var loader = new FakeLoader(400, 200);
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
@@ -78,7 +78,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task The_take_cap_trims_the_last_page_and_ends_the_list()
+    public async Task The_take_cap_trims_the_last_page_and_ends_the_list_Async()
     {
         var loader = new FakeLoader(10_000, 200);
         var list = new IncrementalList<int>(loader.LoadAsync, 200, take: 500);
@@ -92,7 +92,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task A_second_call_while_a_page_loads_waits_and_adds_nothing_of_its_own()
+    public async Task A_second_call_while_a_page_loads_waits_and_adds_nothing_of_its_own_Async()
     {
         var loader = new FakeLoader(450, 200) { Gate = new TaskCompletionSource() };
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
@@ -110,7 +110,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task Reset_discards_a_page_that_was_still_loading()
+    public async Task Reset_discards_a_page_that_was_still_loading_Async()
     {
         var loader = new FakeLoader(450, 200) { Gate = new TaskCompletionSource() };
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
@@ -133,7 +133,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task A_failed_load_propagates_and_leaves_the_list_loadable()
+    public async Task A_failed_load_propagates_and_leaves_the_list_loadable_Async()
     {
         var loader = new FakeLoader(450, 200) { Throw = new InvalidOperationException("database locked") };
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
@@ -149,7 +149,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task Cancellation_propagates_and_leaves_the_list_loadable()
+    public async Task Cancellation_propagates_and_leaves_the_list_loadable_Async()
     {
         var loader = new FakeLoader(450, 200) { Gate = new TaskCompletionSource() };
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
@@ -176,7 +176,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task A_load_never_completes_synchronously_even_when_the_loader_does()
+    public async Task A_load_never_completes_synchronously_even_when_the_loader_does_Async()
     {
         // Microsoft.Data.Sqlite completes inline; a page landing inside a ListView measure pass re-enters it.
         int callerThread = Environment.CurrentManagedThreadId;
@@ -197,7 +197,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task A_request_made_while_a_page_is_being_appended_waits_for_that_page()
+    public async Task A_request_made_while_a_page_is_being_appended_waits_for_that_page_Async()
     {
         // The ListView reacts to every Add; if it asks for more mid-page it must not start a second load.
         var loader = new FakeLoader(450, 200);
@@ -212,7 +212,7 @@ public class IncrementalListTests
     }
 
     [Fact]
-    public async Task State_changes_are_announced()
+    public async Task State_changes_are_announced_Async()
     {
         var loader = new FakeLoader(50, 200);
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
