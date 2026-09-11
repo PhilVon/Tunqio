@@ -66,10 +66,22 @@ TEST_CASE("renderer rejects bad arguments", "[render][abi]") {
 TEST_CASE("headless WARP renderer produces frames", "[render]") {
     renderer_fixture fx{true};
     std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+    // Stop the loop before reading the counters, because the last assertion in here is about two of them
+    // agreeing. get_stats samples frames_ and the histogram as separate loads, and the render thread counts a
+    // frame before it buckets that frame's interval, so one landing between the two samples leaves the
+    // histogram exactly one ahead - 1 run in 25, seen as 1810 == 1809 (T-119). That is a true fact about
+    // sampling a running thread, not a defect in either counter, so the fix is to ask when the answer is
+    // stable rather than to weaken the question: paused, every frame has been counted and every interval
+    // bucketed. The test above proves set_visible(0) really does stop the loop rather than slow it.
+    REQUIRE(mp_renderer_set_visible(fx.renderer, 0) == MP_OK);
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+
     const mp_render_stats s = fx.stats();
     CHECK(s.frames > 5);
     CHECK(s.warp == 1);
     CHECK(s.headless == 1);
+    CHECK(s.visible == 0); // the pause above, and the reason the two counters below can be compared at all
     CHECK(s.device_lost == 0);
     CHECK(s.width == 640);
     CHECK(s.height == 360);
@@ -78,7 +90,7 @@ TEST_CASE("headless WARP renderer produces frames", "[render]") {
     for (uint32_t b : s.frame_ms_histogram) {
         counted += b;
     }
-    CHECK(counted == s.frames - 1); // every frame-to-frame interval is bucketed
+    CHECK(counted == s.frames - 1); // every frame-to-frame interval is bucketed: n frames, n-1 gaps
 }
 
 TEST_CASE("renderer survives a storm of 100 rapid resizes", "[render][stress]") {
