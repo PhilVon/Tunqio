@@ -46,6 +46,19 @@ jobs:
         shell: pwsh
         run: ./tools/fetch-native.ps1
 
+      # ffprobe is not incidental to the tag-writer tests, it is the assertion: E3-S10's AC-105 claims the tags
+      # are "readable by another tagger", and a reader that shares no code with TagLibSharp is the only thing
+      # that can say so. The runner image has no ffmpeg, so without this the check would skip on the one
+      # machine everybody reads the result from. It also restores FixtureLibraryTests.Generation_is_deterministic
+      # to the full 60-file fixture set: without an encoder it only compares the 8 natively written ones.
+      - name: Install ffmpeg (the independent tagger for the tag-writer tests)
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress -y
+          $env:PATH = "$env:PATH;C:\ProgramData\chocolatey\bin"
+          ffprobe -version | Select-Object -First 1
+          ffmpeg -version | Select-Object -First 1
+
       - name: Native format check (clang-format)
         shell: pwsh
         run: ./tools/check-format.ps1
@@ -82,6 +95,12 @@ jobs:
 
       - name: Managed tests
         shell: pwsh
+        env:
+          # The ffmpeg tests skip themselves when the tools are missing, so a developer without them is not
+          # blocked by three reds they cannot act on. Here that convenience would be a liability: a broken
+          # install step above would read as a green run with AC-105 silently unchecked. Setting this turns the
+          # skip back into a failure, the same way PerfGate fails a benchmark run that gated nothing.
+          TUNQIO_REQUIRE_FFMPEG: '1'
         run: |
           $failed = 0
           foreach ($proj in Get-ChildItem tests -Recurse -Filter *.Tests.csproj) {

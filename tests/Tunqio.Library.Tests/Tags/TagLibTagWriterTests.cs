@@ -32,7 +32,7 @@ public class TagLibTagWriterTests : IDisposable
 
     // ---- AC-105 -----------------------------------------------------------------------------------------------
 
-    [Theory]
+    [FfmpegTheory]
     [InlineData("flac")]
     [InlineData("mp3")]
     public async Task An_edited_file_reads_back_through_ffprobe_and_still_decodes_Async(string format)
@@ -97,7 +97,7 @@ public class TagLibTagWriterTests : IDisposable
         scanned.Track.DurationMs.Should().BeGreaterThan(0, "the audio properties must still parse");
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task Clearing_a_field_writes_an_absent_tag_rather_than_an_empty_one_Async()
     {
         string path = Copy(Flac);
