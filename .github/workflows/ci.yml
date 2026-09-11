@@ -95,8 +95,17 @@ jobs:
       # p95 (E3-S9), the library open (E3-S1) and the upsert batch and first Tracks page (E3-S2, E3-S3) all
       # gate here; their xunit companions keep the correctness assertions and a loose bound. Generates its own
       # copy of the 100k database when tests/fixtures/library-100k.db is absent, which on CI it is.
+      #
+      # The budgets in the source are the claims made to users, measured on the reference machine. This runner
+      # is not it and does not hold still: the same UpsertBatchAsync on identical code came back with medians of
+      # 50.5, 63.7 and 173.8 ms across three runs, a 3.4x spread that is the disk rather than the code
+      # (docs/spikes/wal-checkpoint-during-scan.md). TUNQIO_PERF_SLACK multiplies the budgets here rather than
+      # weakening them in the source for everyone; the gate prints both numbers, so a p95 creeping past the real
+      # budget is still readable off a green run.
       - name: Gated benchmarks (performance budgets on the 100k database)
         shell: pwsh
+        env:
+          TUNQIO_PERF_SLACK: '4'
         run: dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks --no-build -- --gate --filter '*SearchBenchmarks*' '*LibraryOpenBenchmarks*' '*UpsertBenchmarks*'
 
       - name: Package MSIX (unsigned; signing lands with E8-S1)

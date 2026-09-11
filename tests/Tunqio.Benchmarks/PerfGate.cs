@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using BenchmarkDotNet.Mathematics;
 using BenchmarkDotNet.Reports;
@@ -22,15 +23,45 @@ public sealed class BudgetAttribute : Attribute
 /// Turns the <see cref="BudgetAttribute"/>s of a run into a pass or fail, so <c>--gate</c> can be a PR step
 /// (docs/build-test-release.md, "Continuous integration", step 7). A run that gated nothing fails too: a
 /// mistyped <c>--filter</c> must not read as a green gate.
+/// <para>
+/// <c>TUNQIO_PERF_SLACK</c> multiplies every budget for a machine that is not the reference machine. A budget
+/// in the source is the claim made to users, measured on the dev machine; a shared CI runner is not that
+/// machine and does not hold still. The same <c>UpsertBenchmarks.UpsertBatchAsync</c> on identical code came
+/// back with medians of 50.5, 63.7 and 173.8 ms across three <c>windows-2025-vs2026</c> runs — a 3.4× spread
+/// that is the disk, not the code (docs/spikes/wal-checkpoint-during-scan.md). Widening the number in the
+/// source to survive that would quietly weaken the claim everywhere; the slack lives where the weaker machine
+/// is instead, set only by ci.yml, and both numbers are printed so a run creeping towards the real budget is
+/// still visible.
+/// </para>
 /// </summary>
 internal static class PerfGate
 {
+    /// <summary>Set by ci.yml. Absent everywhere else, so a local <c>--gate</c> checks the real budgets.</summary>
+    private const string SlackVariable = "TUNQIO_PERF_SLACK";
+
+    /// <summary>
+    /// Above this a slack is not slack, it is a gate that cannot fail — far likelier a typo (40 for 4) than an
+    /// intent, and a typo that would read as green forever.
+    /// </summary>
+    private const double MaxSlack = 10;
+
     public static int Check(IEnumerable<Summary> summaries, TextWriter log)
     {
         int gated = 0;
         int over = 0;
         log.WriteLine();
         log.WriteLine("Performance gate");
+
+        if (!TryReadSlack(out double slack, out string? slackError))
+        {
+            log.WriteLine($"  FAIL {slackError}");
+            return 1;
+        }
+
+        if (slack != 1)
+        {
+            log.WriteLine($"  budgets ×{slack:0.##} ({SlackVariable}): this is not the reference machine");
+        }
 
         foreach (Summary summary in summaries)
         {
@@ -53,10 +84,17 @@ internal static class PerfGate
                 }
 
                 double p95 = Milliseconds(statistics.Percentiles.P95);
-                bool inside = p95 < budget.P95Milliseconds;
+                double effective = budget.P95Milliseconds * slack;
+                bool inside = p95 < effective;
                 over += inside ? 0 : 1;
+
+                // The claim's own number is always the one named; the slackened one only when it is in force,
+                // so a p95 that has crept past the real budget can be read off a green CI run.
+                string against = slack == 1
+                    ? $"a budget of {budget.P95Milliseconds:F0} ms"
+                    : $"{effective:F0} ms (a budget of {budget.P95Milliseconds:F0} ms ×{slack:0.##})";
                 log.WriteLine(
-                    $"  {(inside ? "ok  " : "OVER")} {name}: p95 {p95:F1} ms against a budget of {budget.P95Milliseconds:F0} ms " +
+                    $"  {(inside ? "ok  " : "OVER")} {name}: p95 {p95:F1} ms against {against} " +
                     $"(median {Milliseconds(statistics.Median):F1} ms, max {Milliseconds(statistics.Max):F1} ms, n = {statistics.N})");
             }
         }
@@ -69,6 +107,43 @@ internal static class PerfGate
 
         log.WriteLine($"  {gated} gated, {over} over budget");
         return over == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The multiplier from <c>TUNQIO_PERF_SLACK</c>, or 1 when it is not set. Anything else set there is a
+    /// failure rather than a fallback to 1: a gate that quietly ignored a value it could not read would be a
+    /// gate nobody could trust, and the ways of getting this wrong all read as green.
+    /// </summary>
+    private static bool TryReadSlack(out double slack, out string? error)
+    {
+        slack = 1;
+        error = null;
+        string? raw = Environment.GetEnvironmentVariable(SlackVariable);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return true;
+        }
+
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+        {
+            error = $"{SlackVariable} is '{raw}', which is not a number";
+            return false;
+        }
+
+        if (!double.IsFinite(parsed) || parsed <= 0)
+        {
+            error = $"{SlackVariable} is {parsed}, which is not a positive multiplier";
+            return false;
+        }
+
+        if (parsed > MaxSlack)
+        {
+            error = $"{SlackVariable} is {parsed}, above the {MaxSlack:F0}× ceiling: a budget that loose gates nothing";
+            return false;
+        }
+
+        slack = parsed;
+        return true;
     }
 
     /// <summary>The method and its parameters; <c>DisplayInfo</c> would carry the whole job description too.</summary>

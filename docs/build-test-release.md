@@ -49,7 +49,7 @@ Coverage target: 80% line coverage on `mpcore` (via `OpenCppCoverage`), Core, In
 | Feature extraction < 4 ms per hop | Catch2 benchmark (`BENCHMARK`) with threshold | PR gate (20% slack on CI hardware) |
 | Interop call overhead < 5 µs for clock and frame reads | BenchmarkDotNet | PR gate |
 | Search < 50 ms p95 on 100k | BenchmarkDotNet against `library-100k.db` | PR gate |
-| Library open < 500 ms | Stopwatch in `Library.Tests` | PR gate |
+| Library open < 100 ms | BenchmarkDotNet against `library-100k.db` | PR gate |
 | Scan 10k files < 90 s | `FixtureGen` + timed scan | Nightly |
 | 60 fps at 1080p on iGPU | `mp_render_stats` during UI smoke; `LatencyHarness` frame-time distribution | Nightly on reference machine |
 | Visual latency p95 ≤ 1 refresh | `tools/LatencyHarness` (ADR-012) | Nightly on reference machine |
@@ -74,6 +74,18 @@ it keeps the outliers, because discarding them would discard the claim; and it e
 `[Budget]` is missed. A timing assertion that stays in `dotnet test` holds the claim's budget against a
 statistic contention cannot move (`Library.Tests` asserts the search *median* against the same 50 ms), so a
 regression still fails the ordinary run.
+
+**A budget in the source is the claim; `TUNQIO_PERF_SLACK` is how a weaker machine checks it.** The numbers on
+the `[Budget]` attributes are measured on the reference machine. A shared GitHub runner is not that machine and
+does not hold still between runs: the same `UpsertBenchmarks.UpsertBatchAsync` on identical code came back with
+medians of 50.5, 63.7 and 173.8 ms across three `windows-2025-vs2026` runs, a 3.4× spread that is the disk
+rather than the code (`docs/spikes/wal-checkpoint-during-scan.md`). Widening the attribute to survive that
+would weaken the claim everywhere it is read, so the slack lives with the weaker machine instead: `ci.yml` sets
+`TUNQIO_PERF_SLACK: '4'` on the benchmark step and nothing else sets it, so a local `--gate` still checks the
+real budgets. The gate prints both numbers whenever a slack is in force — `p95 120.4 ms against 600 ms (a
+budget of 150 ms ×4)` — so a p95 that has crept past the claim itself is readable off a green CI run. A value
+that is not a positive number, or is above 10×, fails the step rather than falling back to 1: every way of
+getting it wrong would otherwise read as green.
 
 ## Continuous integration
 
