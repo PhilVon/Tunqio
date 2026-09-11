@@ -40,13 +40,13 @@
  * thread drains the tap and publishes an mp_analysis_frame per hop, so mp_analysis_try_get_latest returns one
  * instead of MP_E_STATE. No struct or signature moved - a caller built against 0.7 sees the same surface start
  * answering - but an export that was never implemented beginning to work is new function, and that is a minor.
- * bands, spectral_centroid_hz, harmonic_ratio and onset stay zero until E4-S2 extracts them. E4-S3 (no version
- * change): mp_renderer_enum_presets, mp_renderer_set_preset and mp_renderer_set_param are implemented over the
+ * bands, spectral_centroid_hz, harmonic_ratio and onset stay zero until E4-S2 extracts them. 0.9 presets
+ * (E4-S3): mp_renderer_enum_presets, mp_renderer_set_preset and mp_renderer_set_param are implemented over the
  * preset loader, and mp_renderer_create's engine argument is finally read - the renderer polls
- * mp_analysis_try_get_latest per frame and feeds the preset's constant buffer from it. The version does not move
- * because those three were already declared at 0.3 and this is the story their stub named; a caller that has been
- * checking for MP_E_STATE sees them start working, exactly as 0.8 did for the analysis frame. set_theme (E4-S6)
- * and set_quality (E4-S7) are still stubs.
+ * mp_analysis_try_get_latest per frame and feeds the preset's constant buffer from it. Same reasoning as 0.8,
+ * and for three exports rather than one: they were declared at 0.3 and stubbed, nothing about their signatures
+ * moved, and a caller that has been checking for MP_E_STATE sees them start working. That is new function, and
+ * new function is a minor. set_theme (E4-S6) and set_quality (E4-S7) are still stubs.
  */
 #pragma once
 
@@ -69,7 +69,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 8u
+#define MP_ABI_MINOR 9u
 
 typedef enum mp_result {
     MP_OK = 0,
