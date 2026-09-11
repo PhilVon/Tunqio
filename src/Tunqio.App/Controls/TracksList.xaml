@@ -96,7 +96,9 @@
       </ListView.ItemContainerStyle>
       <ListView.ItemTemplate>
         <DataTemplate x:DataType="lib:TrackDto">
-          <Grid ColumnDefinitions="40,3*,2*,2*,64,56,48,88">
+          <Grid
+            ColumnDefinitions="40,3*,2*,2*,64,56,48,88"
+            AutomationProperties.Name="{x:Bind local:Format.TrackRowName(Title, ArtistNames, AlbumTitle, DurationMs)}">
             <TextBlock Text="{x:Bind local:Format.TrackNo(TrackNo)}" Style="{StaticResource DimCellText}" />
             <TextBlock Grid.Column="1" Text="{x:Bind Title}" Style="{StaticResource CellText}" />
             <TextBlock Grid.Column="2" Text="{x:Bind ArtistNames}" Style="{StaticResource CellText}" x:Phase="1" />

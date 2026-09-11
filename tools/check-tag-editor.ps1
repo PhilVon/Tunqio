@@ -205,6 +205,24 @@ function Get-AlbumArtistOnDisk([string]$path) {
     (& ffprobe -v error -show_entries format_tags=album_artist -of default=nw=1:nk=1 $path 2>$null | Select-Object -First 1)
 }
 
+function Get-TitleOnDisk([string]$path) {
+    (& ffprobe -v error -show_entries format_tags=title -of default=nw=1:nk=1 $path 2>$null | Select-Object -First 1)
+}
+
+# Title -> path over the copy this script made. It used to read the path straight out of each row's automation
+# name, because a row with no name of its own fell back to TrackDto's ToString and that included the path. T-122
+# gave rows a real name - "<title> by <artist>, <album>, <duration>" - so the path is no longer there to scrape,
+# and it should not have been: a script reading a file path out of a screen reader's text was living off an
+# accessibility defect. The titles are unique across the two fixture albums, which is what makes this a map.
+function Get-PathsByTitle([string]$root) {
+    $map = @{}
+    foreach ($file in Get-ChildItem $root -Recurse -File) {
+        $title = Get-TitleOnDisk $file.FullName
+        if ($title) { $map[$title] = $file.FullName }
+    }
+    return $map
+}
+
 # ---- setting up and tearing down ------------------------------------------------------------------------------
 
 function Stop-Shell {
@@ -290,11 +308,17 @@ try {
     # endorsement of it.
     $namedRows = 0
     $selected = @()
+    $pathsByTitle = Get-PathsByTitle $music
     for ($i = 0; $i -lt $batchSize; $i++) {
         $name = $rows[$i].Current.Name
         if ($name -notlike 'TrackDto {*') { $namedRows++ }
-        if ($name -match 'Path = (?<path>.+?), Title = (?<title>.*?), Artists = ') {
-            $selected += [pscustomobject]@{ Path = $Matches['path']; Title = $Matches['title'] }
+        # The name now leads with the title (T-122): "<title> by <artist>, <album>, <duration>". Take the title
+        # and resolve the file through the map, so what is asserted later is a real path on disk rather than a
+        # string this script parsed out of presentation text.
+        $title = if ($name -like 'TrackDto {*') { if ($name -match ', Title = (?<t>.*?), Artists = ') { $Matches['t'] } else { $null } }
+                 else { ($name -split ' by ', 2)[0] }
+        if ($title -and $pathsByTitle.ContainsKey($title)) {
+            $selected += [pscustomobject]@{ Path = $pathsByTitle[$title]; Title = $title }
         }
         $item = $rows[$i].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
         if ($i -eq 0) { $item.Select() } else { $item.AddToSelection() }
@@ -302,7 +326,11 @@ try {
     if ($namedRows -eq 0) {
         $script:notes += 'every row in the Tracks table falls back to TrackDto.ToString() for its automation name, so Narrator reads out the record (E3-S8, not one of the criteria here)'
     }
-    if ($selected.Count -ne $batchSize) { throw "could not read $batchSize file paths off the Tracks table; got $($selected.Count)" }
+    if ($selected.Count -ne $batchSize) {
+        throw ("could not match $batchSize rows to files on disk; got $($selected.Count). " +
+               "Rows named: $namedRows of $batchSize. Titles on disk: $($pathsByTitle.Count). " +
+               'A row name that no longer leads with the title would show up here first.')
+    }
     Write-Output "selected $batchSize rows: $(($selected | ForEach-Object { $_.Title }) -join ', ')"
     Write-Output ''
 

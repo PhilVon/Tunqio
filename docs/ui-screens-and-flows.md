@@ -165,7 +165,7 @@ Shortcuts are registered at the shell level, and E2-S6 ships them as `ShellShort
 
 ## Accessibility contract
 
-- Every interactive element has an `AutomationProperties.Name`; art tiles announce "Album <title> by <artist>, <year>". Live regions announce track changes in Focus mode (`AutomationProperties.LiveSetting = Polite`).
+- Every interactive element has an `AutomationProperties.Name`; art tiles announce "Album <title> by <artist>, <year>" and Tracks rows announce "<title> by <artist>, <album>, <duration>". A list row needs one as much as a button does: without it the row falls back to the data object's own `ToString`, and a screen reader reads the whole record - file path and all - on every arrow key. Rows name the four columns that identify a track and stop there; format, plays and rating are detail, and Narrator repeats the whole string per row. Live regions announce track changes in Focus mode (`AutomationProperties.LiveSetting = Polite`).
 - Focus order follows visual order; Focus mode keeps a focusable but invisible transport so keyboard users are never stranded.
 - Contrast: theme tokens are validated in a unit test against WCAG 2.1 AA for text and 3:1 for controls in light, dark and high-contrast. Reactive theming blends only the background layer; foreground text is always drawn on a solid or acrylic surface with guaranteed contrast.
 - Reduced motion (`UISettings.AnimationsEnabled == false`) disables reactive theming and transitions. High contrast disables reactive theming and the Mica backdrop.

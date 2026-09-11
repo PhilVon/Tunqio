@@ -30,6 +30,39 @@ public static class Format
 
     public static string OrEmpty(string? value) => value ?? string.Empty;
 
+    /// <summary>
+    /// A Tracks row's automation name (docs/ui-screens-and-flows.md, "Accessibility contract"):
+    /// "Title by Artist, Album, 3:24".
+    /// <para>
+    /// A row without one falls back to <see cref="TrackDto"/>'s own <c>ToString</c>, which is the whole record -
+    /// file path, art hash and ReplayGain included - read out per row as the user arrows down the list (T-122).
+    /// So this is not decoration: it is the difference between a usable list and an unusable one. It names the
+    /// four columns a person would read to identify a track and stops there, because Narrator repeats the whole
+    /// string on every arrow key and the remaining columns (format, plays, rating) are detail rather than
+    /// identity.
+    /// </para>
+    /// </summary>
+    public static string TrackRowName(string? title, string? artistNames, string? albumTitle, int durationMs)
+    {
+        var name = new System.Text.StringBuilder(string.IsNullOrEmpty(title) ? "Unknown track" : title);
+        if (!string.IsNullOrEmpty(artistNames))
+        {
+            name.Append(" by ").Append(artistNames);
+        }
+
+        if (!string.IsNullOrEmpty(albumTitle))
+        {
+            name.Append(", ").Append(albumTitle);
+        }
+
+        if (durationMs > 0)
+        {
+            name.Append(", ").Append(Duration(durationMs));
+        }
+
+        return name.ToString();
+    }
+
     /// <summary>The tile's automation name (docs/ui-screens-and-flows.md, "Accessibility contract"): "Album X by Y, 2001".</summary>
     public static string AlbumName(string? title, string? artist, int? year)
     {
