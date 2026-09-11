@@ -150,10 +150,9 @@ TEST_CASE("device enumeration honours the count protocol", "[engine][device]") {
 
 TEST_CASE("unimplemented exports say which story implements them", "[engine][abi]") {
     engine_fixture fx;
-    mp_analysis_frame frame{};
-    frame.struct_size = sizeof frame;
-    CHECK(mp_analysis_try_get_latest(fx.engine, &frame) == MP_E_STATE);
-    CHECK(last_error().find("E4-S1") != std::string::npos);
+    // mp_analysis_try_get_latest was here until E4-S1 implemented it; the preview pair is what is left.
+    CHECK(mp_preview_stop(fx.engine) == MP_E_STATE);
+    CHECK(last_error().find("E5-S5") != std::string::npos);
 }
 
 TEST_CASE("tracks die with their engine and a destroyed engine frees the process slot", "[engine]") {

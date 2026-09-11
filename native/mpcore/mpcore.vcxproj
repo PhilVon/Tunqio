@@ -42,7 +42,7 @@
       <SubSystem>Windows</SubSystem>
       <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
       <AdditionalLibraryDirectories>$(TunqioNativeRoot)bass\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -52,6 +52,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="include\mpcore.h" />
+    <ClInclude Include="src\analysis\analyzer.h" />
     <ClInclude Include="src\analysis\tap.h" />
     <ClInclude Include="src\abi\guard.h" />
     <ClInclude Include="src\abi\last_error.h" />
@@ -59,12 +60,14 @@
     <ClInclude Include="src\audio\mp4_gapless.h" />
     <ClInclude Include="src\common\log.h" />
     <ClInclude Include="src\common\spsc_ring.h" />
+    <ClInclude Include="src\common\triple_buffer.h" />
     <ClInclude Include="src\common\version.h" />
     <ClInclude Include="src\render\renderer.h" />
     <ClInclude Include="src\render\swapchainpanel_native.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\abi\exports.cpp" />
+    <ClCompile Include="src\analysis\analyzer.cpp" />
     <ClCompile Include="src\abi\exports_render.cpp" />
     <ClCompile Include="src\abi\last_error.cpp" />
     <ClCompile Include="src\audio\bass_engine.cpp" />
@@ -72,6 +75,12 @@
     <ClCompile Include="src\common\log.cpp" />
     <ClCompile Include="src\common\rt_guard.cpp" />
     <ClCompile Include="src\render\renderer.cpp" />
+    <!-- pffft: third-party C, compiled at a lower warning level (it is FFTPACK's shape, not ours). -->
+    <ClCompile Include="$(TunqioNativeRoot)third_party\pffft\pffft.c">
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="..\tunqio.native.targets" />

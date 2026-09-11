@@ -52,11 +52,12 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <AdditionalLibraryDirectories>$(TunqioNativeRoot)bass\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <!-- Core under test, compiled in. -->
+    <ClCompile Include="$(MpCoreDir)src\analysis\analyzer.cpp" />
     <ClCompile Include="$(MpCoreDir)src\abi\exports.cpp" />
     <ClCompile Include="$(MpCoreDir)src\abi\exports_render.cpp" />
     <ClCompile Include="$(MpCoreDir)src\abi\last_error.cpp" />
@@ -67,6 +68,7 @@
     <ClCompile Include="$(MpCoreDir)src\render\renderer.cpp" />
     <!-- Tests -->
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\test_analysis_frame.cpp" />
     <ClCompile Include="src\test_analysis_tap.cpp" />
     <ClCompile Include="src\test_abi.cpp" />
     <ClCompile Include="src\test_architecture.cpp" />
@@ -80,7 +82,13 @@
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_replaygain.cpp" />
     <ClCompile Include="src\test_spsc_ring.cpp" />
-    <!-- Catch2 amalgamated: third-party, compiled at a lower warning level. -->
+    <ClCompile Include="src\test_triple_buffer.cpp" />
+    <!-- pffft and Catch2: third-party, compiled at a lower warning level. -->
+    <ClCompile Include="$(TunqioNativeRoot)third_party\pffft\pffft.c">
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="$(TunqioNativeRoot)third_party\catch2\catch_amalgamated.cpp">
       <WarningLevel>Level3</WarningLevel>
       <TreatWarningAsError>false</TreatWarningAsError>

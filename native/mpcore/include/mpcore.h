@@ -36,7 +36,11 @@
  * analysis tap - fixed 512-frame hops of mixed PCM, each carrying the mixer byte position of its first frame,
  * through a lock-free ring. That is the audio side of the analysis stream; mp_analysis_try_get_latest stays
  * unimplemented until E4-S1, which is what turns a hop into an mp_analysis_frame (the spectrum, bands and onset
- * in that struct are all its work, and half a frame would be worse than none).
+ * in that struct are all its work, and half a frame would be worse than none). 0.8 analysis frames (E4-S1): a
+ * thread drains the tap and publishes an mp_analysis_frame per hop, so mp_analysis_try_get_latest returns one
+ * instead of MP_E_STATE. No struct or signature moved - a caller built against 0.7 sees the same surface start
+ * answering - but an export that was never implemented beginning to work is new function, and that is a minor.
+ * bands, spectral_centroid_hz, harmonic_ratio and onset stay zero until E4-S2 extracts them.
  */
 #pragma once
 
@@ -59,7 +63,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 7u
+#define MP_ABI_MINOR 8u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -285,12 +289,21 @@ MP_API mp_result MP_CALL mp_preview_start(mp_engine* engine, mp_track* track,
                                           float gain_db);    /* not implemented until E5-S5 */
 MP_API mp_result MP_CALL mp_preview_stop(mp_engine* engine); /* not implemented until E5-S5 */
 
-/* ---- analysis (ABI 0.2 draft; the tap that feeds it is E1-S8, the frame itself E4-S1) ---------- */
+/* ---- analysis (ABI 0.2 draft; the tap that feeds it is E1-S8, the frame itself ABI 0.8 / E4-S1) -- */
 
 #define MP_ANALYSIS_SPECTRUM_BINS 1024u
 #define MP_ANALYSIS_WAVEFORM_SAMPLES 512u
 #define MP_ANALYSIS_OCTAVE_BANDS 10u
 
+/* One 512-frame hop turned into features (E4-S1). `sequence` counts frames since the engine was created and is
+ * how a poller knows what it holds is new; `mixer_byte_pos` is the hop's first frame in the units of
+ * mp_clock.mixer_byte_pos, so a frame lines up with what is being heard exactly as a gapless join does
+ * (mp_clock.mixer_byte_pos minus output_buffered_bytes).
+ *
+ * `spectrum` is a 2048-point Hann-windowed real FFT advanced one hop at a time, bins 0..1023 (rate/2048 apart:
+ * 23.44 Hz at 48 kHz; Nyquist is dropped). Magnitudes are scaled so a full-scale sine reads 1.0 in its own bin.
+ * `waveform` is the newest hop mixed to mono. `rms` and `peak` are of the hop as mixed, all channels.
+ * `bands`, `spectral_centroid_hz`, `harmonic_ratio` and `onset` are zero until E4-S2. */
 typedef struct mp_analysis_frame {
     uint32_t struct_size;
     uint32_t sequence;
@@ -307,9 +320,9 @@ typedef struct mp_analysis_frame {
     uint8_t reserved[3];
 } mp_analysis_frame;
 
-/* Copies the newest complete frame. MP_E_STATE when none is available yet. */
-MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* engine,
-                                                    mp_analysis_frame* out_frame); /* not implemented until E4-S1 */
+/* Copies the newest complete frame. MP_E_STATE when none is available yet (nothing has played since the engine,
+ * or the mixer, was created). Lock-free with respect to the analysis thread, and safe from any thread. */
+MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* engine, mp_analysis_frame* out_frame);
 
 /* ---- renderer (ABI 0.3; E0-S5 spike, E4-S3 completes the preset surface) ---------------------- */
 

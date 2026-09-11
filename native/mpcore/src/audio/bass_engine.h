@@ -5,6 +5,7 @@
 
 #include "mpcore.h"
 
+#include "analysis/analyzer.h"
 #include "analysis/tap.h"
 
 #include <atomic>
@@ -128,6 +129,8 @@ public:
     static float replaygain_linear(float gain_db, float peak) noexcept;
 
     mp_result get_clock(mp_clock& out) const;
+    // The newest analysis frame (E4-S1). MP_E_STATE until the analysis thread has produced one.
+    mp_result get_analysis_frame(mp_analysis_frame& out) const;
     mp_result get_stats(mp_engine_stats& out) const;
 
     // MP_DEVICE_NONE only: what the output thread would have pulled. `frames` interleaved float frames.
@@ -214,13 +217,18 @@ private:
 
     mutable std::mutex control_; // control-plane calls; never taken on the audio thread
 
-    // Fed by tap_proc on the audio thread, drained by the analysis thread (E4-S1). Public so the tests and, later,
-    // the analysis thread can read it; the engine only ever writes it through the DSP.
+    // Fed by tap_proc on the audio thread, drained by analyzer_ (E4-S1). Public so the tests can read it; the
+    // engine only ever writes it through the DSP.
 public:
     mp::analysis::tap& analysis_tap() noexcept { return tap_; }
+    // The analysis thread itself, for the tests that need to watch or drive it.
+    mp::analysis::analyzer& analysis_thread() noexcept { return analyzer_; }
 
 private:
     mp::analysis::tap tap_;
+    // Drains tap_ and publishes mp_analysis_frame. Started and stopped by create_mixer, which is the only place
+    // the tap is reset: draining the ring is a consumer's move, and the ring admits exactly one consumer.
+    mp::analysis::analyzer analyzer_;
 
     uint32_t mixer_ = 0; // HSTREAM (decode, nonstop)
     uint32_t mixer_rate_ = 48000;

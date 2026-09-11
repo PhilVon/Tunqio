@@ -319,6 +319,11 @@ void engine::load_plugins(const std::wstring& dir) {
 }
 
 mp_result engine::create_mixer(uint32_t rate, uint32_t channels) {
+    // The tap is about to be reset, and reset() drains its ring, which is a consumer's move: the analysis thread
+    // is the other consumer and the ring admits exactly one. Stopping it here rather than asking it to pause is
+    // what makes that a fact about the code and not a timing argument - a mixer is rebuilt when the device
+    // changes, which is rare and already slow.
+    analyzer_.stop();
     // Decode mixer: pulled by the output thread. NONSTOP keeps it producing silence with no source, so the
     // output never stalls; POSEX enables latency-compensated source positions.
     const HSTREAM mixer = BASS_Mixer_StreamCreate(
@@ -339,6 +344,10 @@ mp_result engine::create_mixer(uint32_t rate, uint32_t channels) {
     if (BASS_ChannelSetDSP(mixer_, &tap_proc, this, 0) == 0) {
         return bass_fail("BASS_ChannelSetDSP (analysis tap)");
     }
+    // And the other end of it (E4-S1). start() clears the sliding window, because four hops of the mixer that
+    // just went are not the beginning of this one; the sequence counter and the last published frame carry on,
+    // so a UI polling across a device change sees stale-but-whole rather than nothing.
+    analyzer_.start(tap_, rate);
     return MP_OK;
 }
 
@@ -351,6 +360,7 @@ engine::~engine() {
     // Before control_ is taken: the watch thread takes it as well, so joining from inside would deadlock.
     g_instance.store(nullptr, std::memory_order_release);
     stop_device_watch();
+    analyzer_.stop(); // it reads tap_, which is about to stop being fed and then cease to exist
     {
         std::lock_guard lock{control_};
         playing_.store(false, std::memory_order_release);
@@ -1217,6 +1227,13 @@ mp_result engine::get_clock(mp_clock& out) const {
     const uint64_t pos = source_position(*t, buffered);
     out.position_ms = static_cast<int64_t>(BASS_ChannelBytes2Seconds(t->stream, pos) * 1000.0);
     return MP_OK;
+}
+
+mp_result engine::get_analysis_frame(mp_analysis_frame& out) const {
+    // Lock-free, like get_clock and for the same reason: the theming poll and (E4-S3) the render thread both ask
+    // for this, and neither may be made to wait behind a transport call.
+    return analyzer_.try_get_latest(out) ? MP_OK
+                                         : state_fail("mp_analysis_try_get_latest: no analysis frame yet");
 }
 
 mp_result engine::get_stats(mp_engine_stats& out) const {

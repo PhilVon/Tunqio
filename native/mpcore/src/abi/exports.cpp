@@ -340,10 +340,12 @@ MP_API mp_result MP_CALL mp_preview_stop(mp_engine* e) {
 // ---- analysis ----
 
 MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* e, mp_analysis_frame* out_frame) {
+    // Unguarded for the same reason as mp_engine_get_clock: the theming poll runs at 30 Hz and the renderer will
+    // ask per presented frame, and this only copies out of a published buffer.
     if (e == nullptr || !size_ok(out_frame)) {
         return invalid("mp_analysis_try_get_latest: NULL engine or bad struct_size");
     }
-    return not_implemented("mp_analysis_try_get_latest", "E4-S1");
+    return as_engine(e)->get_analysis_frame(*out_frame);
 }
 
 } // extern "C"
