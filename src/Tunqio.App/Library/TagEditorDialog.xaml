@@ -62,13 +62,21 @@
                  Text="{x:Bind ViewModel.Genres, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+          <!--
+            The three number boxes carry the same placeholder as the rest. They are narrow, so "(multiple values)"
+            is clipped in them — but a clipped placeholder still reads as greyed-out text that is not the value,
+            whereas an empty box reads as "they all agree and it is blank", which is the opposite of the truth.
+          -->
           <TextBox Header="Year" Width="76" InputScope="Number"
+                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    Text="{x:Bind ViewModel.Year, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
           <TextBox Header="Track" Width="60" InputScope="Number"
+                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    Text="{x:Bind ViewModel.TrackNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
           <TextBox Header="Disc" Width="60" InputScope="Number"
+                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    Text="{x:Bind ViewModel.DiscNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
         </StackPanel>
