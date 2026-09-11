@@ -510,7 +510,13 @@ public sealed class LibraryScanner : ILibraryScanner
         }
     }
 
-    /// <summary>The single writer: fills batches of exactly <see cref="BatchSize"/> rows, one transaction each, and the remainder at the end.</summary>
+    /// <summary>
+    /// The single writer: fills batches of exactly <see cref="BatchSize"/> rows, one transaction each, and the
+    /// remainder at the end. Nothing here checkpoints the WAL: SQLite does it on its own about every seventh
+    /// batch, and on slow storage that batch takes about a second. Measured, with the three remedies that were
+    /// considered and rejected, in docs/spikes/wal-checkpoint-during-scan.md — the short of it is that a
+    /// checkpoint is a write, so it never reaches a reader, and the rest is not worth restructuring for.
+    /// </summary>
     private async Task UpsertAsync(ChannelReader<IReadOnlyList<ScanResult>> batches, ScanRun run, CancellationToken ct)
     {
         var buffer = new List<ScanResult>(BatchSize * 2);
