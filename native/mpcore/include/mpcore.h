@@ -40,7 +40,13 @@
  * thread drains the tap and publishes an mp_analysis_frame per hop, so mp_analysis_try_get_latest returns one
  * instead of MP_E_STATE. No struct or signature moved - a caller built against 0.7 sees the same surface start
  * answering - but an export that was never implemented beginning to work is new function, and that is a minor.
- * bands, spectral_centroid_hz, harmonic_ratio and onset stay zero until E4-S2 extracts them.
+ * bands, spectral_centroid_hz, harmonic_ratio and onset stay zero until E4-S2 extracts them. E4-S3 (no version
+ * change): mp_renderer_enum_presets, mp_renderer_set_preset and mp_renderer_set_param are implemented over the
+ * preset loader, and mp_renderer_create's engine argument is finally read - the renderer polls
+ * mp_analysis_try_get_latest per frame and feeds the preset's constant buffer from it. The version does not move
+ * because those three were already declared at 0.3 and this is the story their stub named; a caller that has been
+ * checking for MP_E_STATE sees them start working, exactly as 0.8 did for the analysis frame. set_theme (E4-S6)
+ * and set_quality (E4-S7) are still stubs.
  */
 #pragma once
 
@@ -363,6 +369,9 @@ typedef struct mp_render_stats {
     char adapter[128];
 } mp_render_stats;
 
+/* One entry of the preset catalogue. A preset is data (ADR-009): a directory holding preset.json and the HLSL it
+ * names, compiled by the core at load. The core carries one built-in preset that is always present and always
+ * first, so a missing or empty preset directory costs the user a choice, not a picture. */
 typedef struct mp_preset_info {
     uint32_t struct_size;
     char id[64];
@@ -386,7 +395,8 @@ typedef enum mp_quality_policy {
 
 /* Creates the device (hardware, WARP fallback), the flip-model composition swap chain and the render thread, and
  * hands the swap chain to the SwapChainPanel. Call on the UI thread; swap_chain_panel_native is the panel's
- * IUnknown (the core queries ISwapChainPanelNative). engine may be NULL until the analysis stream lands (E4-S1). */
+ * IUnknown (the core queries ISwapChainPanelNative). engine may be NULL, and then presets see silence: with one,
+ * the render thread reads mp_analysis_try_get_latest per frame and the preset's constant buffer carries it. */
 MP_API mp_result MP_CALL mp_renderer_create(mp_engine* engine, void* swap_chain_panel_native,
                                             const mp_renderer_config* config, mp_renderer** out_renderer);
 /* Stops and joins the render thread, releases the swap chain and device. */
@@ -397,12 +407,19 @@ MP_API mp_result MP_CALL mp_renderer_resize(mp_renderer* renderer, uint32_t widt
 /* 0 pauses the render loop (hidden panel, minimised window); 1 resumes it. */
 MP_API mp_result MP_CALL mp_renderer_set_visible(mp_renderer* renderer, uint8_t visible);
 MP_API mp_result MP_CALL mp_renderer_get_stats(mp_renderer* renderer, mp_render_stats* out_stats);
-MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* renderer, mp_preset_info* out,
-                                                  uint32_t* count); /* not implemented until E4-S3 */
-MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* renderer,
-                                                const char* utf8_id); /* not implemented until E4-S3 */
-MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* renderer, const char* utf8_name,
-                                               float value); /* not implemented until E4-S3 */
+/* Two calls, as mp_engine_enum_devices: out == NULL puts the total in *count; otherwise at most *count entries
+ * are written (each out[i].struct_size set by the caller) and *count becomes how many were. The catalogue is
+ * scanned when the renderer is created and does not change under the caller. */
+MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* renderer, mp_preset_info* out, uint32_t* count);
+/* Switches preset. The HLSL is compiled on the calling thread and only swapped in if the device accepted it, so
+ * MP_E_D3D means nothing changed - the preset that was drawing is still drawing - and mp_last_error carries the
+ * shader compiler's own diagnostic (file, line, error code, text) for the caller to show. MP_E_INVALID_ARG when
+ * no preset has that id. */
+MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* renderer, const char* utf8_id);
+/* Sets a parameter the active preset declares in its manifest; a value outside the declared range is clamped to
+ * it. MP_E_INVALID_ARG names the parameter, and what the preset does declare, when it does not declare this one.
+ * Parameters return to their defaults on a preset switch. */
+MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* renderer, const char* utf8_name, float value);
 MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* renderer,
                                                const mp_theme_colors* colors); /* not implemented until E4-S6 */
 MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* renderer,

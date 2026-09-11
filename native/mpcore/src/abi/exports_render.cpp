@@ -1,4 +1,6 @@
 // The mp_renderer_* exports (ABI 0.3). Thin: validate, forward, convert errors.
+// The preset three (enum/set_preset/set_param) were declared and stubbed by E0-S5 and are implemented by E4-S3;
+// set_theme is E4-S6 and set_quality E4-S7, and both still name their story. No export moved, so no ABI bump.
 #include "mpcore.h"
 
 #include "abi/guard.h"
@@ -36,16 +38,15 @@ mp_result not_implemented(const char* export_name, const char* story) {
 
 extern "C" {
 
-MP_API mp_result MP_CALL mp_renderer_create(mp_engine* /*engine: E4-S1 wires the analysis stream*/,
-                                            void* swap_chain_panel_native, const mp_renderer_config* config,
-                                            mp_renderer** out_renderer) {
+MP_API mp_result MP_CALL mp_renderer_create(mp_engine* engine, void* swap_chain_panel_native,
+                                            const mp_renderer_config* config, mp_renderer** out_renderer) {
     return mp::abi::guard([&]() -> mp_result {
         if (!size_ok(config) || out_renderer == nullptr) {
             return invalid("mp_renderer_create: bad config struct_size or NULL out_renderer");
         }
         *out_renderer = nullptr;
         std::unique_ptr<renderer> r;
-        const mp_result result = renderer::create(swap_chain_panel_native, *config, r);
+        const mp_result result = renderer::create(engine, swap_chain_panel_native, *config, r);
         if (result == MP_OK) {
             *out_renderer = reinterpret_cast<mp_renderer*>(r.release());
         }
@@ -88,25 +89,36 @@ MP_API mp_result MP_CALL mp_renderer_get_stats(mp_renderer* r, mp_render_stats* 
     return MP_OK;
 }
 
-MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* r, mp_preset_info* /*out*/, uint32_t* count) {
-    if (r == nullptr || count == nullptr) {
-        return invalid("mp_renderer_enum_presets: NULL renderer or count");
-    }
-    return not_implemented("mp_renderer_enum_presets", "E4-S3");
+MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* r, mp_preset_info* out, uint32_t* count) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr || count == nullptr) {
+            return invalid("mp_renderer_enum_presets: NULL renderer or count");
+        }
+        if (out != nullptr && *count > 0 && out->struct_size != sizeof(mp_preset_info)) {
+            return invalid("mp_renderer_enum_presets: out[0].struct_size does not match mp_preset_info");
+        }
+        return as_renderer(r)->enum_presets(out, count);
+    });
 }
 
+// Guarded rather than forwarded bare: this one compiles HLSL on the calling thread, which allocates and can
+// throw, and a preset that fails must leave the renderer exactly as it was.
 MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* r, const char* utf8_id) {
-    if (r == nullptr || utf8_id == nullptr) {
-        return invalid("mp_renderer_set_preset: NULL renderer or id");
-    }
-    return not_implemented("mp_renderer_set_preset", "E4-S3");
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr || utf8_id == nullptr) {
+            return invalid("mp_renderer_set_preset: NULL renderer or id");
+        }
+        return as_renderer(r)->set_preset(utf8_id);
+    });
 }
 
-MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* r, const char* utf8_name, float /*value*/) {
-    if (r == nullptr || utf8_name == nullptr) {
-        return invalid("mp_renderer_set_param: NULL renderer or name");
-    }
-    return not_implemented("mp_renderer_set_param", "E4-S3");
+MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* r, const char* utf8_name, float value) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr || utf8_name == nullptr) {
+            return invalid("mp_renderer_set_param: NULL renderer or name");
+        }
+        return as_renderer(r)->set_param(utf8_name, value);
+    });
 }
 
 MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* r, const mp_theme_colors* colors) {

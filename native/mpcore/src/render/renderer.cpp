@@ -9,47 +9,11 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <d3dcompiler.h>
 
 #include <windows.h>
 
 namespace mp::render {
 namespace {
-
-constexpr uint32_t k_bars = 64;
-
-// Runtime-compiled (D3DCompile) as the design prescribes for presets; the spike scene is the first preset.
-constexpr const char* k_shader = R"hlsl(
-cbuffer Frame : register(b0) {
-    float4 heights[16];
-    float2 viewport;
-    float time;
-    float pad;
-};
-struct VSOut { float4 pos : SV_Position; float3 color : COLOR; };
-VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
-    float h = heights[iid / 4][iid % 4];
-    float w = 2.0 / 64.0;
-    float x0 = -1.0 + iid * w + w * 0.1;
-    float x1 = x0 + w * 0.8;
-    float y0 = -1.0;
-    float y1 = -1.0 + h * 2.0;
-    float2 corners[6] = { float2(x0, y0), float2(x0, y1), float2(x1, y0), float2(x1, y0), float2(x0, y1), float2(x1, y1) };
-    VSOut o;
-    o.pos = float4(corners[vid], 0.0, 1.0);
-    float t = iid / 64.0;
-    o.color = float3(0.15 + 0.85 * t, 0.55 + 0.2 * h, 1.0 - 0.8 * t);
-    return o;
-}
-float4 PSMain(VSOut i) : SV_Target { return float4(i.color, 1.0); }
-)hlsl";
-
-struct frame_constants {
-    float heights[k_bars];
-    float viewport[2];
-    float time;
-    float pad;
-};
 
 mp_result d3d_fail(const char* what, HRESULT hr) {
     char text[256];
@@ -57,6 +21,11 @@ mp_result d3d_fail(const char* what, HRESULT hr) {
     mp::abi::set_last_error(text);
     log(MP_LOG_ERROR, "%s", text);
     return MP_E_D3D;
+}
+
+mp_result invalid_arg(const std::string& text) {
+    mp::abi::set_last_error(text);
+    return MP_E_INVALID_ARG;
 }
 
 int64_t qpc() {
@@ -74,14 +43,20 @@ int64_t qpc_freq() {
     return f;
 }
 
+void copy_utf8(char* dst, size_t cap, const std::string& src) {
+    const size_t n = std::min(src.size(), cap - 1);
+    std::memcpy(dst, src.data(), n);
+    dst[n] = '\0';
+}
+
 } // namespace
 
 // ---- lifetime -----------------------------------------------------------------------------------
 
-mp_result renderer::create(void* swap_chain_panel_native, const mp_renderer_config& config,
+mp_result renderer::create(mp_engine* engine, void* swap_chain_panel_native, const mp_renderer_config& config,
                            std::unique_ptr<renderer>& out) {
     std::unique_ptr<renderer> r{new renderer{}};
-    const mp_result result = r->init(swap_chain_panel_native, config);
+    const mp_result result = r->init(engine, swap_chain_panel_native, config);
     if (result != MP_OK) {
         return result;
     }
@@ -89,7 +64,8 @@ mp_result renderer::create(void* swap_chain_panel_native, const mp_renderer_conf
     return MP_OK;
 }
 
-mp_result renderer::init(void* swap_chain_panel_native, const mp_renderer_config& config) {
+mp_result renderer::init(mp_engine* engine, void* swap_chain_panel_native, const mp_renderer_config& config) {
+    engine_ = engine;
     headless_ = config.headless != 0;
     vsync_ = config.vsync != 0;
     if (!headless_ && swap_chain_panel_native == nullptr) {
@@ -103,6 +79,12 @@ mp_result renderer::init(void* swap_chain_panel_native, const mp_renderer_config
     pending_scale_x_.store(config.scale_x > 0.0f ? config.scale_x : 1.0f);
     pending_scale_y_.store(config.scale_y > 0.0f ? config.scale_y : 1.0f);
 
+    wake_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (wake_ == nullptr) {
+        return d3d_fail("CreateEvent(wake)", HRESULT_FROM_WIN32(GetLastError()));
+    }
+    analysis_ = std::make_unique<mp_analysis_frame>();
+
     mp_result r = create_device(config.force_warp != 0);
     if (r != MP_OK) {
         return r;
@@ -111,24 +93,39 @@ mp_result renderer::init(void* swap_chain_panel_native, const mp_renderer_config
     if (r != MP_OK) {
         return r;
     }
-    r = create_scene();
+    r = create_frame_resources();
     if (r != MP_OK) {
         return r;
     }
+
+    load_catalog();
+    // The built-in preset is the one the renderer starts on, whatever is on disk: it is the only preset that
+    // cannot fail to be there, and having it drawing first is what gives set_preset a previous preset to keep.
+    r = set_preset(builtin_preset().id.c_str());
+    if (r != MP_OK) {
+        return r;
+    }
+
     resize_pending_.store(true); // applies the scale transform on the first frame
-    log(MP_LOG_INFO, "renderer created: %s, %ux%u, %s%s", adapter_.c_str(), width, height,
-        headless_ ? "headless" : "composition swap chain", warp_.load() ? " (WARP)" : "");
+    log(MP_LOG_INFO, "renderer created: %s, %ux%u, %s%s, %zu preset(s)", adapter_.c_str(), width, height,
+        headless_ ? "headless" : "composition swap chain", warp_.load() ? " (WARP)" : "", catalog_.size());
     thread_ = std::thread([this] { run(); });
     return MP_OK;
 }
 
 renderer::~renderer() {
     stop_.store(true, std::memory_order_release);
+    if (wake_ != nullptr) {
+        SetEvent(wake_);
+    }
     if (thread_.joinable()) {
         thread_.join();
     }
     if (waitable_ != nullptr) {
         CloseHandle(waitable_);
+    }
+    if (wake_ != nullptr) {
+        CloseHandle(wake_);
     }
     if (context_) {
         context_->ClearState();
@@ -256,42 +253,74 @@ mp_result renderer::create_targets(uint32_t width, uint32_t height) {
     return MP_OK;
 }
 
-mp_result renderer::create_scene() {
-    com_ptr<ID3DBlob> vs_blob;
-    com_ptr<ID3DBlob> ps_blob;
-    com_ptr<ID3DBlob> errors;
-    const UINT compile_flags = D3DCOMPILE_OPTIMIZATION_LEVEL3;
-    HRESULT hr = D3DCompile(k_shader, std::strlen(k_shader), "spike.hlsl", nullptr, nullptr, "VSMain", "vs_5_0",
-                            compile_flags, 0, &vs_blob, &errors);
+// The whole preset-facing resource set: b0 and the two Buffer<float> SRVs described in preset.h. They belong to
+// the renderer, not to a preset, which is what makes switching presets a matter of two shader objects.
+mp_result renderer::create_frame_resources() {
+    D3D11_BUFFER_DESC cb{};
+    cb.ByteWidth = sizeof(frame_constants);
+    cb.Usage = D3D11_USAGE_DYNAMIC;
+    cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    HRESULT hr = device_->CreateBuffer(&cb, nullptr, &constants_);
     if (FAILED(hr)) {
-        log(MP_LOG_ERROR, "VS compile: %s", errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
-        return d3d_fail("D3DCompile(VSMain)", hr);
-    }
-    hr = D3DCompile(k_shader, std::strlen(k_shader), "spike.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", compile_flags,
-                    0, &ps_blob, &errors);
-    if (FAILED(hr)) {
-        log(MP_LOG_ERROR, "PS compile: %s", errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
-        return d3d_fail("D3DCompile(PSMain)", hr);
-    }
-    hr = device_->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &vs_);
-    if (FAILED(hr)) {
-        return d3d_fail("CreateVertexShader", hr);
-    }
-    hr = device_->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &ps_);
-    if (FAILED(hr)) {
-        return d3d_fail("CreatePixelShader", hr);
+        return d3d_fail("CreateBuffer(frame constants)", hr);
     }
 
-    D3D11_BUFFER_DESC bd{};
-    bd.ByteWidth = sizeof(frame_constants);
-    bd.Usage = D3D11_USAGE_DYNAMIC;
-    bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    hr = device_->CreateBuffer(&bd, nullptr, &constants_);
-    if (FAILED(hr)) {
-        return d3d_fail("CreateBuffer(constants)", hr);
+    const struct {
+        uint32_t elements;
+        com_ptr<ID3D11Buffer>* buffer;
+        com_ptr<ID3D11ShaderResourceView>* srv;
+        const char* what;
+    } feeds[] = {
+        {MP_ANALYSIS_SPECTRUM_BINS, &spectrum_, &spectrum_srv_, "spectrum"},
+        {MP_ANALYSIS_WAVEFORM_SAMPLES, &waveform_, &waveform_srv_, "waveform"},
+    };
+    // Zero-initialised, so a preset reads silence rather than whatever the driver handed us before anything has
+    // ever played - the map below only happens once an analysis frame exists.
+    const std::vector<float> zeros(MP_ANALYSIS_SPECTRUM_BINS, 0.0f);
+    for (const auto& feed : feeds) {
+        D3D11_BUFFER_DESC bd{};
+        bd.ByteWidth = feed.elements * sizeof(float);
+        bd.Usage = D3D11_USAGE_DYNAMIC;
+        bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        D3D11_SUBRESOURCE_DATA initial{};
+        initial.pSysMem = zeros.data();
+        hr = device_->CreateBuffer(&bd, &initial, feed.buffer->GetAddressOf());
+        if (FAILED(hr)) {
+            return d3d_fail("CreateBuffer(analysis feed)", hr);
+        }
+        D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+        sd.Format = DXGI_FORMAT_R32_FLOAT;
+        sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+        sd.Buffer.FirstElement = 0;
+        sd.Buffer.NumElements = feed.elements;
+        hr = device_->CreateShaderResourceView(feed.buffer->Get(), &sd, feed.srv->GetAddressOf());
+        if (FAILED(hr)) {
+            return d3d_fail("CreateShaderResourceView(analysis feed)", hr);
+        }
     }
     return MP_OK;
+}
+
+void renderer::load_catalog() {
+    std::lock_guard lock{preset_mutex_};
+    catalog_.clear();
+    catalog_.push_back(builtin_preset());
+    preset_root_ = default_preset_root();
+    std::vector<std::string> warnings;
+    for (auto& found : scan_preset_root(preset_root_, warnings)) {
+        if (found.id == builtin_preset().id) {
+            warnings.push_back("a preset on disk claims the built-in id \"" + found.id + "\"; ignoring it");
+            continue;
+        }
+        catalog_.push_back(std::move(found));
+    }
+    for (const auto& warning : warnings) {
+        log(MP_LOG_WARN, "preset: %s", warning.c_str());
+    }
+    log(MP_LOG_INFO, "preset root %s: %zu preset(s) including the built-in",
+        preset_root_.empty() ? "(none)" : preset_root_.string().c_str(), catalog_.size());
 }
 
 // ---- control plane ------------------------------------------------------------------------------
@@ -306,6 +335,128 @@ void renderer::resize(uint32_t width, uint32_t height, float scale_x, float scal
 
 void renderer::set_visible(bool visible) noexcept {
     visible_.store(visible, std::memory_order_release);
+    if (visible && wake_ != nullptr) {
+        SetEvent(wake_); // resume on the next frame rather than at the end of the hidden wait
+    }
+}
+
+mp_result renderer::enum_presets(mp_preset_info* out, uint32_t* count) const {
+    std::lock_guard lock{preset_mutex_};
+    const auto total = static_cast<uint32_t>(catalog_.size());
+    if (out == nullptr) {
+        *count = total;
+        return MP_OK;
+    }
+    const uint32_t writable = std::min(*count, total);
+    for (uint32_t i = 0; i < writable; ++i) {
+        mp_preset_info& info = out[i];
+        std::memset(&info, 0, sizeof info);
+        info.struct_size = sizeof info;
+        copy_utf8(info.id, sizeof info.id, catalog_[i].id);
+        copy_utf8(info.name, sizeof info.name, catalog_[i].name);
+    }
+    *count = writable;
+    return MP_OK;
+}
+
+mp_result renderer::set_preset(const char* utf8_id) {
+    const std::string id{utf8_id};
+    preset_source source;
+    {
+        std::lock_guard lock{preset_mutex_};
+        const auto it =
+            std::find_if(catalog_.begin(), catalog_.end(), [&id](const preset_source& p) { return p.id == id; });
+        if (it == catalog_.end()) {
+            return invalid_arg("mp_renderer_set_preset: no preset with id \"" + id + "\" (" +
+                               std::to_string(catalog_.size()) + " known; enumerate with mp_renderer_enum_presets)");
+        }
+        source = *it;
+    }
+
+    // Compiled here, on the caller's thread, and only handed over if it worked. That is the whole of AC-117: a
+    // preset that does not compile never becomes the renderer's, so whatever was drawing keeps drawing, and the
+    // caller gets the compiler's own words rather than "MP_E_D3D".
+    auto made = std::make_shared<compiled_preset>();
+    std::string error;
+    if (const mp_result r = compile_preset(device_.Get(), source, *made, error); r != MP_OK) {
+        mp::abi::set_last_error(error);
+        return r;
+    }
+
+    std::lock_guard lock{preset_mutex_};
+    for (size_t i = 0; i < k_max_preset_params; ++i) {
+        param_values_[i].store(made->values[i], std::memory_order_relaxed);
+    }
+    current_ = made;
+    pending_ = std::move(made);
+    preset_pending_.store(true, std::memory_order_release);
+    log(MP_LOG_INFO, "preset '%s' compiled and active", id.c_str());
+    return MP_OK;
+}
+
+mp_result renderer::set_param(const char* utf8_name, float value) {
+    const std::string name{utf8_name};
+    std::lock_guard lock{preset_mutex_};
+    if (!current_) {
+        mp::abi::set_last_error("mp_renderer_set_param: no preset is active");
+        return MP_E_STATE;
+    }
+    const int index = current_->source.find_param(name);
+    if (index < 0) {
+        std::string known;
+        for (const auto& p : current_->source.params) {
+            known += known.empty() ? "" : ", ";
+            known += p.name;
+        }
+        return invalid_arg("mp_renderer_set_param: preset \"" + current_->source.id + "\" declares no parameter \"" +
+                           name + "\"" + (known.empty() ? " (it declares none)" : " (it declares " + known + ")"));
+    }
+    const preset_param& declared = current_->source.params[static_cast<size_t>(index)];
+    if (!std::isfinite(value)) {
+        return invalid_arg("mp_renderer_set_param: \"" + name + "\" was given a value that is not finite");
+    }
+    param_values_[static_cast<size_t>(index)].store(std::clamp(value, declared.min_value, declared.max_value),
+                                                    std::memory_order_relaxed);
+    return MP_OK;
+}
+
+std::string renderer::active_preset_id() const {
+    std::lock_guard lock{preset_mutex_};
+    return current_ ? current_->source.id : std::string{};
+}
+
+uint32_t renderer::device_references() const noexcept {
+    if (!device_) {
+        return 0;
+    }
+    ID3D11Device* raw = device_.Get();
+    raw->AddRef();
+    return static_cast<uint32_t>(raw->Release());
+}
+
+bool renderer::capture_pixel(uint32_t x, uint32_t y, uint8_t out_bgra[4], int timeout_ms) noexcept {
+    if (stop_.load(std::memory_order_acquire) || !thread_.joinable()) {
+        return false;
+    }
+    capture_x_.store(x, std::memory_order_relaxed);
+    capture_y_.store(y, std::memory_order_relaxed);
+    capture_done_.store(false, std::memory_order_release);
+    capture_pending_.store(true, std::memory_order_release);
+
+    const int64_t deadline = qpc() + static_cast<int64_t>(timeout_ms) * qpc_freq() / 1000;
+    while (!capture_done_.load(std::memory_order_acquire)) {
+        if (qpc() > deadline || stop_.load(std::memory_order_acquire)) {
+            capture_pending_.store(false, std::memory_order_release);
+            return false;
+        }
+        Sleep(1);
+    }
+    const uint32_t packed = capture_value_.load(std::memory_order_acquire);
+    out_bgra[0] = static_cast<uint8_t>(packed & 0xFF);
+    out_bgra[1] = static_cast<uint8_t>((packed >> 8) & 0xFF);
+    out_bgra[2] = static_cast<uint8_t>((packed >> 16) & 0xFF);
+    out_bgra[3] = static_cast<uint8_t>((packed >> 24) & 0xFF);
+    return true;
 }
 
 void renderer::get_stats(mp_render_stats& out) const noexcept {
@@ -340,12 +491,14 @@ void renderer::get_stats(mp_render_stats& out) const noexcept {
 void renderer::run() {
     SetThreadDescription(GetCurrentThread(), L"Tunqio render");
     const int64_t start = qpc();
+    int64_t previous = start;
     last_frame_qpc_ = 0;
     fps_window_start_qpc_ = start;
     while (!stop_.load(std::memory_order_acquire)) {
         if (!visible_.load(std::memory_order_acquire)) {
-            Sleep(50);
-            last_frame_qpc_ = 0; // do not count the pause as a frame gap
+            WaitForSingleObject(wake_, 50); // set_visible(1) and shutdown signal it; the timeout is the backstop
+            last_frame_qpc_ = 0;            // do not count the pause as a frame gap
+            previous = qpc();
             continue;
         }
         if (waitable_ != nullptr) {
@@ -354,13 +507,26 @@ void renderer::run() {
         if (stop_.load(std::memory_order_acquire)) {
             break;
         }
+        // The capture request is taken before anything else this iteration will apply. A request can only have
+        // been posted after whatever the caller did first (a set_preset, a set_param) was published, so latching
+        // it here and answering it at the bottom means the pixel handed back is from a frame that has all of it.
+        const bool serving = capture_pending_.exchange(false, std::memory_order_acq_rel);
         apply_pending_resize();
+        apply_pending_preset();
         if (!rtv_) {
+            if (serving) {
+                capture_pending_.store(true, std::memory_order_release); // still owed; try again next iteration
+            }
             Sleep(5);
             continue;
         }
         const int64_t now = qpc();
-        render_frame(static_cast<double>(now - start) / static_cast<double>(qpc_freq()));
+        render_frame(static_cast<double>(now - start) / static_cast<double>(qpc_freq()),
+                     static_cast<double>(now - previous) / static_cast<double>(qpc_freq()));
+        previous = now;
+        if (serving) {
+            serve_capture();
+        }
         if (swap_chain_) {
             const HRESULT hr = swap_chain_->Present(vsync_ ? 1 : 0, 0);
             if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
@@ -378,6 +544,10 @@ void renderer::run() {
         record_frame_time(now);
         frames_.fetch_add(1, std::memory_order_relaxed);
     }
+    // The render thread's own references go with the thread, not with the object: a preset outliving the loop
+    // would keep shader objects alive past the point where the device count is supposed to settle.
+    render_preset_.reset();
+    capture_staging_.Reset();
 }
 
 void renderer::apply_pending_resize() {
@@ -417,37 +587,143 @@ void renderer::apply_pending_resize() {
     }
 }
 
-void renderer::render_frame(double seconds) {
-    frame_constants c{};
-    for (uint32_t i = 0; i < k_bars; ++i) {
-        c.heights[i] = static_cast<float>(0.5 + 0.45 * std::sin(seconds * 2.0 + i * 0.3));
+void renderer::apply_pending_preset() {
+    if (!preset_pending_.load(std::memory_order_acquire)) {
+        return;
     }
+    std::lock_guard lock{preset_mutex_};
+    render_preset_ = std::move(pending_);
+    pending_.reset();
+    preset_pending_.store(false, std::memory_order_release);
+}
+
+void renderer::update_frame_resources(double seconds, double delta) {
+    bool fresh = false;
+    if (engine_ != nullptr) {
+        analysis_->struct_size = sizeof(mp_analysis_frame);
+        if (mp_analysis_try_get_latest(engine_, analysis_.get()) == MP_OK) {
+            fresh = !have_analysis_ || analysis_->sequence != analysis_sequence_;
+            analysis_sequence_ = analysis_->sequence;
+            have_analysis_ = true;
+        }
+    }
+
+    frame_constants c{};
     c.viewport[0] = static_cast<float>(width_);
     c.viewport[1] = static_cast<float>(height_);
-    c.time = static_cast<float>(seconds);
+    c.viewport[2] = width_ > 0 ? 1.0f / static_cast<float>(width_) : 0.0f;
+    c.viewport[3] = height_ > 0 ? 1.0f / static_cast<float>(height_) : 0.0f;
+    c.timing[0] = static_cast<float>(seconds);
+    c.timing[1] = static_cast<float>(delta);
+    c.timing[2] = static_cast<float>(frames_.load(std::memory_order_relaxed));
+    c.timing[3] = have_analysis_ ? static_cast<float>(analysis_sequence_) : 0.0f;
+    if (have_analysis_) {
+        c.level[0] = analysis_->rms;
+        c.level[1] = analysis_->peak;
+        c.level[2] = analysis_->spectral_centroid_hz;
+        c.level[3] = analysis_->harmonic_ratio;
+        c.counts[0] = analysis_->onset != 0 ? 1.0f : 0.0f;
+        std::memcpy(c.bands, analysis_->bands, sizeof analysis_->bands);
+    }
+    c.counts[1] = static_cast<float>(MP_ANALYSIS_OCTAVE_BANDS);
+    c.counts[2] = static_cast<float>(MP_ANALYSIS_SPECTRUM_BINS);
+    c.counts[3] = static_cast<float>(MP_ANALYSIS_WAVEFORM_SAMPLES);
+    for (size_t i = 0; i < k_max_preset_params; ++i) {
+        c.params[i] = param_values_[i].load(std::memory_order_relaxed);
+    }
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (SUCCEEDED(context_->Map(constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
         std::memcpy(mapped.pData, &c, sizeof c);
         context_->Unmap(constants_.Get(), 0);
     }
+    if (!fresh) {
+        return; // the spectrum and waveform on the GPU are already this frame's
+    }
+    if (SUCCEEDED(context_->Map(spectrum_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+        std::memcpy(mapped.pData, analysis_->spectrum, sizeof analysis_->spectrum);
+        context_->Unmap(spectrum_.Get(), 0);
+    }
+    if (SUCCEEDED(context_->Map(waveform_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+        std::memcpy(mapped.pData, analysis_->waveform, sizeof analysis_->waveform);
+        context_->Unmap(waveform_.Get(), 0);
+    }
+}
 
-    const float clear[4] = {0.04f, 0.04f, 0.06f, 1.0f};
+void renderer::render_frame(double seconds, double delta) {
+    const compiled_preset* preset = render_preset_.get();
+    if (preset == nullptr) {
+        return; // nothing has compiled yet; the loop keeps the target clear of stale content below
+    }
+    update_frame_resources(seconds, delta);
+
     ID3D11RenderTargetView* rtv = rtv_.Get();
     context_->OMSetRenderTargets(1, &rtv, nullptr);
-    context_->ClearRenderTargetView(rtv, clear);
+    context_->ClearRenderTargetView(rtv, preset->source.clear);
     D3D11_VIEWPORT vp{};
     vp.Width = static_cast<float>(width_);
     vp.Height = static_cast<float>(height_);
     vp.MaxDepth = 1.0f;
     context_->RSSetViewports(1, &vp);
     context_->IASetInputLayout(nullptr);
-    context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    context_->VSSetShader(vs_.Get(), nullptr, 0);
+    context_->IASetPrimitiveTopology(preset->source.triangle_strip ? D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP
+                                                                   : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D11Buffer* cb = constants_.Get();
+    ID3D11ShaderResourceView* srvs[] = {spectrum_srv_.Get(), waveform_srv_.Get()};
+    context_->VSSetShader(preset->vs.Get(), nullptr, 0);
     context_->VSSetConstantBuffers(0, 1, &cb);
-    context_->PSSetShader(ps_.Get(), nullptr, 0);
-    context_->DrawInstanced(6, k_bars, 0, 0);
+    context_->VSSetShaderResources(0, 2, srvs);
+    context_->PSSetShader(preset->ps.Get(), nullptr, 0);
+    context_->PSSetConstantBuffers(0, 1, &cb);
+    context_->PSSetShaderResources(0, 2, srvs);
+    context_->DrawInstanced(preset->source.vertex_count, preset->source.instance_count, 0, 0);
+}
+
+// Answers a capture request latched at the top of this iteration, from the frame just rendered and before
+// Present, because a flip-model back buffer is not readable afterwards.
+void renderer::serve_capture() {
+    com_ptr<ID3D11Texture2D> source = offscreen_;
+    if (!source && swap_chain_) {
+        swap_chain_->GetBuffer(0, __uuidof(ID3D11Texture2D), &source);
+    }
+    if (!source) {
+        return;
+    }
+    if (!capture_staging_) {
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = 1;
+        td.Height = 1;
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_STAGING;
+        td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(device_->CreateTexture2D(&td, nullptr, &capture_staging_))) {
+            capture_pending_.store(false, std::memory_order_release);
+            return;
+        }
+    }
+    const uint32_t x = std::min(capture_x_.load(std::memory_order_relaxed), width_ - 1);
+    const uint32_t y = std::min(capture_y_.load(std::memory_order_relaxed), height_ - 1);
+    D3D11_BOX box{};
+    box.left = x;
+    box.right = x + 1;
+    box.top = y;
+    box.bottom = y + 1;
+    box.back = 1;
+    context_->CopySubresourceRegion(capture_staging_.Get(), 0, 0, 0, 0, source.Get(), 0, &box);
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (SUCCEEDED(context_->Map(capture_staging_.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+        uint32_t packed = 0;
+        std::memcpy(&packed, mapped.pData, sizeof packed);
+        context_->Unmap(capture_staging_.Get(), 0);
+        capture_value_.store(packed, std::memory_order_relaxed);
+        capture_pending_.store(false, std::memory_order_release);
+        capture_done_.store(true, std::memory_order_release);
+        return;
+    }
+    capture_pending_.store(false, std::memory_order_release);
 }
 
 void renderer::record_frame_time(int64_t now) {
