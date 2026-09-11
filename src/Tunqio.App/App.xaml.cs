@@ -63,17 +63,12 @@ public partial class App : Application
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SessionId}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
+        // Captured here rather than inside ConfigureServices: OnLaunched is the XAML thread, and the registrations
+        // that hand it on must not be at the mercy of which thread the host happens to build the collection on.
+        SynchronizationContext? ui = SynchronizationContext.Current;
         _host = Host.CreateDefaultBuilder()
             .UseSerilog()
-            .ConfigureServices(services =>
-            {
-                services.AddSingleton<IAppPaths>(paths);
-                services.AddLibrary();
-                // The library views' play/enqueue actions (E3-S8) target the session, which AudioStartup creates
-                // after the first frame; until then AppPlaybackCommands carries the requests.
-                services.AddPlayback();
-                services.AddLibraryViews(SynchronizationContext.Current);
-            })
+            .ConfigureServices(services => services.AddTunqio(paths, ui))
             .Build();
         _host.Start();
         Controls.AlbumArt.Cache = _host.Services.GetService<IArtCache>();
@@ -112,7 +107,10 @@ public partial class App : Application
             _host.Services.GetRequiredService<ILibraryNavigator>(),
             _host.Services.GetRequiredService<OpenCoordinator>(),
             _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRepository>(),
-            _host.Services.GetRequiredService<Library.LibraryScanCoordinator>());
+            _host.Services.GetRequiredService<Library.LibraryScanCoordinator>(),
+            // The container's notices, not a second set: the tag editor dialog resolves this same object to leave
+            // the Undo bar behind (E3-S10, flow 8), and the panel this window shows is bound to what it is given.
+            _host.Services.GetRequiredService<ShellNotices>());
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());

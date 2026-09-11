@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window
     private readonly NowPlayingViewModel? _nowPlaying;
     private readonly QueueViewModel? _queue;
     private readonly ShellNotices _notices;
+    private readonly bool _ownsNotices;
     private readonly DiagnosticsViewModel _diagnostics;
     private readonly OpenCoordinator? _open;
     private NativeRenderer? _renderer;
@@ -45,6 +46,12 @@ public sealed partial class MainWindow : Window
     /// <param name="open">Files and folders opened or dropped (E2-S4); null leaves the window inert to drops.</param>
     /// <param name="tracks">Resolves the queue panel's rows (E2-S5); null leaves the panel showing its empty state.</param>
     /// <param name="scans">The library's scans, for the scan report bar (E2-S7); null leaves scans unreported.</param>
+    /// <param name="notices">
+    /// The shell's notice bars. Supplied by the host so that the window's panel and the tag editor's Undo bar
+    /// (E3-S10, flow 8) are the same object — the dialog resolves it from the container, and a window holding a
+    /// second one would leave that bar with nowhere to appear. Null builds one, which is what the spike modes and
+    /// the tests that construct the window directly get; only then does the window dispose it.
+    /// </param>
     public MainWindow(
         bool forceWarp = false,
         ISettingsStore? settings = null,
@@ -52,7 +59,8 @@ public sealed partial class MainWindow : Window
         Library.ILibraryNavigator? navigator = null,
         OpenCoordinator? open = null,
         Core.Library.ITrackRepository? tracks = null,
-        Library.LibraryScanCoordinator? scans = null)
+        Library.LibraryScanCoordinator? scans = null,
+        ShellNotices? notices = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
@@ -66,9 +74,10 @@ public sealed partial class MainWindow : Window
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
         _chrome.ApplyLayout(ShellLayout.MediumThreshold);
         Root.SizeChanged += (_, e) => _chrome.ApplyLayout(e.NewSize.Width);
-        // The error surfaces (E2-S7). Built before the session is attached below, so a failure during start-up has
+        // The error surfaces (E2-S7). Bound before the session is attached below, so a failure during start-up has
         // somewhere to be said.
-        _notices = new ShellNotices(audio, scans, SynchronizationContext.Current);
+        _ownsNotices = notices is null;
+        _notices = notices ?? new ShellNotices(audio, scans, SynchronizationContext.Current);
         Notices.ViewModel = _notices;
 
         // The diagnostics overlay (E2-S8). It reads the renderer through a delegate rather than being handed one,
@@ -110,7 +119,13 @@ public sealed partial class MainWindow : Window
             _transport?.Dispose();
             _nowPlaying?.Dispose();
             _queue?.Dispose();
-            _notices.Dispose();
+            // Only the one this window built. A container-owned ShellNotices is disposed with the host, and
+            // disposing it here would take the notice bars down for anything still using them during shutdown.
+            if (_ownsNotices)
+            {
+                _notices.Dispose();
+            }
+
             _diagnostics.Dispose();
             TearDownRenderer();
         };
