@@ -6,17 +6,24 @@ using Xunit.Abstractions;
 namespace Tunqio.Library.Tests.Repositories;
 
 /// <summary>
-/// E3-S9 gate (docs/product-scope.md, "Performance targets"): a three-character query on the 100k database
-/// returns in under 50 ms at p95.
+/// E3-S9 (docs/product-scope.md, "Performance targets"): a three-character query on the 100k database returns
+/// in under 50 ms at p95.
 /// <para>
-/// The p95 half of that claim is asserted by <c>Tunqio.Benchmarks</c> (<c>--gate</c>, a CI step), which owns
-/// the machine while it measures. This class measures the same searches inside the ordinary test run, where
-/// three other test projects and the rest of this assembly share eight cores, and asserts the budget on the
-/// <em>median</em> — because the tail here is the scheduler's, not the query's. Measured 2026-09-10 on the dev
-/// machine (Release): alone, p95 15 to 22 ms and median 13 to 18 ms; during <c>dotnet test Tunqio.Managed.slnf</c>
-/// the same code ran p95 36 to 58 ms with a median of 22 to 32 ms, so the old p95 assertion failed about half
-/// the time on a query that had not changed. Raising the number would have hidden a regression; the median at
-/// the product's own 50 ms still fails on one, and it does not move when the machine is busy.
+/// That claim is asserted by <c>Tunqio.Benchmarks</c> (<c>--gate</c>, a CI step), which owns the machine while
+/// it measures and carries <c>TUNQIO_PERF_SLACK</c> for hardware that is not the reference machine. It is not
+/// asserted here, and the history of this file is why. The p95 went first: measured 2026-09-10 on the dev
+/// machine, alone it ran p95 15 to 22 ms, and during <c>dotnet test Tunqio.Managed.slnf</c> the same unchanged
+/// query ran 36 to 58 ms, failing about half the time. It was moved to the median on the reasoning that the
+/// tail here is the scheduler's and the median "does not move when the machine is busy". The median moved:
+/// 2026-09-11, Debug, this project running alone, "the mi" came back with a median of 55.4 ms against the
+/// 50 ms bound (min 19.7, p95 113.2, max 160.1), one run in six (T-110).
+/// </para>
+/// <para>
+/// So what is left here is a smoke bound, chosen to be one rather than a budget in disguise — the same
+/// division 187609f drew for the upsert and first-Tracks-page bounds. Against a dev median of 13 to 18 ms and
+/// a worst observed sample of 160 ms on a loaded machine, two seconds says something has gone wrong rather
+/// than something is busy. The measurement itself is still printed, because a developer reading it is the
+/// point of running this without the gate.
 /// </para>
 /// </summary>
 [Collection(Library100kFixture.Collection)]
@@ -24,8 +31,12 @@ public sealed class SearchPerformanceTests
 {
     private const int Runs = 100;
 
-    /// <summary>docs/product-scope.md: search on a 100k library is interactive.</summary>
-    private const double BudgetMs = 50;
+    /// <summary>
+    /// Not the product's budget — that is 50 ms at p95 and it is gated in <c>Tunqio.Benchmarks</c>. This is the
+    /// value a query has to reach before it is broken rather than unlucky, roughly two orders of magnitude
+    /// above the dev-machine median and an order above the worst sample seen on a loaded one.
+    /// </summary>
+    private const double SmokeBoundMs = 2000;
 
     private readonly Library100kFixture _fixture;
     private readonly ITestOutputHelper _output;
@@ -46,7 +57,7 @@ public sealed class SearchPerformanceTests
     [InlineData("the")]
     [InlineData("kalo")]
     [InlineData("the mi")]
-    public async Task A_query_on_the_100k_database_keeps_its_median_inside_the_50ms_budget_Async(string text)
+    public async Task A_query_on_the_100k_database_returns_rows_and_stays_far_inside_a_smoke_bound_Async(string text)
     {
         var search = new SqliteSearchService(_fixture.Db);
         SearchResults warm = await search.SearchAsync(text, SearchLimits.Default);
@@ -67,7 +78,7 @@ public sealed class SearchPerformanceTests
             $"p95 {Percentile(samples, 0.95):F1} ms, max {samples[^1]:F1} ms";
         _output.WriteLine(measured);
 
-        median.Should().BeLessThan(BudgetMs, measured + " (the p95 gate is the benchmark's: dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks -- --gate --filter *SearchBenchmarks*)");
+        median.Should().BeLessThan(SmokeBoundMs, measured + " (the 50 ms budget is the benchmark's: dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks -- --gate --filter *SearchBenchmarks*)");
     }
 
     [Fact]
