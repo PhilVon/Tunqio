@@ -455,10 +455,10 @@ Goal: the visualizer and reactive UI.
 
 ### E4-S1 · Analysis thread and AnalysisFrame · **M** · `analysis` `native`
 Depends on: E1-S8. `mpcore/analysis` thread consumes the tap at 512-frame hops, runs pffft (2048-point, Hann), produces spectrum, waveform, RMS, peak; publishes to the triple buffer; `mp_analysis_try_get_latest` export and the Interop `IAnalysisFrameSource`.
-- [ ] Frames arrive at ~94 Hz while playing and stop within 100 ms of pause
-- [ ] Zero allocations per hop (`RT_ASSERT_NO_ALLOC` in Debug Catch2 test)
-- [ ] pffft output matches a naive DFT reference to 1e-4 on a fixture block
-- [ ] The triple-buffer front is never torn under a Catch2 stress test; the managed `TryGetLatest` copy costs < 5 µs
+- [x] Frames arrive at ~94 Hz while playing and stop within 100 ms of pause (94.02 Hz over 1.50 s of wall clock against the arithmetic 93.75; the offline engine is paced to real time by a high-resolution waitable timer, because `sleep_for` rounds up to 15.6 ms and would have measured the timer. Last frame 54.9 ms after pause, of which the 50 ms guard fade is still real audio)
+- [x] Zero allocations per hop (`RT_ASSERT_NO_ALLOC` in Debug Catch2 test) (`rt::scope` around `analyzer::analyze`, 0 violations over 64 hops; the same mechanism the pull stage uses)
+- [x] pffft output matches a naive DFT reference to 1e-4 on a fixture block (largest disagreement 2.8e-08 on a peak of 0.41 — 6.9e-08 relative. The reference is checked on its own first: 64 whole cycles land in bin 64 at N/2 with nothing above 1e-6 elsewhere, and a full-scale sine is separately checked to read 1.0 in its own bin, so a shared mistake in the scale could not pass)
+- [x] The triple-buffer front is never torn under a Catch2 stress test; the managed `TryGetLatest` copy costs < 5 µs (400 000 publications against two readers: 0 torn, 0 stale. `mp_analysis_try_get_latest` 72 ns with no allocation and `IAnalysisFrameSource.TryGetLatest` 1.67 µs with 6256 B, both `[Budget]`-gated in `Tunqio.Benchmarks`, measured on the dev machine)
 
 ### E4-S2 · Feature extraction · **M** · `analysis` `native`
 Spectral centroid, harmonic ratio, six octave bands, onset detection (spectral flux with adaptive threshold) in `mpcore/analysis`.

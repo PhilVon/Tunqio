@@ -19,7 +19,7 @@ tunqio/
     mpcore/                        C++20 DLL project (mpcore.vcxproj)
       include/mpcore.h             The C ABI. Only header the managed side reads.
       src/audio/                   BASS engine: streams, mixer, WASAPI output, gapless, DSP tap, devices
-      src/analysis/                Ring buffer, pffft FFT, features, onset, AnalysisFrame triple buffer
+      src/analysis/                tap.h (E1-S8 hop staging), analyzer (pffft FFT and the analysis thread), features, onset
       src/render/                  D3D11 device, composition swap chain, preset loader, shaders, quality, latency compensator
       src/abi/                     extern "C" exports, SEH guards, error strings, ABI version
       src/common/                  Lock-free primitives, thread utilities (AvSetMmThreadCharacteristics), logging sink
@@ -161,9 +161,12 @@ public sealed class PlaybackSession   // single owner of playback state; only ca
     Task RestoreAsync(QueueState saved); QueueState Capture();
 }
 
-public readonly record struct AnalysisFrame(long MixerBytePosition, long TimestampTicks,
+public readonly record struct AnalysisFrame(uint Sequence, long MixerBytePosition, long TimestampTicks,
     ReadOnlyMemory<float> Spectrum, ReadOnlyMemory<float> Waveform,
-    float Rms, float Peak, float SpectralCentroidHz, float HarmonicRatio, OctaveBands Bands, bool Onset);
+    float Rms, float Peak, float SpectralCentroidHz, float HarmonicRatio, ReadOnlyMemory<float> Bands, bool Onset);
+// E4-S1 as built: `Sequence` is how a poller knows what it holds is new (the native side publishes at 93.75 Hz
+// and every consumer samples more slowly), and `Bands` is the same shape as Spectrum and Waveform rather than a
+// named OctaveBands type - E4-S2 is what fills it, and it should be the story that names its shape.
 
 public interface IAnalysisFrameSource
 {
