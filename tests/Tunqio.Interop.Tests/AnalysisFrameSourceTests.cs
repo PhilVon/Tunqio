@@ -23,6 +23,24 @@ public class AnalysisFrameSourceTests
         }
     }
 
+    /// <summary>
+    /// Renders `frames` frames in pieces the analysis thread can keep up with. <see cref="Render"/> makes audio
+    /// as fast as the CPU allows, and the tap's ring holds sixteen 512-frame hops: a second of audio pushed
+    /// through it in one go overruns it many times over, and every overrun leaves the analyzer's sliding window
+    /// with a discontinuity in it - a 1 kHz sine whose phase jumps, whose spectrum is a smear rather than a
+    /// tone. Real playback cannot do this (a device asks for 10 ms at a time, in real time), so a test that wants
+    /// a frame of the audio it played has to hand the audio over at a rate something could have listened to.
+    /// </summary>
+    private static void RenderPaced(NativeEngine engine, int frames)
+    {
+        const int piece = 4096; // eight hops, half the ring
+        for (int done = 0; done < frames; done += piece)
+        {
+            Render(engine, Math.Min(piece, frames - done));
+            Thread.Sleep(4); // the analysis thread polls every 2 ms and drains everything it finds
+        }
+    }
+
     private static NativeEngine CreateHeadless()
     {
         NativeEngine engine = NativeEngine.Create();
@@ -68,9 +86,13 @@ public class AnalysisFrameSourceTests
         using var source = new NativeAnalysisFrameSource(engine);
         using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("analysis-frame", seconds: 2.0, frequencyHz: 1000.0, amplitude: 0.5));
         engine.Play(track);
-        Render(engine, 48000); // 1 s, which is 93 hops
+        RenderPaced(engine, 48000); // 1 s, which is 93 hops
 
-        AnalysisFrame frame = WaitForFrame(source, TimeSpan.FromSeconds(2));
+        // Past the twentieth, not merely the first: the sliding window is four hops long and the play-start
+        // guard fade is another five, so a frame before about the tenth is a partly-filled window over a rising
+        // envelope, and its spectrum is a smear rather than a tone. Taking the first frame that exists was a
+        // race with the analysis thread that the transients won about half the time.
+        AnalysisFrame frame = WaitForFrame(source, TimeSpan.FromSeconds(2), after: 20);
 
         frame.Sequence.Should().BePositive("frames are numbered from one");
         frame.Spectrum.Length.Should().Be(1024, "1024 bins from the 2048-point FFT, Nyquist dropped");
@@ -96,10 +118,22 @@ public class AnalysisFrameSourceTests
 
         loudest.Should().BeInRange(42, 43, "1000 Hz falls between bins 42 and 43 of a 2048-point FFT at 48 kHz");
 
-        // E4-S2's fields are not filled in yet, and a zero here is a zero rather than a measurement.
-        frame.SpectralCentroidHz.Should().Be(0f, "spectral centroid is E4-S2");
-        frame.HarmonicRatio.Should().Be(0f, "harmonic ratio is E4-S2");
-        frame.Onset.Should().BeFalse("onset detection is E4-S2");
+        // E4-S2's fields, read back through the binding rather than out of the native test - which is the point
+        // of checking them here: a field left out of the marshalled struct, or read at the wrong offset, shows
+        // up as a zero or as somebody else's number and not as a compile error.
+        frame.SpectralCentroidHz.Should().BeApproximately(1000f, 20f, "a 1 kHz sine's spectral centroid is 1 kHz to within 2%");
+        frame.HarmonicRatio.Should().BeGreaterThan(0.9f, "a sine is about as tonal as a spectrum gets");
+        frame.Bands.Span[5].Should().BeApproximately(0.5f, 0.02f, "1 kHz is in the 703-1430 Hz octave, and the sine's amplitude is 0.5");
+        float elsewhere = 0f;
+        for (int band = 0; band < frame.Bands.Length; band++)
+        {
+            if (band != 5)
+            {
+                elsewhere += frame.Bands.Span[band];
+            }
+        }
+
+        elsewhere.Should().BeLessThan(0.02f, "a single tone is in one octave band and not spread across ten");
     }
 
     [Fact]
