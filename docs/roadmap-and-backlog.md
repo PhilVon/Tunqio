@@ -428,9 +428,9 @@ FTS5 trigram table maintained in-transaction; `ISearchService`; search UI with g
 
 ### E3-S10 · Tag writer and editor · **L** · `library` `ui`
 Single and batch tag editing, temp-write-verify-replace, undo stack, active-track deferral.
-- [ ] Editing a FLAC and an MP3 writes tags readable by another tagger; file plays afterwards
-- [ ] A simulated write failure leaves the original file byte-identical
-- [ ] Batch edit of 12 tracks shows progress and can be undone in the session (flow 8)
+- [x] Editing a FLAC and an MP3 writes tags readable by another tagger; file plays afterwards (read back with `ffprobe`, which shares no code with TagLibSharp: title, artists, album, album artist, year, track, disc and genre all as written, including a non-ASCII title; the FLAC's ReplayGain and the MP3's composer survived untouched. "Plays afterwards" is a full `ffmpeg -v error -i <file> -f null -` decode, exit 0 for both)
+- [x] A simulated write failure leaves the original file byte-identical (failure injected at each of the four stages — Copied, Saved, Verified, Replacing — on a FLAC and an MP3, plus a genuine verify disagreement, a missing file and an unparseable one. Original SHA-256 and length identical before and after in every case, and no working copy left behind)
+- [x] Batch edit of 12 tracks shows progress and can be undone in the session (flow 8) (against a real scanner and database: 12 tracks, Album Artist set, 13 progress samples, files and rows both updated, undo restores both — including a field that was absent before the edit being absent again rather than blank. The dialog's own half is covered headlessly in `Tunqio.App.Tests`; that it *renders* correctly is left to the human criteria on T-48)
 
 ### E3-S11 · Play history and counts · **S** · `library`
 `PlayCompletion` in Core decides the verdict and `SqlitePlayHistoryRepository` stores it; `PlaybackSession` (E1-S10) is the caller. The Recently/Most played views are E3-S8's and already read the columns this story writes.
