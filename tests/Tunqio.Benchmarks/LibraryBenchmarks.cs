@@ -109,10 +109,20 @@ public class LibraryOpenBenchmarks
 /// flattered, which is the safe direction for a gate. The copy is private and temporary: the committed fixture
 /// is shared by the whole suite and is never written to.
 /// </para>
+/// <para>
+/// The WAL is checkpointed between iterations, and that is the difference between measuring this claim and
+/// measuring something else. SQLite checkpoints on its own once the WAL passes about a thousand pages, so over
+/// a run of batches roughly every sixth one pays for everyone's accumulated writes: on CI, 5 of 30 iterations
+/// came in between 1.04 s and 1.15 s against a median of 50 ms, which took the p95 to 1081 ms. That stall is
+/// real and a scan importing thousands of tracks will meet it — worth its own look — but it is not "an upsert
+/// of 500 tracks in one transaction", and letting it decide a p95 would gate on when the checkpoint happened
+/// to land. Checkpointing in the cleanup, which is not timed, leaves each iteration measuring its own work.
+/// </para>
 /// </summary>
 [Config(typeof(WriteConfig))]
 public class UpsertBenchmarks
 {
+    private string _path = null!;
     private string _temporary = null!;
     private LibraryDatabase _db = null!;
     private SqliteTrackRepository _tracks = null!;
@@ -121,12 +131,23 @@ public class UpsertBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        (string path, _temporary) = BenchmarkLibrary.AcquireWritable(Console.Out);
-        _db = LibraryDatabase.Open(path);
+        (_path, _temporary) = BenchmarkLibrary.AcquireWritable(Console.Out);
+        _db = LibraryDatabase.Open(_path);
         _tracks = new SqliteTrackRepository(_db);
 
         // Warms the file cache and the prepared statements, the way the xunit companion's first batch did.
         await _tracks.UpsertBatchAsync(Batch(_batch++));
+    }
+
+    /// <summary>Not timed: leaves the next iteration a fresh WAL instead of someone else's backlog.</summary>
+    [IterationCleanup]
+    public void Checkpoint()
+    {
+        using var connection = new SqliteConnection($"Data Source={_path}");
+        connection.Open();
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+        command.ExecuteNonQuery();
     }
 
     [GlobalCleanup]
