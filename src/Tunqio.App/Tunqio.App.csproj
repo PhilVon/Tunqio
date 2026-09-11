@@ -75,6 +75,22 @@
     <Content Include="Assets\**\*.png" />
   </ItemGroup>
 
+  <!-- The preset root the core scans: presets/ beside mpcore.dll, or MPCORE_PRESET_ROOT when it is set
+       (native/mpcore/src/render/preset.cpp, default_preset_root). The repo's presets/ is committed source, so
+       these are Content items rather than another AfterTargets copy: the MSIX payload is computed from item
+       groups, and a file copied into $(OutDir) after the build never reaches it. LinkBase puts each file under
+       presets/ with its subdirectory intact, in the unpackaged output and in the package alike.
+       tools/check-presets.ps1 fails a build whose output has no preset root. -->
+  <PropertyGroup>
+    <TunqioPresetRoot>$(TunqioRepoRoot)presets\</TunqioPresetRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(TunqioPresetRoot)**\*">
+      <LinkBase>presets</LinkBase>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- mpcore.dll is built by native/mpcore/mpcore.vcxproj (solution build order); it and the BASS runtime it links
        (tools/fetch-native.ps1) go next to the exe. The copy is conditional and only warns when the native build is
        missing: the shell still launches and browses the library, and AudioStartup shows an "audio unavailable"

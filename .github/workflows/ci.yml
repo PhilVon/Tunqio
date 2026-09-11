@@ -66,6 +66,17 @@ jobs:
       - name: Build (Release x64, warnings as errors)
         run: msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 -warnaserror -m -nologo -v:minimal
 
+      # T-125. The preset root is data the build has to place, and when it does not the app still runs: it falls
+      # back to the preset compiled into the core, so the only symptom is a short preset list. Asserted over the
+      # built app rather than in a test, because a test asserts against its own output directory and not the
+      # one a user gets, and because MPCORE_PRESET_ROOT on a developer's machine hides the defect from anything
+      # that asks the loader. The script never reads that variable. It cannot run over the MSIX yet: the package
+      # carries no mpcore.dll (an AfterTargets copy into $(OutDir) does not reach the payload), which is its own
+      # defect and its own card.
+      - name: Presets reached the built app
+        shell: pwsh
+        run: ./tools/check-presets.ps1
+
       - name: Managed format check (dotnet format, after restore)
         shell: pwsh
         run: |

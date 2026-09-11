@@ -36,7 +36,10 @@ tunqio/
     Tunqio.Interop/           C#: LibraryImport bindings for mpcore.h, SafeHandles, callback trampolines, event pump; implements the Core contracts over mpcore.
     Tunqio.Library/           C#: SQLite repositories, scanner, TagLibSharp reader/writer, art cache, playlists, history.
     Tunqio.App/               C#: WinUI 3 shell, views, view models, Windows integration, DI wiring, MSIX manifest.
-  presets/                         Built-in visualization presets (preset.json + HLSL), copied to output.
+  presets/                         Built-in visualization presets (preset.json + HLSL). Copied to presets/ beside
+                                   mpcore.dll in the app output and into the MSIX by Content items in
+                                   Tunqio.App.csproj; tools/check-presets.ps1 fails a build that skipped it.
+                                   Empty of presets until E4-S4/E4-S5 write them.
   tests/
     Tunqio.Core.Tests/
     Tunqio.Interop.Tests/     Round-trips every ABI call against the real mpcore with the BASS "no sound" device
@@ -52,6 +55,7 @@ tunqio/
     build.ps1                      Two-step local build (MSBuild.exe for native, dotnet for managed) with -Test
     check-format.ps1               clang-format --dry-run --Werror over native/ (-Fix rewrites)
     check-asan.ps1                 Runs the tagged use-after-free test on the ASan build and requires ASan to report it
+    check-presets.ps1              Fails when a built app has no presets/ beside mpcore.dll; ignores MPCORE_PRESET_ROOT
   docs/
   .github/workflows/
 ```
