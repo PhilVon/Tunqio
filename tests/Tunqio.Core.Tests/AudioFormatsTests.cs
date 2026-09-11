@@ -7,8 +7,10 @@ public class AudioFormatsTests
     [Fact]
     public void Every_documented_format_has_an_extension()
     {
-        // docs/product-scope.md: MP3, FLAC, WAV, AIFF, AAC/M4A/ALAC, OGG Vorbis, Opus, WMA, WavPack, APE, MPC.
-        AudioFormats.Extensions.Should().Contain([".mp3", ".flac", ".wav", ".aiff", ".m4a", ".ogg", ".opus", ".wma", ".wv", ".ape", ".mpc"]);
+        // docs/product-scope.md: MP3, FLAC, WAV, AIFF, AAC/M4A/ALAC, OGG Vorbis, Opus, WMA, WavPack, APE.
+        // MPC is out (Q-26 on T-88): no bass_mpc add-on ships, so a scanned .mpc would index and never play.
+        AudioFormats.Extensions.Should().Contain([".mp3", ".flac", ".wav", ".aiff", ".m4a", ".ogg", ".opus", ".wma", ".wv", ".ape"]);
+        AudioFormats.Extensions.Should().NotContain(".mpc");
         AudioFormats.Extensions.Should().OnlyContain(e => e.StartsWith('.') && !e.Any(char.IsUpper));
     }
 

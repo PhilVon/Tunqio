@@ -224,8 +224,6 @@ public sealed class TagLibTagReader : ITagReader
                 return "wavpack";
             case TagLib.Ape.File:
                 return "ape";
-            case TagLib.MusePack.File:
-                return "mpc";
             case TagLib.Mpeg4.File:
                 return properties?.Codecs.OfType<TagLib.Mpeg4.IsoAudioSampleEntry>().Any(e => string.Equals(e.BoxType.ToString(), "alac", StringComparison.OrdinalIgnoreCase)) == true ? "alac" : "aac";
             case TagLib.Ogg.File:

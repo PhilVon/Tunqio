@@ -5,7 +5,7 @@ namespace Tunqio.Core.Library;
 /// <summary>
 /// The supported file extensions (docs/product-scope.md "Formats") and the codec identifiers stored in
 /// <c>track.codec</c>. The identifiers are the vocabulary the UI shows and filters on:
-/// <c>mp3 flac aac alac vorbis opus wav aiff wma wavpack ape mpc</c>. An extension only implies a container, so
+/// <c>mp3 flac aac alac vorbis opus wav aiff wma wavpack ape</c>. An extension only implies a container, so
 /// the tag reader refines <c>.m4a</c> into <c>aac</c>/<c>alac</c> and <c>.ogg</c> into <c>vorbis</c>/<c>opus</c>
 /// from the stream itself; <see cref="CodecForExtension"/> is the fallback when the file cannot be parsed.
 /// </summary>
@@ -28,7 +28,6 @@ public static class AudioFormats
         [".wma"] = "wma",
         [".wv"] = "wavpack",
         [".ape"] = "ape",
-        [".mpc"] = "mpc",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>

@@ -9,7 +9,7 @@ measurement is the `[gapless]` suite in `native/mpcore.tests/src/test_gapless.cp
 
 `tools/FixtureGen gapless` writes `tests/fixtures/gapless/<pair>/a.<ext>` and `b.<ext>`: one linear chirp,
 200 Hz to 2000 Hz over 4 s at 0.25 full scale, cut at exactly 2.0 s and each half encoded on its own, in every
-format an encoder exists for (APE and MPC have none, card T-88). A chirp has no period, so a cross-correlation
+format an encoder exists for (APE has none; MPC is not a 1.0 format, Q-26 on T-88). A chirp has no period, so a cross-correlation
 against the chirp regenerated in the test has a single peak and a lossy codec cannot hide a seam in it. Two
 pairs are at 44.1 kHz to run the mixer's resampler through the join; the rest are at the 48 kHz mixer rate.
 
