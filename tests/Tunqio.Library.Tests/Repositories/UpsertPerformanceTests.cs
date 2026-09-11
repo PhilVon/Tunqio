@@ -32,18 +32,25 @@ public sealed class UpsertPerformanceTests
         (await tracks.CountAsync(new TrackQuery())).Should().Be(before + 1000);
 
         // The 150 ms is asserted by Tunqio.Benchmarks (--gate, a CI step), which owns the machine for the
-        // 30 batches it times. One sample beside the rest of this assembly is not that measurement: the first
-        // time CI ever reached this test (2026-09-11) it came back 157 ms on an unchanged repository. The bound
-        // here is loose on purpose - it catches a batch that has become pathological without waiting for the
-        // benchmark step, and does not fail on a busy machine.
-        timed.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(600), $"warm batch took {warm.ElapsedMilliseconds} ms, timed batch {timed.ElapsedMilliseconds} ms");
+        // 30 batches it times and carries TUNQIO_PERF_SLACK for hardware that is not the reference machine.
+        // What is left here is a smoke bound, and the number below is chosen to be one rather than a budget in
+        // disguise. The 600 ms it replaces was a dev-machine figure with a little added, which is the same
+        // mistake it was written to document: on a slow runner this batch has taken 622 ms with the warm batch
+        // alone at 494 ms, so it failed on an unchanged repository. Against a dev-machine median near 50 ms and
+        // a worst observed CI sample of 622 ms, five seconds is far enough out to say something has gone wrong
+        // rather than something is busy - and on CI the benchmark step catches a real regression in the same
+        // job anyway, so the value of this assertion is to a developer running dotnet test without the gate.
+        timed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), $"warm batch took {warm.ElapsedMilliseconds} ms, timed batch {timed.ElapsedMilliseconds} ms");
 
-        // A page of the largest view stays quick too; the E3-S3 budget is gated in Tunqio.Benchmarks beside it.
+        // A page of the largest view stays quick too. Same division: the E3-S3 budget is gated in
+        // Tunqio.Benchmarks beside the upsert, and this is a smoke bound. It has not fired - CI has it at a p95
+        // of 56 to 72 ms against its 500 ms budget - but it was picked the same way as the 600 ms above, so it
+        // moves with it rather than waiting to be the next one to go.
         Stopwatch page = Stopwatch.StartNew();
         IReadOnlyList<TrackDto> rows = await tracks.ListAsync(new TrackQuery(TrackSort.Title, PageSize: 200));
         page.Stop();
         rows.Should().HaveCount(200);
-        page.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(2000), "first Tracks page by title on 101k rows");
+        page.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "first Tracks page by title on 101k rows");
     }
 
     private static List<ScannedTrack> Batch(int batch)
