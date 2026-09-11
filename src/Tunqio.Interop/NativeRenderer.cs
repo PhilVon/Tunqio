@@ -57,8 +57,7 @@ public sealed unsafe class NativeRenderer : IDisposable
             histogram[i] = (int)s.FrameMsHistogram[i];
         }
 
-        int adapterLength = new ReadOnlySpan<byte>(s.Adapter, 128).IndexOf((byte)0);
-        string adapter = Encoding.UTF8.GetString(s.Adapter, adapterLength < 0 ? 128 : adapterLength);
+        string adapter = Utf8(s.Adapter, 128);
         return new RenderStats(
             (long)s.Frames,
             (long)s.Resizes,
@@ -78,26 +77,58 @@ public sealed unsafe class NativeRenderer : IDisposable
             adapter);
     }
 
-    /// <summary>Presets are E4-S3; until then this reports an empty list rather than throwing.</summary>
-    public IReadOnlyList<string> EnumeratePresets()
+    /// <summary>
+    /// The preset catalogue: the core's built-in preset first, then every well-formed <c>preset.json</c> under
+    /// the preset directory, by id. Two calls, as the ABI asks - one for the count, one for the entries.
+    /// </summary>
+    public IReadOnlyList<PresetInfo> EnumeratePresets()
     {
+        nint handle = RequireHandle();
         uint count = 0;
-        MpResult result = NativeMethods.RendererEnumPresets(RequireHandle(), null, &count);
-        if (result == MpResult.State)
+        NativeException.ThrowIfFailed(NativeMethods.RendererEnumPresets(handle, null, &count), "mp_renderer_enum_presets");
+        if (count == 0)
         {
             return [];
         }
 
-        NativeException.ThrowIfFailed(result, "mp_renderer_enum_presets");
-        return [];
+        var native = new MpPresetInfo[count];
+        fixed (MpPresetInfo* first = native)
+        {
+            for (uint i = 0; i < count; i++)
+            {
+                first[i].StructSize = (uint)sizeof(MpPresetInfo);
+            }
+
+            NativeException.ThrowIfFailed(NativeMethods.RendererEnumPresets(handle, first, &count), "mp_renderer_enum_presets");
+            var presets = new PresetInfo[count];
+            for (uint i = 0; i < count; i++)
+            {
+                presets[i] = new PresetInfo(Utf8(first[i].Id, 64), Utf8(first[i].Name, 128));
+            }
+
+            return presets;
+        }
     }
 
+    /// <summary>
+    /// Switches preset. The core compiles the HLSL on this thread and only swaps it in if the device accepted
+    /// it, so a <see cref="PresetCompilationException"/> from here means nothing changed - the preset that was
+    /// drawing is still drawing - and <see cref="PresetCompilationException.CompilerMessage"/> is the shader
+    /// compiler's own diagnostic, which is the only thing that says where the mistake is.
+    /// </summary>
     public void SetPreset(string id)
     {
+        ArgumentException.ThrowIfNullOrEmpty(id);
         byte[] utf8 = Encoding.UTF8.GetBytes(id + "\0");
         fixed (byte* p = utf8)
         {
-            NativeException.ThrowIfFailed(NativeMethods.RendererSetPreset(RequireHandle(), p), "mp_renderer_set_preset");
+            MpResult result = NativeMethods.RendererSetPreset(RequireHandle(), p);
+            if (result == MpResult.D3D)
+            {
+                throw new PresetCompilationException(id, NativeEngineInfo.LastError());
+            }
+
+            NativeException.ThrowIfFailed(result, "mp_renderer_set_preset");
         }
     }
 
@@ -130,6 +161,13 @@ public sealed unsafe class NativeRenderer : IDisposable
         {
             _ = NativeMethods.RendererDestroy(handle);
         }
+    }
+
+    /// <summary>A fixed-size UTF-8 field out of a native struct, up to its NUL.</summary>
+    private static string Utf8(byte* field, int capacity)
+    {
+        int length = new ReadOnlySpan<byte>(field, capacity).IndexOf((byte)0);
+        return Encoding.UTF8.GetString(field, length < 0 ? capacity : length);
     }
 
     private nint RequireHandle()
