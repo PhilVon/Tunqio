@@ -90,13 +90,14 @@ jobs:
           }
           exit $failed
 
-      # E3-S9's search claim, asserted where it can be measured: BenchmarkDotNet owns the machine for the
-      # 100 samples it takes of each query, which the xunit companion (running beside three other test
-      # projects) cannot. Generates its own copy of the 100k database; E3-S13 points it at the committed
-      # fixture and adds the open-time budget beside it.
-      - name: Gated benchmarks (search p95 on the 100k database)
+      # The performance claims, asserted where they can be measured: BenchmarkDotNet owns the machine for the
+      # samples it takes, which an xunit assertion running beside the rest of its assembly cannot. The search
+      # p95 (E3-S9), the library open (E3-S1) and the upsert batch and first Tracks page (E3-S2, E3-S3) all
+      # gate here; their xunit companions keep the correctness assertions and a loose bound. Generates its own
+      # copy of the 100k database when tests/fixtures/library-100k.db is absent, which on CI it is.
+      - name: Gated benchmarks (performance budgets on the 100k database)
         shell: pwsh
-        run: dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks --no-build -- --gate --filter '*SearchBenchmarks*'
+        run: dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks --no-build -- --gate --filter '*SearchBenchmarks*' '*LibraryOpenBenchmarks*' '*UpsertBenchmarks*'
 
       - name: Package MSIX (unsigned; signing lands with E8-S1)
         run: msbuild src/Tunqio.App/Tunqio.App.csproj -p:Configuration=Release -p:Platform=x64 -p:TunqioPackaged=true -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -m -nologo -v:minimal

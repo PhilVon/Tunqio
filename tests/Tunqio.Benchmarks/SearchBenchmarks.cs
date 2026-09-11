@@ -7,7 +7,6 @@ using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using Perfolizer.Mathematics.OutlierDetection;
 using Tunqio.Core.Library;
-using Tunqio.FixtureGen;
 using Tunqio.Library.Database;
 using Tunqio.Library.Repositories;
 
@@ -36,15 +35,7 @@ public class SearchBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        string path = FixturePath();
-        if (!File.Exists(path))
-        {
-            _temporary = Path.Combine(Path.GetTempPath(), "tunqio-bench-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_temporary);
-            path = Path.Combine(_temporary, "library-100k.db");
-            Library100kBuilder.Build(path, 100_000, FixtureLibraryBuilder.Seed, Console.Out);
-        }
-
+        (string path, _temporary) = BenchmarkLibrary.Acquire(Console.Out);
         _db = LibraryDatabase.Open(path);
         _search = new SqliteSearchService(_db);
     }
@@ -54,26 +45,13 @@ public class SearchBenchmarks
     {
         _db.Dispose();
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        if (_temporary is not null && Directory.Exists(_temporary))
-        {
-            Directory.Delete(_temporary, recursive: true);
-        }
+        BenchmarkLibrary.Delete(_temporary);
     }
 
     [Benchmark(Description = "ISearchService.SearchAsync, default limits")]
     [Budget(50)]
     public Task<SearchResults> SearchAsync() => _search.SearchAsync(Text, SearchLimits.Default);
 
-    private static string FixturePath()
-    {
-        string? dir = AppContext.BaseDirectory;
-        while (dir is not null && !File.Exists(Path.Combine(dir, "Tunqio.sln")))
-        {
-            dir = Path.GetDirectoryName(dir.TrimEnd(Path.DirectorySeparatorChar));
-        }
-
-        return Path.Combine(dir ?? ".", "tests", "fixtures", "library-100k.db");
-    }
 
     /// <summary>
     /// A p95 of one search, not of a batch average: the default throughput strategy times many invocations per
