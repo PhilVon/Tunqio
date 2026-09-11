@@ -62,6 +62,7 @@
     <ClInclude Include="src\common\spsc_ring.h" />
     <ClInclude Include="src\common\triple_buffer.h" />
     <ClInclude Include="src\common\version.h" />
+    <ClInclude Include="src\render\preset.h" />
     <ClInclude Include="src\render\renderer.h" />
     <ClInclude Include="src\render\swapchainpanel_native.h" />
   </ItemGroup>
@@ -74,6 +75,7 @@
     <ClCompile Include="src\audio\mp4_gapless.cpp" />
     <ClCompile Include="src\common\log.cpp" />
     <ClCompile Include="src\common\rt_guard.cpp" />
+    <ClCompile Include="src\render\preset.cpp" />
     <ClCompile Include="src\render\renderer.cpp" />
     <!-- pffft: third-party C, compiled at a lower warning level (it is FFTPACK's shape, not ours). -->
     <ClCompile Include="$(TunqioNativeRoot)third_party\pffft\pffft.c">
