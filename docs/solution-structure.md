@@ -174,15 +174,22 @@ public interface IAnalysisFrameSource
     IObservable<AnalysisFrame> Frames { get; }       // polled at 30 Hz for UI theming
 }
 
-public interface IVisualizationHost
+public interface IVisualizationHost : IDisposable
 {
-    Task AttachAsync(object swapChainPanel);         // App passes the SwapChainPanel; Interop extracts ISwapChainPanelNative
-    void Detach(); void Resize(uint w, uint h, float scaleX, float scaleY); void SetVisible(bool visible);
-    IReadOnlyList<PresetInfo> Presets { get; }
+    Task AttachAsync(nint swapChainPanelNative, RendererConfig config);   // the panel's IUnknown, not the panel
+    void Detach(); void Resize(int width, int height, float scaleX, float scaleY); void SetVisible(bool visible);
+    bool IsAttached { get; }
+    IReadOnlyList<PresetInfo> Presets { get; }  string? ActivePresetId { get; }
     Task SetPresetAsync(string id); void SetParameter(string name, float value);
     void SetThemeColors(ThemeColors colors); void SetQualityPolicy(QualityPolicy policy);
     IObservable<RenderStats> Stats { get; }
 }
+// E4-S3 as built. The sketch here took the SwapChainPanel itself and had Interop extract ISwapChainPanelNative,
+// but the dependency rule above forbids Interop from referencing WinUI and something had to give: the shell holds
+// the WinUI reference and already knows how to produce the pointer, so it produces it. AttachAsync also takes the
+// RendererConfig, because the renderer is created here and needs the panel's pixel size and composition scale.
+// SetPresetAsync throws PresetCompilationException carrying the shader compiler's diagnostic; the preset that was
+// running is still running when it does.
 
 public interface ILibraryService { ITrackRepository Tracks { get; } IAlbumRepository Albums { get; } IArtistRepository Artists { get; } IGenreRepository Genres { get; } ILibraryFolderRepository Folders { get; } ILibraryScanner Scanner { get; } ILibraryWatcher Watcher { get; } }
 ```

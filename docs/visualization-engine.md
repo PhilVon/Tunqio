@@ -1,6 +1,54 @@
 # Visualization Engine Architecture
 
-> **Status: foundation document, partially superseded.** The D3D11 → D3D9Ex → WPF D3DImage bridge is replaced by a WinUI 3 SwapChainPanel with a composition swap chain and a dedicated render thread (ADR-002). The sub-10 ms latency figure is restated as a measurable one-refresh target with look-ahead compensation (ADR-012). Analysis, feature extraction, shader and quality-scaling sections remain valid; presets are data-driven per ADR-009. See [decisions.md](decisions.md) for the record and [README.md](README.md) for the current reading order.
+> **Status: foundation document, partially superseded.** The D3D11 → D3D9Ex → WPF D3DImage bridge is replaced by a WinUI 3 SwapChainPanel with a composition swap chain and a dedicated render thread (ADR-002). The sub-10 ms latency figure is restated as a measurable one-refresh target with look-ahead compensation (ADR-012). Analysis, feature extraction, shader and quality-scaling sections remain valid; presets are data-driven per ADR-009. The next section is **as built** and supersedes the HLSL sketches further down, which describe constant buffers the engine does not have. See [decisions.md](decisions.md) for the record and [README.md](README.md) for the current reading order.
+
+## Preset format and constant-buffer contract (as built, E4-S3)
+
+A preset is a directory: `preset.json` plus the HLSL it names. The core scans one preset root at renderer creation — `MPCORE_PRESET_ROOT` when set, otherwise `presets/` beside `mpcore.dll` — and compiles a preset's shader only when it is selected. Nothing is compiled ahead of time and nothing is cached on disk; `D3DCompile` on a preset of this size costs single-digit milliseconds.
+
+The core also carries **one preset compiled into it**, `builtin-bars`. It is always first in the catalogue and is what a renderer starts on, so a missing or empty preset root costs the user a choice rather than a picture — and `mp_renderer_set_preset` always has a previous preset to fall back to. It is not one of the four built-ins of ADR-009; those are files, and E4-S4/E4-S5 write them.
+
+```json
+{
+  "schema": 1,
+  "id": "spectrum-bars",
+  "name": "Spectrum Bars",
+  "shader": "spectrum-bars.hlsl",
+  "vertex_entry": "VSMain",
+  "pixel_entry": "PSMain",
+  "topology": "trianglelist",
+  "vertex_count": 6,
+  "instance_count": 64,
+  "clear": [0.04, 0.04, 0.06, 1.0],
+  "parameters": [
+    { "name": "gain", "default": 1.0, "min": 0.0, "max": 4.0 }
+  ]
+}
+```
+
+`id` and `name` are required; everything else has a default. `id` is 1–63 bytes of `[A-Za-z0-9._-]` and `name` at most 127, because both have to fit `mp_preset_info`. `shader` must name a file beside `preset.json` — absolute paths and anything containing `..` are refused rather than resolved, because a preset is data and will one day be data a user downloaded. At most 16 parameters; a `default` outside `min`..`max` is clamped to it. A manifest that does not parse, or whose shader is not there, is skipped with a warning in the log: one bad preset must not cost the user the others.
+
+Every preset sees the same resources and declares none of its own:
+
+```hlsl
+cbuffer Frame : register(b0) {
+    float4 viewport;   // x = width px, y = height px, z = 1/width, w = 1/height
+    float4 timing;     // x = seconds since the renderer started, y = seconds since the last frame,
+                       // z = frame index, w = mp_analysis_frame.sequence (0 when nothing has played)
+    float4 level;      // x = rms, y = peak, z = spectral centroid Hz, w = harmonic ratio
+    float4 counts;     // x = onset (0 or 1), y = band count, z = spectrum bins, w = waveform samples
+    float4 bands[3];   // the 10 octave bands in .x .y .z .w order; the last two floats are unused
+    float4 params[4];  // the preset's own parameters, in the order preset.json declares them
+};
+Buffer<float> Spectrum : register(t0);   // 1024 magnitudes, full-scale sine = 1.0
+Buffer<float> Waveform : register(t1);   // 512 mono samples, the newest hop
+```
+
+Both SRVs are bound to the vertex and the pixel stage, so a preset may drive geometry or colour from either. The spectrum and waveform are buffers rather than `cbuffer` arrays because HLSL packs a float array one value per `float4` register: 1024 bins would cost 16 KB of constant buffer to carry 4 KB of data. The renderer polls `mp_analysis_try_get_latest` once per frame and only re-uploads the two buffers when the sequence has moved; `b0` is written every frame because time has.
+
+The contract is the versioned part: `schema` is 1, and a preset that names a schema this build does not know is refused rather than guessed at. Adding a field to the end of `b0` is a schema bump, not a silent change.
+
+**Error reporting.** `mp_renderer_set_preset` compiles on the *calling* thread, and hands the render thread either a finished preset or nothing at all. A shader that does not compile therefore returns `MP_E_D3D` with the compiler's own first diagnostic in `mp_last_error` — file, line, error code and message — while the preset that was already drawing keeps drawing. On the managed side that is `PresetCompilationException.CompilerMessage`, which is what the preset switcher shows.
 
 The visualization engine provides real-time audio-reactive graphics through D3D11/WPF integration, achieving sub-10ms latency from audio sample to visual update while maintaining 60fps performance.
 
