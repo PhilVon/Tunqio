@@ -25,9 +25,9 @@
 
 .PARAMETER Msix
   A .msix to check. It is a zip; the payload is expanded to a scratch folder and checked the same way.
-  NOTE (2026-09-11): the package carries no mpcore.dll, no BASS and no licenses/ - an AfterTargets copy into
-  $(OutDir) does not reach the MSIX payload - so this fails on the MSIX for a reason that is not about presets.
-  That omission is its own defect and its own card; until it is fixed, CI runs this over -Root only.
+  Usable in CI since T-128 put mpcore.dll in the package: until then this failed on the MSIX truthfully but for
+  a reason that was not about presets, so CI ran it over -Root only. The engine and licence payload it was
+  tripping over is now asserted in its own right by tools/check-package.ps1.
 
 .PARAMETER Source
   The repo's preset root. Defaults to presets/.

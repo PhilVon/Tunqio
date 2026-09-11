@@ -70,12 +70,17 @@ jobs:
       # back to the preset compiled into the core, so the only symptom is a short preset list. Asserted over the
       # built app rather than in a test, because a test asserts against its own output directory and not the
       # one a user gets, and because MPCORE_PRESET_ROOT on a developer's machine hides the defect from anything
-      # that asks the loader. The script never reads that variable. It cannot run over the MSIX yet: the package
-      # carries no mpcore.dll (an AfterTargets copy into $(OutDir) does not reach the payload), which is its own
-      # defect and its own card.
+      # that asks the loader. The script never reads that variable.
       - name: Presets reached the built app
         shell: pwsh
         run: ./tools/check-presets.ps1
+
+      # T-128. Same reasoning, different payload: mpcore.dll, the BASS DLLs it loads and the licence texts
+      # ADR-003 requires shipping. Over the unpackaged output this has always been green; the package is where
+      # it was not, and that step is at the bottom of this job.
+      - name: The engine and its licences reached the built app
+        shell: pwsh
+        run: ./tools/check-package.ps1
 
       - name: Managed format check (dotnet format, after restore)
         shell: pwsh
@@ -140,6 +145,22 @@ jobs:
 
       - name: Package MSIX (unsigned; signing lands with E8-S1)
         run: msbuild src/Tunqio.App/Tunqio.App.csproj -p:Configuration=Release -p:Platform=x64 -p:TunqioPackaged=true -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -m -nologo -v:minimal
+
+      # T-128. The package is the artifact this job hands to a human, and until now it was the one thing nothing
+      # here opened: every MSIX uploaded before this step existed had no audio engine in it. Both checks run
+      # over the .msix itself, which is a zip, so what is asserted is what a user would unpack - not what the
+      # build log claims it placed. The unsigned package is checked rather than a layout folder for the same
+      # reason. This runs after the package step and therefore over the packaged shape of $(OutDir); the
+      # unpackaged assertions are the two steps up near the solution build.
+      - name: The package is a real Tunqio (engine, BASS, licences, presets)
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem artifacts/msix -Recurse -Filter *.msix | Select-Object -First 1
+          if (-not $msix) { throw 'The package step produced no .msix.' }
+          ./tools/check-package.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64 -Msix $msix.FullName
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./tools/check-presets.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64 -Msix $msix.FullName
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - uses: actions/upload-artifact@v4
         if: always()

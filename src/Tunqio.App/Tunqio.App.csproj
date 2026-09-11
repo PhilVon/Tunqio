@@ -91,34 +91,74 @@
     </Content>
   </ItemGroup>
 
-  <!-- mpcore.dll is built by native/mpcore/mpcore.vcxproj (solution build order); it and the BASS runtime it links
-       (tools/fetch-native.ps1) go next to the exe. The copy is conditional and only warns when the native build is
-       missing: the shell still launches and browses the library, and AudioStartup shows an "audio unavailable"
-       notice instead of failing (E1-S10e). -->
+  <!--
+    T-128: the engine, its BASS runtime and the licence texts, placed as items rather than copied.
+
+    mpcore.dll is built by native/mpcore/mpcore.vcxproj (solution build order; Tunqio.sln makes it a dependency
+    of this project), and the BASS runtime it loads is fetched by tools/fetch-native.ps1. Both, and the licence
+    texts under licenses/, have to be beside the exe in the unpackaged output AND inside the MSIX payload.
+
+    Until T-128 this was two AfterTargets="Build" <Copy> targets into $(OutDir). That reaches the unpackaged
+    output and nothing else: the appx layout is computed from item groups (_ComputeAppxPackagePayload gathers
+    the project's content and reference outputs), and a file that only ever appears in $(OutDir) after the build
+    is not in any of them. So every MSIX built up to that point carried no engine at all.
+
+    T-125 hit the same wall for presets/ and could answer it with a static Content glob, because presets/ is
+    committed source and therefore exists at evaluation time. These files do not: mpcore.dll is produced by the
+    native build. The answer is the same item group, populated at execution time instead - a target that runs
+    BEFORE AssignTargetPaths, which is where Content items are given the output-relative path everything
+    downstream (the copy-to-output pass and the appx payload alike) reads. An item added there is
+    indistinguishable from one written in the project file, so both build shapes get the same payload from one
+    declaration, and the package cannot drift from the unpackaged output again.
+
+    Missing native build: a warning unpackaged, an error packaged. Unpackaged the shell still launches and
+    browses the library, and AudioStartup shows an "audio unavailable" notice (E1-S10e), which is a shape a
+    developer is allowed to build. A package without the engine is not a Tunqio; it is the defect this target
+    exists to end, so it fails the build instead of shipping.
+  -->
   <PropertyGroup>
     <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
     <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
   </PropertyGroup>
-  <Target Name="TunqioCopyNativeCore" AfterTargets="Build">
-    <Warning Condition="!Exists('$(TunqioNativeOut)mpcore.dll')"
+  <Target Name="TunqioNativePayload" BeforeTargets="AssignTargetPaths">
+    <Error Condition="'$(TunqioPackaged)' == 'true' and !Exists('$(TunqioNativeOut)mpcore.dll')"
+           Text="mpcore.dll not found at $(TunqioNativeOut), and a package without it has no audio engine. Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
+    <Error Condition="'$(TunqioPackaged)' == 'true' and !Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
+           Text="native/bass is empty, and a package without it cannot load mpcore.dll. Run tools/fetch-native.ps1 first." />
+    <Warning Condition="'$(TunqioPackaged)' != 'true' and !Exists('$(TunqioNativeOut)mpcore.dll')"
              Text="mpcore.dll not found at $(TunqioNativeOut); this build of Tunqio will run without audio. Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
-    <Warning Condition="Exists('$(TunqioNativeOut)mpcore.dll') and !Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
+    <Warning Condition="'$(TunqioPackaged)' != 'true' and Exists('$(TunqioNativeOut)mpcore.dll') and !Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
              Text="native/bass is empty; mpcore.dll will not load. Run tools/fetch-native.ps1 first." />
     <ItemGroup>
-      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" Condition="Exists('$(TunqioNativeOut)mpcore.dll')" />
-      <_TunqioNativeFiles Include="$(TunqioBassRoot)bin\x64\*.dll" />
+      <Content Include="$(TunqioNativeOut)mpcore.dll" Condition="Exists('$(TunqioNativeOut)mpcore.dll')">
+        <Link>mpcore.dll</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <!-- Symbols for mixed-mode debugging, and not in the package: CI uploads mpcore.pdb beside the MSIX. -->
+      <Content Include="$(TunqioNativeOut)mpcore.pdb"
+               Condition="'$(TunqioPackaged)' != 'true' and Exists('$(TunqioNativeOut)mpcore.pdb')">
+        <Link>mpcore.pdb</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <!-- No Link: AssignTargetPath gives a file from outside the project cone its bare filename, which is
+           where mpcore.dll looks for its BASS runtime. -->
+      <Content Include="$(TunqioBassRoot)bin\x64\*.dll">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <!-- Third-party notices and licence texts for the About page: THIRD-PARTY-NOTICES.md plus the BASS texts
+           extracted by tools/fetch-native.ps1. E0-S3; shipping them is a condition of ADR-003.
+           Two steps, and an explicit Link rather than LinkBase: LinkBase is expanded by AssignLinkMetadata,
+           which has already run by the time a target of this project's own hooks into AssignTargetPaths, so
+           these items would land at the package root with the DLLs. %(Filename) needs a named item list to batch
+           over - written straight onto a glob Include it batches over nothing and collapses all seven licences
+           onto one target path (NETSDK1152). -->
+      <_TunqioLicenseFile Include="$(TunqioRepoRoot)THIRD-PARTY-NOTICES.md" />
+      <_TunqioLicenseFile Include="$(TunqioBassRoot)licenses\*.txt" />
+      <Content Include="@(_TunqioLicenseFile)">
+        <Link>licenses\%(Filename)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
     </ItemGroup>
-    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="'@(_TunqioNativeFiles)' != ''" />
-  </Target>
-
-  <!-- Third-party notices and licence texts for the About page: THIRD-PARTY-NOTICES.md plus the BASS texts
-       extracted by tools/fetch-native.ps1 (when present). E0-S3. -->
-  <Target Name="TunqioCopyLicenses" AfterTargets="Build">
-    <ItemGroup>
-      <_TunqioLicenseFiles Include="$(TunqioRepoRoot)THIRD-PARTY-NOTICES.md" />
-      <_TunqioLicenseFiles Include="$(TunqioBassRoot)licenses\*.txt" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_TunqioLicenseFiles)" DestinationFolder="$(OutDir)licenses\" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>
