@@ -350,6 +350,14 @@ TEST_CASE("frames arrive at the hop rate while playing and stop soon after a pau
 
     const uint64_t before = a.frames();
     const auto started = clock::now();
+    // The settling loop is allowed to fall behind its deadlines - the first pulls open a decoder and the analysis
+    // thread takes its first FFTs through cold pages - and `deadline` accumulates that debt. Carried into the
+    // measured window it would be spent there: pulls run with no wait until the deadline catches up, so 1.5 s of
+    // audio is delivered in less than 1.5 s of wall clock and the measured rate comes out above the arithmetic
+    // one (seen once in 25 runs: 95.88 Hz over 1.4705 s, a 29 ms debt, and 1.5/1.4705 is exactly the 1.02 that
+    // failed). Re-basing the deadline on `started` is what makes the claim below a fact: the last pull cannot
+    // return before started + 1.5 s, so the audio can be late but never early.
+    deadline = started;
     for (int i = 0; i < 150; ++i) { // 1.5 s measured
         pull();
     }
@@ -358,8 +366,9 @@ TEST_CASE("frames arrive at the hop rate while playing and stop soon after a pau
 
     INFO("frames arrived at " << hz << " Hz over " << seconds << " s (48000/" << analyzer::k_hop << " = "
                               << k_expected_hz << ")");
-    // One-sided in effect: frames cannot outrun the audio they are made from, and the audio is paced here. What
-    // the lower bound catches is the analysis thread failing to keep up, or the pacer not pacing.
+    // One-sided in effect: frames cannot outrun the audio they are made from, and with the deadline re-based on
+    // `started` the audio cannot outrun the clock either, so the upper bound only fires if that stops being
+    // true. What the lower bound catches is the analysis thread failing to keep up, or the pacer not pacing.
     CHECK(hz > k_expected_hz * 0.95);
     CHECK(hz < k_expected_hz * 1.02);
 

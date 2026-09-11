@@ -287,6 +287,20 @@ TEST_CASE("the engine's tap follows the mixer and lines up with the clock", "[an
     mp::tests::offline_engine fx;
     auto* core = reinterpret_cast<mp::audio::engine*>(fx.engine);
     tap& engine_tap = core->analysis_tap();
+
+    // The engine's tap is not an unread tap any more: create_mixer starts the analysis thread on it (E4-S1) and
+    // that thread is the ring's consumer. This test is about the tap's own arithmetic against the clock, and to
+    // ask the tap anything it has to BE the consumer, so the analyzer is stopped first. Two reasons, both hard
+    // rather than tidy: a draining consumer frees slots the producer immediately refills, so how many hops are
+    // published becomes a scheduling outcome and not a number; and try_read below would be a second consumer on
+    // a ring whose head belongs to exactly one, which is a race and not merely a slow path. Nothing restarts it
+    // here - create_mixer is the only thing that does, and no mixer is rebuilt in this test - and stopping it
+    // twice is legal, which is what the engine's destructor will go on to do.
+    core->analysis_thread().stop();
+    REQUIRE_FALSE(core->analysis_thread().running());
+    // Stopped before the first render, so the counters the assertions below read start where reset() left them.
+    REQUIRE(engine_tap.published() == 0);
+    REQUIRE(engine_tap.dropped() == 0);
     CHECK(engine_tap.source_channels() == mp::tests::k_channels);
 
     mp::tests::wav_spec spec;
@@ -304,13 +318,19 @@ TEST_CASE("the engine's tap follows the mixer and lines up with the clock", "[an
     clock.struct_size = sizeof clock;
     REQUIRE(mp_engine_get_clock(fx.engine, &clock) == MP_OK);
     CHECK(engine_tap.byte_position() == clock.mixer_byte_pos);
-    // 500 ms is 46 hops into a ring of 16 with nothing reading, so most were dropped: that is the design, and
-    // what matters is that every hop is accounted for and the ring still holds the newest ones.
+    // Every hop is accounted for: published plus dropped is exactly what the mixer's byte position says was
+    // produced. This one holds whether or not anything is reading, because both counters belong to the producer.
     CHECK(engine_tap.published() + engine_tap.dropped() ==
           static_cast<uint64_t>(clock.mixer_byte_pos) / (tap_block::k_frames * mp::tests::k_channels * 4));
+    // 500 ms is 46 hops, and with the analyzer stopped above nothing has read any of them, so the ring filled
+    // once and the other 30 were dropped: that is the design. The number is k_blocks only because this test made
+    // itself the sole consumer - on a live engine the analysis thread drains as the tap fills and publishes far
+    // more than the ring holds, at a count that is scheduling and not arithmetic. Do not re-pin it there.
     CHECK(engine_tap.published() == mp::analysis::tap::k_blocks);
 
-    // And a block's position is a real place in that stream, with audible audio in it.
+    // And a block's position is a real place in that stream, with audible audio in it. Reading the engine's own
+    // tap is only allowed because the analyzer above is stopped; with it running this would be the second
+    // consumer on a single-consumer ring, and the block it returned could be one the producer was overwriting.
     tap_block block;
     REQUIRE(engine_tap.try_read(block));
     CHECK(block.mixer_byte_pos >= 0);
