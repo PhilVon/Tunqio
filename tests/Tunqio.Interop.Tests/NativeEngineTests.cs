@@ -103,7 +103,7 @@ public class NativeEngineTests
         FluentActions.Invoking(engine.StopPreview).Should().Throw<NativeException>().WithMessage("*E5-S5*");
 
         var frame = default(MpAnalysisFrameBuffer);
-        engine.TryGetLatestAnalysis(ref frame).Should().BeFalse("E1-S8 has not landed the analysis thread");
+        engine.TryGetLatestAnalysis(ref frame).Should().BeFalse("nothing has pulled the mixer, so no hop has been analysed yet");
     }
 
     [Fact]

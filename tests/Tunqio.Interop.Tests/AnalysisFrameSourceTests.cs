@@ -1,0 +1,213 @@
+using System.Diagnostics;
+using System.Reactive.Linq;
+using Tunqio.Core.Audio;
+using Tunqio.Core.Visualization;
+
+namespace Tunqio.Interop.Tests;
+
+/// <summary>
+/// <see cref="NativeAnalysisFrameSource"/> against the real mpcore.dll (E4-S1). The engine renders headless, so
+/// the analysis thread is fed exactly as fast as the test pulls the mixer - which is what makes the sequence
+/// arithmetic here deterministic rather than a race with a device.
+/// </summary>
+[Collection("native engine")]
+public class AnalysisFrameSourceTests
+{
+    /// <summary>Renders `frames` frames through the no-device output in 480-frame (10 ms) pieces, as a device would.</summary>
+    private static void Render(NativeEngine engine, int frames)
+    {
+        var buffer = new float[480 * engine.MixerChannels];
+        for (int done = 0; done < frames; done += 480)
+        {
+            engine.Render(buffer, Math.Min(480, frames - done));
+        }
+    }
+
+    private static NativeEngine CreateHeadless()
+    {
+        NativeEngine engine = NativeEngine.Create();
+        engine.SetOutput(new OutputConfig(OutputConfig.NoDevice));
+        return engine;
+    }
+
+    /// <summary>
+    /// Waits for a frame newer than <paramref name="after"/>. The analysis thread polls the tap rather than
+    /// being signalled from the audio path, so a frame is never instant and a test that assumed it was would be
+    /// asserting on whatever the previous render left behind.
+    /// </summary>
+    private static AnalysisFrame WaitForFrame(NativeAnalysisFrameSource source, TimeSpan timeout, uint after = 0)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (elapsed.Elapsed < timeout)
+        {
+            if (source.TryGetLatest(out AnalysisFrame frame) && frame.Sequence > after)
+            {
+                return frame;
+            }
+
+            Thread.Sleep(1);
+        }
+
+        throw new TimeoutException($"no analysis frame past sequence {after} within {timeout}");
+    }
+
+    [Fact]
+    public void An_engine_that_has_made_no_audio_has_no_frame()
+    {
+        using NativeEngine engine = CreateHeadless();
+        using var source = new NativeAnalysisFrameSource(engine);
+
+        source.TryGetLatest(out AnalysisFrame frame).Should().BeFalse("nothing has pulled the mixer yet");
+        frame.Should().Be(default(AnalysisFrame), "a refused frame must not leave half a frame behind");
+    }
+
+    [Fact]
+    public void A_played_track_produces_a_frame_with_the_music_in_it()
+    {
+        using NativeEngine engine = CreateHeadless();
+        using var source = new NativeAnalysisFrameSource(engine);
+        using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("analysis-frame", seconds: 2.0, frequencyHz: 1000.0, amplitude: 0.5));
+        engine.Play(track);
+        Render(engine, 48000); // 1 s, which is 93 hops
+
+        AnalysisFrame frame = WaitForFrame(source, TimeSpan.FromSeconds(2));
+
+        frame.Sequence.Should().BePositive("frames are numbered from one");
+        frame.Spectrum.Length.Should().Be(1024, "1024 bins from the 2048-point FFT, Nyquist dropped");
+        frame.Waveform.Length.Should().Be(512, "the waveform is one 512-frame hop");
+        frame.Bands.Length.Should().Be(10);
+        frame.Rms.Should().BeGreaterThan(0.05f, "a -6 dBFS sine is not silence");
+        frame.Peak.Should().BeGreaterThan(frame.Rms, "the peak of a sine is above its RMS");
+        frame.MixerBytePosition.Should().BePositive();
+        frame.TimestampTicks.Should().BePositive();
+
+        // 1 kHz at 48 kHz with 2048 bins is bin 42.67, so the energy is in 42 and 43 and the loudest bin must be
+        // one of them. This is the end-to-end check that the spectrum is of the audio that was played, not of
+        // some other buffer: get the downmix, the window or the hop wrong and the peak moves.
+        ReadOnlySpan<float> spectrum = frame.Spectrum.Span;
+        int loudest = 0;
+        for (int i = 1; i < spectrum.Length; i++)
+        {
+            if (spectrum[i] > spectrum[loudest])
+            {
+                loudest = i;
+            }
+        }
+
+        loudest.Should().BeInRange(42, 43, "1000 Hz falls between bins 42 and 43 of a 2048-point FFT at 48 kHz");
+
+        // E4-S2's fields are not filled in yet, and a zero here is a zero rather than a measurement.
+        frame.SpectralCentroidHz.Should().Be(0f, "spectral centroid is E4-S2");
+        frame.HarmonicRatio.Should().Be(0f, "harmonic ratio is E4-S2");
+        frame.Onset.Should().BeFalse("onset detection is E4-S2");
+    }
+
+    [Fact]
+    public void The_frame_is_a_copy_the_caller_keeps()
+    {
+        using NativeEngine engine = CreateHeadless();
+        using var source = new NativeAnalysisFrameSource(engine);
+        using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("analysis-copy", seconds: 2.0, amplitude: 0.5));
+        engine.Play(track);
+        Render(engine, 24000);
+
+        AnalysisFrame first = WaitForFrame(source, TimeSpan.FromSeconds(2));
+        float[] kept = first.Waveform.ToArray();
+
+        Render(engine, 24000); // more audio, more frames published over the top of it
+        AnalysisFrame second = WaitForFrame(source, TimeSpan.FromSeconds(2), after: first.Sequence);
+        second.Sequence.Should().BeGreaterThan(first.Sequence, "the analysis thread kept going");
+
+        first.Waveform.ToArray().Should().Equal(kept, "a frame handed out must not change under its owner");
+    }
+
+    [Fact]
+    public async Task Frames_are_pushed_while_audio_is_being_made_and_stop_when_it_is_not()
+    {
+        using NativeEngine engine = CreateHeadless();
+        using var source = new NativeAnalysisFrameSource(engine);
+        var seen = new List<AnalysisFrame>();
+        using IDisposable subscription = source.Frames.Subscribe(f =>
+        {
+            lock (seen)
+            {
+                seen.Add(f);
+            }
+        });
+
+        using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("analysis-stream", seconds: 4.0, amplitude: 0.5));
+        engine.Play(track);
+
+        // Three poll intervals' worth of audio, rendered in pieces with the timer given room to run between
+        // them: the poll is 30 Hz and the render is not paced, so the audio has to be spread over real time for
+        // the poll to have anything new each tick.
+        for (int i = 0; i < 6; i++)
+        {
+            Render(engine, 4800); // 100 ms
+            await Task.Delay(40);
+        }
+
+        int whilePlaying;
+        lock (seen)
+        {
+            whilePlaying = seen.Count;
+        }
+
+        whilePlaying.Should().BeGreaterThan(2, "600 ms of audio spread over ~250 ms of polling at 30 Hz");
+        source.Pushed.Should().Be(whilePlaying);
+
+        // Nothing more is rendered, so nothing new is published and the stream goes quiet: a repeated frame
+        // would be a UI animating something that is not happening.
+        await Task.Delay(200);
+        lock (seen)
+        {
+            seen.Count.Should().Be(whilePlaying, "a sequence already pushed must not be pushed again");
+        }
+
+        seen.Select(f => f.Sequence).Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void Disposing_the_source_completes_the_stream_and_leaves_the_engine_alone()
+    {
+        using NativeEngine engine = CreateHeadless();
+        var source = new NativeAnalysisFrameSource(engine);
+        bool completed = false;
+        using IDisposable subscription = source.Frames.Subscribe(_ => { }, () => completed = true);
+
+        source.Dispose();
+        source.Dispose(); // idempotent
+
+        completed.Should().BeTrue("subscribers are told the source is finished");
+        FluentActions.Invoking(engine.GetClock).Should().NotThrow("the source does not own the engine");
+    }
+
+    [Fact]
+    public void TryGetLatest_costs_microseconds_not_milliseconds()
+    {
+        // The gate is the [Budget] on Tunqio.Benchmarks.InteropCallBenchmarks (AC-114, < 5 µs). This is the
+        // smoke bound that catches an accidental allocation storm or a lock creeping in, and it is loose because
+        // it runs in Debug on whatever hardware CI has.
+        using NativeEngine engine = CreateHeadless();
+        using var source = new NativeAnalysisFrameSource(engine);
+        using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("analysis-cost", seconds: 2.0, amplitude: 0.5));
+        engine.Play(track);
+        Render(engine, 24000);
+        _ = WaitForFrame(source, TimeSpan.FromSeconds(2));
+
+        for (int i = 0; i < 2000; i++)
+        {
+            _ = source.TryGetLatest(out _);
+        }
+
+        const int iterations = 20_000;
+        var sw = Stopwatch.StartNew();
+        for (int i = 0; i < iterations; i++)
+        {
+            _ = source.TryGetLatest(out _);
+        }
+
+        double microseconds = sw.Elapsed.TotalMilliseconds * 1000 / iterations;
+        microseconds.Should().BeLessThan(50, $"the copy of a published frame took {microseconds:0.00} µs (the measured claim is < 5 µs in Release)");
+    }
+}

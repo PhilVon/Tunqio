@@ -243,8 +243,10 @@ public sealed unsafe class NativeEngine : IDisposable
     }
 
     /// <summary>
-    /// Copies the newest analysis frame into <paramref name="frame"/> (<c>mp_analysis_try_get_latest</c>).
-    /// Returns false when none is available (including while E1-S8 has not landed the analysis thread).
+    /// Copies the newest analysis frame into <paramref name="frame"/> (<c>mp_analysis_try_get_latest</c>): one
+    /// native memcpy out of the analysis thread's triple buffer, no lock and no wait. Returns false when the
+    /// engine has produced no frame yet - nothing has played since it, or its mixer, was created.
+    /// <see cref="NativeAnalysisFrameSource"/> is the <c>IAnalysisFrameSource</c> over this.
     /// </summary>
     public bool TryGetLatestAnalysis(ref MpAnalysisFrameBuffer frame)
     {
