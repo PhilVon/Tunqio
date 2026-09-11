@@ -89,6 +89,35 @@ public class TagEditorTests
     }
 
     [Fact]
+    public async Task The_watchers_later_pass_over_an_edit_we_made_writes_nothing_Async()
+    {
+        using ScanHarness h = await ScanHarness.CreateAsync();
+        await h.ScanAsync();
+
+        List<TrackDto> chosen = [.. (await h.AllTracksAsync()).Where(t => t.Path.EndsWith(".flac", StringComparison.OrdinalIgnoreCase)).Take(4)];
+        List<TagEditTarget> targets = [.. chosen.Select(TagEditTarget.For)];
+        var editor = new TagEditor(new TagLibTagWriter(), h.Scanner);
+        await editor.ApplyAsync(targets, new TagEdit(AlbumArtist: "Batch Artist"));
+
+        // A tag write moves the file's size and modification time, so it fires the watcher, which two seconds
+        // later scans exactly these paths. That second pass is this: the diff compares the file against the row
+        // the editor's own rescan just wrote, finds them identical, and reads no tags and writes no rows. The
+        // watcher's echo of our own edit is therefore harmless rather than a second round of churn.
+        h.Reader.Reset();
+        ScanReport echo = await h.ScanAsync(ScanRequest.Targeted(h.Folder.Id, [.. targets.Select(t => t.Path)]));
+
+        echo.Outcome.Should().Be(ScanOutcome.Completed);
+        echo.Updated.Should().Be(0, "the editor already brought the rows up to date, so the watcher's pass has nothing to write");
+        echo.Added.Should().Be(0);
+        echo.Failed.Should().Be(0);
+        // A targeted scan walks each named file's directory so the compilation rule still sees the folder, so it
+        // sees the four edited files' siblings too; every one of them, edited or not, comes back unchanged.
+        echo.Seen.Should().BeGreaterThanOrEqualTo(4);
+        echo.Unchanged.Should().Be(echo.Seen);
+        h.Reader.Reads.Should().Be(0, "an unchanged file is not re-read");
+    }
+
+    [Fact]
     public async Task An_undo_restores_a_field_that_was_absent_by_clearing_it_again_Async()
     {
         using ScanHarness h = await ScanHarness.CreateAsync();
