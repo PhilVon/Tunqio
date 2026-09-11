@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Tunqio.App.Library.TagEditorDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:library="using:Tunqio.App.Library"
+    mc:Ignorable="d"
+    Title="{x:Bind ViewModel.Header, Mode=OneWay}"
+    PrimaryButtonText="Confirm"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    IsPrimaryButtonEnabled="{x:Bind ViewModel.CanConfirm, Mode=OneWay}"
+    PrimaryButtonClick="OnConfirm">
+  <!--
+    Both shapes of the dialog (docs/ui-screens-and-flows.md, "Tag editor dialog"). The batch shape is not a
+    different layout, it is the same boxes loaded differently: a field the selection disagrees on comes back
+    blank with "(multiple values)" behind it, and only boxes the user actually changed are written.
+
+    The preview list is below the fields rather than beside them because it is the answer to "what am I about
+    to change", which is a question asked after filling the boxes, not while.
+  -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="520">
+    <StackPanel Spacing="12" Width="420">
+      <Grid ColumnSpacing="12" RowSpacing="8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBox Grid.Row="0" Grid.ColumnSpan="2" Header="Title"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 Text="{x:Bind ViewModel.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBox Grid.Row="1" Grid.ColumnSpan="2" Header="Artist"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 Text="{x:Bind ViewModel.Artists, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBox Grid.Row="2" Grid.ColumnSpan="2" Header="Album"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 Text="{x:Bind ViewModel.AlbumTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBox Grid.Row="3" Grid.ColumnSpan="2" Header="Album artist"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 Text="{x:Bind ViewModel.AlbumArtist, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBox Grid.Row="4" Grid.Column="0" Header="Genre"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 Text="{x:Bind ViewModel.Genres, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+          <TextBox Header="Year" Width="76" InputScope="Number"
+                   IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                   Text="{x:Bind ViewModel.Year, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+          <TextBox Header="Track" Width="60" InputScope="Number"
+                   IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                   Text="{x:Bind ViewModel.TrackNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+          <TextBox Header="Disc" Width="60" InputScope="Number"
+                   IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                   Text="{x:Bind ViewModel.DiscNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+        </StackPanel>
+      </Grid>
+
+      <TextBlock Text="Separate several artists or genres with a semicolon."
+                 Style="{ThemeResource CaptionTextBlockStyle}"
+                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                 TextWrapping="Wrap" />
+
+      <InfoBar IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+               Severity="Warning"
+               IsClosable="False"
+               Message="{x:Bind ViewModel.Error, Mode=OneWay}" />
+
+      <ProgressBar Value="{x:Bind ViewModel.Progress, Mode=OneWay}" Maximum="1"
+                   Visibility="{x:Bind ViewModel.IsWriting, Mode=OneWay}" />
+      <TextBlock Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"
+                 Visibility="{x:Bind ViewModel.HasProgressText, Mode=OneWay}"
+                 Style="{ThemeResource CaptionTextBlockStyle}" />
+
+      <TextBlock Text="Files affected" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+      <!--
+        A ListView and not an ItemsRepeater: this list is short (a selection, not a library) and it wants the
+        scrolling and the row chrome it brings. ItemsRepeater templates in this app carry no DataContext, which
+        is a trap this list does not need to walk into.
+      -->
+      <ListView ItemsSource="{x:Bind ViewModel.Files, Mode=OneWay}"
+                SelectionMode="None"
+                MaxHeight="180"
+                IsTabStop="False">
+        <ListView.ItemTemplate>
+          <DataTemplate x:DataType="library:TagEditorFileRow">
+            <Grid ColumnSpacing="8" Padding="0,2">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="{x:Bind Display}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Path}" />
+              <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}"
+                         Style="{ThemeResource CaptionTextBlockStyle}"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Grid>
+          </DataTemplate>
+        </ListView.ItemTemplate>
+      </ListView>
+    </StackPanel>
+  </ScrollViewer>
+</ContentDialog>

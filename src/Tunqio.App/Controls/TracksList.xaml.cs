@@ -204,7 +204,7 @@ public sealed partial class TracksList : UserControl
 
     private void OnListKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != VirtualKey.Enter)
+        if (e.Key is not (VirtualKey.Enter or VirtualKey.F2))
         {
             return;
         }
@@ -216,7 +216,12 @@ public sealed partial class TracksList : UserControl
         }
 
         EnsureSelected(anchor);
-        Raise(Modifiers.Shift ? TrackAction.PlayNext : Modifiers.Control ? TrackAction.Enqueue : TrackAction.Play, anchor);
+        Raise(
+            e.Key == VirtualKey.F2 ? TrackAction.EditTags
+                : Modifiers.Shift ? TrackAction.PlayNext
+                : Modifiers.Control ? TrackAction.Enqueue
+                : TrackAction.Play,
+            anchor);
         e.Handled = true;
     }
 
@@ -252,6 +257,8 @@ public sealed partial class TracksList : UserControl
     private void OnMenuOpenArtist(object sender, RoutedEventArgs e) => Raise(TrackAction.OpenArtist, _menuAnchor);
 
     private void OnMenuShowInFolder(object sender, RoutedEventArgs e) => Raise(TrackAction.ShowInFolder, _menuAnchor);
+
+    private void OnMenuEditTags(object sender, RoutedEventArgs e) => Raise(TrackAction.EditTags, _menuAnchor);
 
     /// <summary>A row acted on outside the selection becomes the selection (the usual list convention).</summary>
     private void EnsureSelected(TrackDto track)

@@ -12,6 +12,13 @@ public enum TrackAction
     OpenAlbum,
     OpenArtist,
     ShowInFolder,
+
+    /// <summary>
+    /// Open the tag editor over the selection (E3-S10, F2). Unlike the others this one is handled by the page
+    /// and not by the view model: it opens a dialog, and a dialog needs a <c>XamlRoot</c>, which a view model
+    /// has no business holding.
+    /// </summary>
+    EditTags,
 }
 
 /// <summary>The tracks an action applies to, in list order, and the row it was invoked on (if any).</summary>

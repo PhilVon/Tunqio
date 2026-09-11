@@ -17,6 +17,16 @@ public static class LibraryViewServices
         services.AddSingleton<ILibraryFolderPicker, WinUiFolderPicker>();
         services.AddSingleton(p => new LibraryScanCoordinator(
             p.GetRequiredService<ILibraryScanner>(), p.GetService<TimeProvider>(), uiContext, p.GetService<ILogger<LibraryScanCoordinator>>()));
+        // The tag editor (E3-S10). ActiveTrackFile resolves the editor lazily because the editor asks it which
+        // file is open: a constructor dependency both ways would be a cycle.
+        services.AddSingleton(p => new ActiveTrackFile(
+            p.GetRequiredService<Playback.IPlaybackSessionSource>(), p.GetRequiredService<ITagEditor>));
+        services.AddSingleton<ITagEditor>(p => new Tunqio.Library.Tags.TagEditor(
+            p.GetRequiredService<ITagWriter>(),
+            p.GetRequiredService<ILibraryScanner>(),
+            isPlaying: path => p.GetRequiredService<ActiveTrackFile>().IsOpen(path),
+            p.GetService<ILogger<Tunqio.Library.Tags.TagEditor>>()));
+        services.AddTransient<TagEditorViewModel>();
         services.AddTransient<AlbumActions>();
         services.AddTransient<AlbumsViewModel>();
         services.AddTransient<AlbumDetailViewModel>();

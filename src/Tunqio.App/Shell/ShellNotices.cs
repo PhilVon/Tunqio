@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Tunqio.App.Library;
 using Tunqio.App.Playback;
+using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
 
 namespace Tunqio.App.Shell;
@@ -23,6 +24,9 @@ public enum NoticeKind
 
     /// <summary>What the last scan did.</summary>
     Scan,
+
+    /// <summary>The last tag edit, and the offer to undo it (E3-S10, flow 8).</summary>
+    TagEdit,
 }
 
 /// <summary>One bar in the shell's notice area.</summary>
@@ -152,6 +156,33 @@ public sealed partial class ShellNotices : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(notice);
         Put(new ShellNotice(NoticeKind.Startup, notice.Title, notice.Message, notice.Severity, sticky: true));
+    }
+
+    /// <summary>
+    /// The bar a finished tag edit leaves behind, carrying the undo (docs/ui-screens-and-flows.md flow 8: "Undo
+    /// available from the sidebar <c>InfoBar</c> for the session"). Sticky, unlike the other bars about things
+    /// that have already happened, because this one is not only a report: it is the only way to reach the undo,
+    /// and a bar that timed out after eight seconds would take the undo with it. It goes when the user dismisses
+    /// it, when they use it, or when the next edit replaces it.
+    /// </summary>
+    /// <param name="undo">Runs the undo; the bar takes itself down afterwards.</param>
+    public void ShowTagEdit(TagEditReport report, Func<Task> undo)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(undo);
+        bool failed = report.Failed > 0 || report.Error is not null;
+        Put(new ShellNotice(
+            NoticeKind.TagEdit,
+            report.IsUndo ? "Tag edit undone" : report.Description,
+            report.Error is { } error ? report.Summary() + " " + error : report.Summary(),
+            failed ? StartupNoticeSeverity.Warning : StartupNoticeSeverity.Informational,
+            report.IsUndo || report.Written == 0 ? null : "Undo",
+            report.IsUndo || report.Written == 0 ? null : async () =>
+            {
+                await undo().ConfigureAwait(true);
+                Post(() => Remove(NoticeKind.TagEdit));
+            },
+            sticky: true));
     }
 
     /// <summary>Dismisses <paramref name="notice"/> — what the bar's own close button does.</summary>

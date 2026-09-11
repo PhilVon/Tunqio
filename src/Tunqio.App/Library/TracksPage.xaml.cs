@@ -49,5 +49,15 @@ public sealed partial class TracksPage : Page, ILibraryRefreshable
 
     private void OnSortRequested(object? sender, TrackSort column) => ViewModel.SortBy(column);
 
-    private void OnTrackAction(object? sender, TrackActionEventArgs e) => ViewModel.HandleAsync(e.Action, e.Tracks, e.Anchor).Forget("Tracks " + e.Action);
+    private void OnTrackAction(object? sender, TrackActionEventArgs e)
+    {
+        // Edit tags is the page's and not the view model's: it opens a dialog, which needs this page's XamlRoot.
+        if (e.Action == TrackAction.EditTags)
+        {
+            TagEditorDialog.ShowAsync(XamlRoot, e.Tracks).Forget("Edit tags");
+            return;
+        }
+
+        ViewModel.HandleAsync(e.Action, e.Tracks, e.Anchor).Forget("Tracks " + e.Action);
+    }
 }

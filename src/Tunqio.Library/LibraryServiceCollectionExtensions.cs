@@ -49,6 +49,9 @@ public static class LibraryServiceCollectionExtensions
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Scanner);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Watcher);
         services.TryAddSingleton<ITagReader>(provider => new TagLibTagReader(provider.GetRequiredService<ISettingsStore>(), provider.GetService<ILogger<TagLibTagReader>>()));
+        // The writer, but not the editor: the editor needs to know which file playback is holding open, which is
+        // the shell's business, so the shell registers it (Tunqio.App.Library.LibraryViewServices).
+        services.TryAddSingleton<ITagWriter>(provider => new TagLibTagWriter(TagWriterOptions.Default, provider.GetService<ILogger<TagLibTagWriter>>()));
         return services;
     }
 }

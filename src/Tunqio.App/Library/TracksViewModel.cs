@@ -172,6 +172,11 @@ public sealed partial class TracksViewModel : ObservableObject
             case TrackAction.ShowInFolder:
                 _revealer.Reveal(subject.Path);
                 break;
+            case TrackAction.EditTags:
+                // The page owns this one, because the tag editor is a dialog and a dialog needs a XamlRoot. It
+                // is answered here rather than falling through to the throw so that a list whose page has not
+                // wired it up does nothing instead of crashing on a menu click.
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, "unknown track action");
         }
