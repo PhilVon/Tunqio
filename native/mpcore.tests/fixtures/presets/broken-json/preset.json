@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "id": "broken-json",
+  "name": "Malformed manifest (fixture)",
+  "shader": "nothing.hlsl",
+}

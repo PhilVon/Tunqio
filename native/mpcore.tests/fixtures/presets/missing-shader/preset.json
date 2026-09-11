@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "id": "missing-shader",
+  "name": "Manifest without its shader (fixture)",
+  "shader": "not-on-disk.hlsl"
+}

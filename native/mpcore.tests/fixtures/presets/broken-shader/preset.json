@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "id": "broken-shader",
+  "name": "Broken Shader (fixture)",
+  "shader": "broken-shader.hlsl",
+  "vertex_count": 3
+}

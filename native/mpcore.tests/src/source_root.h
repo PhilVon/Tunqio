@@ -45,4 +45,17 @@ inline std::optional<std::filesystem::path> find_native_root() {
     return std::nullopt;
 }
 
+// The preset fixture directory (native/mpcore.tests/fixtures/presets), or nullopt when the tree is unavailable.
+inline std::optional<std::filesystem::path> find_preset_fixtures() {
+    const auto native = find_native_root();
+    if (!native) {
+        return std::nullopt;
+    }
+    auto path = *native / "mpcore.tests" / "fixtures" / "presets";
+    if (!std::filesystem::exists(path)) {
+        return std::nullopt;
+    }
+    return path;
+}
+
 } // namespace mp::tests

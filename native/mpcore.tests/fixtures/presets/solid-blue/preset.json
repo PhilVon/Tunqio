@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "id": "solid-blue",
+  "name": "Solid Blue (fixture)",
+  "shader": "solid-blue.hlsl",
+  "vertex_count": 3,
+  "clear": [0.0, 0.0, 0.0, 1.0]
+}

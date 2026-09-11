@@ -65,6 +65,7 @@
     <ClCompile Include="$(MpCoreDir)src\audio\mp4_gapless.cpp" />
     <ClCompile Include="$(MpCoreDir)src\common\log.cpp" />
     <ClCompile Include="$(MpCoreDir)src\common\rt_guard.cpp" />
+    <ClCompile Include="$(MpCoreDir)src\render\preset.cpp" />
     <ClCompile Include="$(MpCoreDir)src\render\renderer.cpp" />
     <!-- Tests -->
     <ClCompile Include="src\main.cpp" />
@@ -79,6 +80,7 @@
     <ClCompile Include="src\test_mp4_gapless.cpp" />
     <ClCompile Include="src\test_output.cpp" />
     <ClCompile Include="src\test_transport.cpp" />
+    <ClCompile Include="src\test_preset.cpp" />
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_replaygain.cpp" />
     <ClCompile Include="src\test_spsc_ring.cpp" />

@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "solid-green",
+  "name": "Solid Green (fixture)",
+  "shader": "solid-green.hlsl",
+  "vertex_count": 3,
+  "instance_count": 1,
+  "clear": [0.0, 0.0, 0.0, 1.0],
+  "parameters": [
+    { "name": "level", "default": 1.0, "min": 0.0, "max": 1.0 }
+  ]
+}
