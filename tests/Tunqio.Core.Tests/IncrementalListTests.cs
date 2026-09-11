@@ -200,12 +200,24 @@ public class IncrementalListTests
     public async Task A_request_made_while_a_page_is_being_appended_waits_for_that_page_Async()
     {
         // The ListView reacts to every Add; if it asks for more mid-page it must not start a second load.
-        var loader = new FakeLoader(450, 200);
+        //
+        // The gate is what makes this the stated test rather than a different one. LoadMoreAsync assigns
+        // _inFlight *after* LoadPageAsync has been called, and with no gate the loader returns at once, so the
+        // appends could run on a pool thread before that assignment - the nested call would then see nothing in
+        // flight, start a second load and come back with 200 rather than 0. That is a race on publishing
+        // _inFlight, not a request made while a page is being appended, and it failed on CI once (T-130).
+        // Production does not have it: the view owns the list on a UI thread with a synchronisation context, so
+        // the continuation cannot run until that thread yields, which is after the assignment. Holding the
+        // loader open until the caller is past it puts the test in the same shape.
+        var loader = new FakeLoader(450, 200) { Gate = new TaskCompletionSource() };
         var list = new IncrementalList<int>(loader.LoadAsync, 200);
         Task<int>? nested = null;
         list.CollectionChanged += (_, _) => nested ??= list.LoadMoreAsync();
 
-        (await list.LoadMoreAsync()).Should().Be(200);
+        Task<int> appending = list.LoadMoreAsync();
+        loader.Gate.SetResult();
+
+        (await appending).Should().Be(200);
         (await nested!).Should().Be(0, "it joined the load that was appending");
         loader.Calls.Should().Be(1);
         list.Count.Should().Be(200);
