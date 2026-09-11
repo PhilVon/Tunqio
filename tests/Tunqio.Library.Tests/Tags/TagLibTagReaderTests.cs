@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Tunqio.Core.Library;
 using Tunqio.FixtureGen;
 using Tunqio.Library.Tags;
@@ -182,8 +181,15 @@ public class TagLibTagReaderTests
         using var gate = new ManualResetEventSlim(false);
         try
         {
+            // The options factory runs once per read, and the two reads here are awaited in turn, so this gives
+            // the hanging read a short timeout and the one after it a generous one. They are separated on
+            // purpose: the second read is a real FLAC parse sharing eight cores with the rest of a parallel
+            // suite, and it has nothing to prove about timeouts -- a single figure that has to be short enough
+            // to reach the first timeout quickly and long enough to survive the second read on a busy machine
+            // is a figure that gets tuned rather than chosen, which is what this test used to have.
+            int reads = 0;
             var reader = new TagLibTagReader(
-                () => new TagReaderOptions(Timeout: TimeSpan.FromSeconds(1)), // short, but not so short that a busy thread pool (the suite runs classes in parallel) trips the second read
+                () => new TagReaderOptions(Timeout: Interlocked.Increment(ref reads) == 1 ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(30)),
                 logger: null,
                 open: path =>
                 {
@@ -195,20 +201,27 @@ public class TagLibTagReaderTests
                     return TagLib.File.Create(path);
                 });
 
-            var watch = Stopwatch.StartNew();
             TagReadResult timedOut = await reader.ReadAsync(hangingPath, FolderId);
             TagReadResult after = await reader.ReadAsync(FixturePath(next), FolderId);
-            watch.Stop();
 
             timedOut.Outcome.Should().Be(TagReadOutcome.TimedOut);
             timedOut.IsFailure.Should().BeTrue();
-            timedOut.Error.Should().Contain("exceeded");
+
+            // What the read was abandoned *by*, asserted without a clock. The gate is only released in the
+            // finally below, so the parser cannot have returned: a TimedOut outcome here already proves the
+            // timeout ended the read and not the hang finishing. What it does not prove is that the configured
+            // timeout was the one applied -- a regression that ignored the option and fell back to the 5 s
+            // default would still come back TimedOut. The message carries the value that was used, so naming
+            // it here catches that, where the wall-clock bound this replaces could not: 4 s sat between the
+            // configured 1 s and the default 5 s only by luck, and it failed on an unchanged repository at
+            // 6.9 s when a saturated pool delayed the read after it (T-109).
+            timedOut.Error.Should().Contain("exceeded 1 s", "the configured timeout is the one that was applied");
+
             timedOut.Track.Title.Should().Be("Rain on Tin", "file-name metadata keeps the file playable");
             timedOut.Track.TrackNo.Should().Be(1);
             timedOut.Track.Codec.Should().Be("wav");
             timedOut.Track.FileSize.Should().Be(hanging.Size);
             after.Outcome.Should().Be(TagReadOutcome.Read, "the next file is unaffected");
-            watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(4), "the timeout, not the hang, ended the read");
         }
         finally
         {
