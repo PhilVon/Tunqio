@@ -45,8 +45,8 @@ public:
     // 2048-point FFT advanced by one 512-frame hop: 23.44 Hz bins at 48 kHz, a new frame every 10.67 ms.
     static constexpr uint32_t k_fft_size = 2048;
     static constexpr uint32_t k_hop = tap_block::k_frames;
-    static constexpr uint32_t k_bins = MP_ANALYSIS_SPECTRUM_BINS;           // 1024: bins 0..1023, Nyquist dropped
-    static constexpr uint32_t k_waveform = MP_ANALYSIS_WAVEFORM_SAMPLES;    // 512: exactly one hop, mono
+    static constexpr uint32_t k_bins = MP_ANALYSIS_SPECTRUM_BINS;        // 1024: bins 0..1023, Nyquist dropped
+    static constexpr uint32_t k_waveform = MP_ANALYSIS_WAVEFORM_SAMPLES; // 512: exactly one hop, mono
     static_assert(k_bins * 2 == k_fft_size, "the spectrum is the real FFT's bins below Nyquist");
     static_assert(k_waveform == k_hop, "the waveform is the hop itself, so no decimation is needed");
 

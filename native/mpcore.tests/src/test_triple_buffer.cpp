@@ -115,8 +115,7 @@ TEST_CASE("the front is never torn under a writer and two readers", "[triple][an
     reader_a.join();
     reader_b.join();
 
-    INFO("reads " << reads.load() << ", refusals " << refusals.load() << " of " << k_publications
-                  << " publications");
+    INFO("reads " << reads.load() << ", refusals " << refusals.load() << " of " << k_publications << " publications");
     CHECK(reads.load() > 1000); // the readers really did run against a moving producer
     CHECK(torn.load() == 0);
     CHECK(went_backwards.load() == 0);

@@ -1232,8 +1232,7 @@ mp_result engine::get_clock(mp_clock& out) const {
 mp_result engine::get_analysis_frame(mp_analysis_frame& out) const {
     // Lock-free, like get_clock and for the same reason: the theming poll and (E4-S3) the render thread both ask
     // for this, and neither may be made to wait behind a transport call.
-    return analyzer_.try_get_latest(out) ? MP_OK
-                                         : state_fail("mp_analysis_try_get_latest: no analysis frame yet");
+    return analyzer_.try_get_latest(out) ? MP_OK : state_fail("mp_analysis_try_get_latest: no analysis frame yet");
 }
 
 mp_result engine::get_stats(mp_engine_stats& out) const {

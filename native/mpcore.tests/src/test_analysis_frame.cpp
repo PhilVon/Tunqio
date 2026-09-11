@@ -45,8 +45,8 @@ std::vector<double> naive_dft_magnitudes(const float* x, uint32_t n, uint32_t bi
         double re = 0.0;
         double im = 0.0;
         for (uint32_t t = 0; t < n; ++t) {
-            const double angle = -2.0 * std::numbers::pi * static_cast<double>(k) * static_cast<double>(t) /
-                                 static_cast<double>(n);
+            const double angle =
+                -2.0 * std::numbers::pi * static_cast<double>(k) * static_cast<double>(t) / static_cast<double>(n);
             re += static_cast<double>(x[t]) * std::cos(angle);
             im += static_cast<double>(x[t]) * std::sin(angle);
         }
@@ -186,8 +186,8 @@ TEST_CASE("pffft matches the reference DFT to 1e-4 on a fixture block", "[analys
     // Relative to the loudest bin, because that is the only scale-free way to say "matches": an absolute 1e-4 on
     // magnitudes whose size depends on the FFT length would be a statement about N, not about the transform.
     const double relative = worst / peak;
-    INFO("largest disagreement " << worst << " at bin " << worst_bin << ", peak magnitude " << peak
-                                 << ", relative " << relative);
+    INFO("largest disagreement " << worst << " at bin " << worst_bin << ", peak magnitude " << peak << ", relative "
+                                 << relative);
     CHECK(relative < 1e-4);
 }
 
@@ -295,9 +295,8 @@ TEST_CASE("a hop allocates nothing (RT_ASSERT_NO_ALLOC)", "[analysis][frame][rt]
     std::vector<tap_block> hops;
     hops.reserve(64);
     for (int i = 0; i < 64; ++i) {
-        hops.push_back(hop_of(static_cast<int64_t>(i) * analyzer::k_hop, 2, [](int64_t t) {
-            return static_cast<float>(std::sin(0.01 * static_cast<double>(t)));
-        }));
+        hops.push_back(hop_of(static_cast<int64_t>(i) * analyzer::k_hop, 2,
+                              [](int64_t t) { return static_cast<float>(std::sin(0.01 * static_cast<double>(t))); }));
     }
     // Warm: the first call through pffft and the first publish touch pages, not the heap, but proving that is
     // the point of running the counted loop afterwards rather than including them in it.

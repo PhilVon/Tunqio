@@ -2,17 +2,20 @@
 
 #include "common/rt_guard.h"
 
-#include <pffft/pffft.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <pffft/pffft.h>
 
 #include <windows.h>
 
+// clang-format off
+// After windows.h, which avrt.h needs for HANDLE and DWORD and does not include itself. The include regrouping
+// in native/.clang-format sorts every other <angle> header above the windows block, so this one is kept out of it.
 #include <avrt.h>
+// clang-format on
 
 namespace mp::analysis {
 
