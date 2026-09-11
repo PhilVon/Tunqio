@@ -24,6 +24,7 @@
 
 #include "mpcore.h"
 
+#include "analysis/features.h"
 #include "analysis/tap.h"
 #include "common/triple_buffer.h"
 
@@ -95,6 +96,10 @@ public:
     // hold it against a reference DFT of the same input (AC-113).
     void forward(const float* windowed, float* out_bins) noexcept;
 
+    // The extractor the frame's bands, centroid, harmonic ratio and onset come from (E4-S2), so a test can time
+    // it on its own (AC-116) and read the flux and threshold behind an onset flag (AC-115).
+    features& extraction() noexcept { return features_; }
+
 private:
     void run() noexcept;
     // Mixes one hop down to mono at the end of the sliding window, advancing it by k_hop.
@@ -107,6 +112,7 @@ private:
     alignas(16) float spectrum_[k_fft_size]{}; // pffft's own output order, unpacked into the frame
     alignas(16) float work_[k_fft_size]{};     // pffft scratch; passing it keeps 8 KB off the stack
 
+    features features_;           // E4-S2's extraction, analysis thread only
     mp_analysis_frame staging_{}; // analysis thread only, until it is published
     triple_buffer<mp_analysis_frame> published_;
 

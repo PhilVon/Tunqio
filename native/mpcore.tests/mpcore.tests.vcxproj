@@ -58,6 +58,7 @@
   <ItemGroup>
     <!-- Core under test, compiled in. -->
     <ClCompile Include="$(MpCoreDir)src\analysis\analyzer.cpp" />
+    <ClCompile Include="$(MpCoreDir)src\analysis\features.cpp" />
     <ClCompile Include="$(MpCoreDir)src\abi\exports.cpp" />
     <ClCompile Include="$(MpCoreDir)src\abi\exports_render.cpp" />
     <ClCompile Include="$(MpCoreDir)src\abi\last_error.cpp" />
@@ -70,6 +71,7 @@
     <!-- Tests -->
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\test_analysis_frame.cpp" />
+    <ClCompile Include="src\test_analysis_features.cpp" />
     <ClCompile Include="src\test_analysis_tap.cpp" />
     <ClCompile Include="src\test_abi.cpp" />
     <ClCompile Include="src\test_architecture.cpp" />

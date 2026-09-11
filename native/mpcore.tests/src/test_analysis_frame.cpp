@@ -258,10 +258,12 @@ TEST_CASE("a hop becomes a frame with the level and the waveform in it", "[analy
     INFO("largest waveform disagreement " << worst);
     CHECK(worst < 1e-6);
 
-    // E4-S2's fields are zero, not half-computed.
-    CHECK(frame.spectral_centroid_hz == 0.0f);
-    CHECK(frame.harmonic_ratio == 0.0f);
-    CHECK(frame.onset == 0);
+    // E4-S2's fields are filled in now, and the frame carries them alongside the spectrum they came from. What
+    // they are worth is test_analysis_features.cpp's business; what is checked here is that the frame E4-S1
+    // publishes is the one the extraction wrote into, which a zero would not show.
+    CHECK(frame.spectral_centroid_hz == Catch::Approx(128.0 * 48000.0 / k_n).epsilon(0.02));
+    CHECK(frame.harmonic_ratio > 0.9f);
+    CHECK(frame.bands[7] == Catch::Approx(0.5f).epsilon(0.01)); // bin 128 is 3000 Hz: the 2860-5695 Hz octave
 }
 
 TEST_CASE("the frame carries the hop's place in the mixer's stream", "[analysis][frame]") {

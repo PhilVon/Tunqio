@@ -46,7 +46,13 @@
  * mp_analysis_try_get_latest per frame and feeds the preset's constant buffer from it. Same reasoning as 0.8,
  * and for three exports rather than one: they were declared at 0.3 and stubbed, nothing about their signatures
  * moved, and a caller that has been checking for MP_E_STATE sees them start working. That is new function, and
- * new function is a minor. set_theme (E4-S6) and set_quality (E4-S7) are still stubs.
+ * new function is a minor. set_theme (E4-S6) and set_quality (E4-S7) are still stubs. 0.10 feature extraction
+ * (E4-S2): bands, spectral_centroid_hz, harmonic_ratio and onset carry the values documented at
+ * mp_analysis_frame instead of the zeros 0.8 promised until now. No field moved and the struct is the same size
+ * - but a field that was documented as zero and is now a measurement is new function by the same reading as 0.8
+ * and 0.9, and a caller that special-cased the zeros wants to know. The band count stays ten, which is what the
+ * header and the preset constant buffer have said since 0.8 and 0.9 (docs/roadmap-and-backlog.md said six; ten
+ * is what shipped and ten is what twenty hertz to twenty kilohertz actually is).
  */
 #pragma once
 
@@ -69,7 +75,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 9u
+#define MP_ABI_MINOR 10u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -309,7 +315,19 @@ MP_API mp_result MP_CALL mp_preview_stop(mp_engine* engine); /* not implemented 
  * `spectrum` is a 2048-point Hann-windowed real FFT advanced one hop at a time, bins 0..1023 (rate/2048 apart:
  * 23.44 Hz at 48 kHz; Nyquist is dropped). Magnitudes are scaled so a full-scale sine reads 1.0 in its own bin.
  * `waveform` is the newest hop mixed to mono. `rms` and `peak` are of the hop as mixed, all channels.
- * `bands`, `spectral_centroid_hz`, `harmonic_ratio` and `onset` are zero until E4-S2. */
+ *
+ * The rest are E4-S2's extraction over that spectrum. `bands` are ten octaves, centred on the ISO 31.5 Hz to
+ * 16 kHz series and partitioning bins 1..1023 between them (bin 0 is DC and is in none of them; the top band is
+ * closed at the last bin). A band is the quadrature sum of its magnitudes over the Hann window's 1.5-bin noise
+ * bandwidth, which makes it an amplitude on the same scale as `spectrum`: a full-scale sine anywhere inside a
+ * band reads 1.0 there, and a tone on a band edge splits between two bands in quadrature rather than appearing
+ * in both. `spectral_centroid_hz` is the magnitude-weighted mean frequency over bins 1..1023, and 0 in silence.
+ * `harmonic_ratio` is one minus the spectral flatness (the geometric mean of the bin magnitudes over their
+ * arithmetic mean): 0..1, how much of the spectrum is tone rather than noise - ~1.0 for a sine, ~0.15 for white
+ * noise, 0 in silence. It is not a count of harmonics. `onset` is 1 on the hop a transient was detected in
+ * (half-wave-rectified spectral flux against a threshold that is part of the frame's own spectral sum and part
+ * the median of the last 43 hops' flux), and stays 0 for three hops afterwards so one event is one flag. Its
+ * resolution is the hop: the flag means "during the 10.67 ms starting at `mixer_byte_pos`". */
 typedef struct mp_analysis_frame {
     uint32_t struct_size;
     uint32_t sequence;

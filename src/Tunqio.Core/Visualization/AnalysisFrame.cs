@@ -21,10 +21,23 @@ namespace Tunqio.Core.Visualization;
 /// <param name="Waveform">The newest hop, 512 samples, mixed to mono.</param>
 /// <param name="Rms">Level of the hop as mixed, all channels.</param>
 /// <param name="Peak">Largest absolute sample in the hop, all channels.</param>
-/// <param name="SpectralCentroidHz">Zero until E4-S2 extracts it.</param>
-/// <param name="HarmonicRatio">Zero until E4-S2 extracts it.</param>
-/// <param name="Bands">Octave band energies. Empty of content (all zero) until E4-S2 extracts them.</param>
-/// <param name="Onset">False until E4-S2's onset detection lands.</param>
+/// <param name="SpectralCentroidHz">
+/// The magnitude-weighted mean frequency of the spectrum, bin 0 excluded. Zero in silence.
+/// </param>
+/// <param name="HarmonicRatio">
+/// One minus the spectral flatness: 0 to 1, how much of the spectrum is tone rather than noise. A sine reads
+/// about 1.0 and white noise about 0.15. It is not a count of harmonics - an inharmonic bell reads high too.
+/// </param>
+/// <param name="Bands">
+/// Ten octave band amplitudes, centred on the ISO 31.5 Hz to 16 kHz series and partitioning the spectrum
+/// between them. On the same scale as <paramref name="Spectrum"/>: a full-scale sine inside a band reads 1.0
+/// there. A tone on a band edge splits between the two bands in quadrature, so the bands are not additive.
+/// </param>
+/// <param name="Onset">
+/// True on the hop a transient was detected in, from spectral flux against an adaptive threshold. Its
+/// resolution is the hop: it means "during the 10.67 ms starting at <paramref name="MixerBytePosition"/>". A
+/// detected onset suppresses the next three hops, so one event is one flag.
+/// </param>
 public readonly record struct AnalysisFrame(
     uint Sequence,
     long MixerBytePosition,

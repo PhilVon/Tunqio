@@ -53,6 +53,7 @@
   <ItemGroup>
     <ClInclude Include="include\mpcore.h" />
     <ClInclude Include="src\analysis\analyzer.h" />
+    <ClInclude Include="src\analysis\features.h" />
     <ClInclude Include="src\analysis\tap.h" />
     <ClInclude Include="src\abi\guard.h" />
     <ClInclude Include="src\abi\last_error.h" />
@@ -69,6 +70,7 @@
   <ItemGroup>
     <ClCompile Include="src\abi\exports.cpp" />
     <ClCompile Include="src\analysis\analyzer.cpp" />
+    <ClCompile Include="src\analysis\features.cpp" />
     <ClCompile Include="src\abi\exports_render.cpp" />
     <ClCompile Include="src\abi\last_error.cpp" />
     <ClCompile Include="src\audio\bass_engine.cpp" />

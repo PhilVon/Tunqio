@@ -70,8 +70,10 @@ void analyzer::start(tap& source, uint32_t sample_rate) {
     }
     source_ = &source;
     sample_rate_ = sample_rate != 0 ? sample_rate : 48000;
-    // A new mixer is a new stream of audio; the window must not carry four hops of the previous one into it.
+    // A new mixer is a new stream of audio; the window must not carry four hops of the previous one into it,
+    // and the extractor must not read the difference between the two streams' spectra as an onset.
     std::memset(history_, 0, sizeof history_);
+    features_.reset(sample_rate_);
     stop_.store(false, std::memory_order_release);
     running_.store(true, std::memory_order_release);
     thread_ = std::thread{[this] { run(); }};
@@ -171,8 +173,11 @@ void analyzer::analyze(const tap_block& block) noexcept {
     }
     forward(windowed_, staging_.spectrum);
 
-    // bands, spectral_centroid_hz, harmonic_ratio and onset are E4-S2's: they are extraction over this spectrum,
-    // not the spectrum. Left zeroed rather than half-computed, so a consumer reading a zero knows it is a zero.
+    // bands, spectral_centroid_hz, harmonic_ratio and onset (E4-S2): extraction over this spectrum, not the
+    // spectrum, which is why it is a separate object reading the frame's own bins back rather than a second
+    // pass over the transform's output.
+    features_.extract(staging_.spectrum, staging_);
+
     staging_.mixer_byte_pos = block.mixer_byte_pos;
     staging_.qpc_ticks = block.qpc_ticks;
     staging_.sequence = static_cast<uint32_t>(frames_.fetch_add(1, std::memory_order_acq_rel) + 1);
