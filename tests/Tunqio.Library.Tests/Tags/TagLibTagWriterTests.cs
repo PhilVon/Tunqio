@@ -157,6 +157,100 @@ public class TagLibTagWriterTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// T-124. A handle on the destination that withholds FILE_SHARE_DELETE makes File.Replace fail with "Unable
+    /// to remove the file to be replaced", and the writer retries instead of giving up on the first refusal.
+    /// <para>
+    /// The handle is taken at the <c>Verified</c> stage rather than before the write, and that is not a
+    /// convenience: TagLibSharp opens the original with no sharing at all to take the "before" snapshot, so a
+    /// handle held from the start fails that read instead and the test would be measuring a refusal from the
+    /// wrong end of the write. It also matches what actually happens - the holder in the real failure appeared
+    /// while the write was already running.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_destination_held_open_briefly_is_retried_rather_than_failed_Async()
+    {
+        string path = Copy(Flac);
+        FileStream? holder = null;
+        Task? release = null;
+
+        var writer = new TagLibTagWriter(TagWriterOptions.Default, null, null, (stage, _) =>
+        {
+            if (stage != TagWriteStage.Verified)
+            {
+                return;
+            }
+
+            // Grabbed just before the swap and let go 60 ms later: the first attempt refuses, a later one inside
+            // the 300 ms retry budget succeeds.
+            holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            FileStream held = holder;
+            release = Task.Run(async () =>
+            {
+                await Task.Delay(60);
+                await held.DisposeAsync();
+            });
+        });
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Title: "Landed After A Wait"));
+        watch.Stop();
+        if (release is not null)
+        {
+            await release;
+        }
+
+        holder.Should().NotBeNull("the seam must have run, or this test proves nothing");
+        result.Outcome.Should().Be(TagWriteOutcome.Written, $"the holder let go inside the retry window (error was: {result.Error}). The write took {watch.ElapsedMilliseconds} ms, which is the tell: under the retry budget means the swap was never retried at all.");
+        TagSnapshot? after = await new TagLibTagWriter().ReadAsync(path);
+        after.Should().NotBeNull();
+        after!.Title.Should().Be("Landed After A Wait");
+        Directory.GetFiles(_root, "*" + TagLibTagWriter.TempSuffix).Should().BeEmpty("the working copy must not survive a retried swap");
+    }
+
+    /// <summary>
+    /// The other half of T-124: the retry is a mitigation, not a promise. A holder that never lets go still fails
+    /// the write - and AC-106 still holds, which is the point. A retry that quietly weakened that would be worse
+    /// than no retry at all.
+    /// </summary>
+    [Fact]
+    public async Task A_destination_held_open_throughout_fails_with_the_original_untouched_Async()
+    {
+        string path = Copy(Flac);
+        string before = Sha256(path);
+        long length = new FileInfo(path).Length;
+        FileStream? holder = null;
+
+        try
+        {
+            var writer = new TagLibTagWriter(TagWriterOptions.Default, null, null, (stage, _) =>
+            {
+                if (stage == TagWriteStage.Verified)
+                {
+                    holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                }
+            });
+
+            TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Title: "Never Lands"));
+
+            holder.Should().NotBeNull("the seam must have run, or this test proves nothing");
+            result.Outcome.Should().Be(TagWriteOutcome.Failed, "every attempt at the swap was refused");
+            result.Error.Should().NotBeNullOrEmpty();
+        }
+        finally
+        {
+            if (holder is not null)
+            {
+                await holder.DisposeAsync();
+            }
+        }
+
+        Sha256(path).Should().Be(before, "a swap that never happened must leave the original byte-identical");
+        new FileInfo(path).Length.Should().Be(length);
+        Directory.GetFiles(_root, "*" + TagLibTagWriter.TempSuffix).Should().BeEmpty("the working copy must not be left behind");
+    }
+
     [Fact]
     public async Task A_verify_that_finds_the_wrong_values_fails_the_write_rather_than_shipping_them_Async()
     {

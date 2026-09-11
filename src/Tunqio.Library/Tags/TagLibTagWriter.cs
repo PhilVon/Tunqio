@@ -46,6 +46,9 @@ public sealed class TagLibTagWriter : ITagWriter
     /// <summary>Suffix of the working copy. It is not an audio extension, so a watcher or a scan mid-write ignores it.</summary>
     internal const string TempSuffix = ".tunqio-tagwrite";
 
+    /// <summary>Tries at the swap, including the first. See <see cref="Replace"/> for why there is more than one.</summary>
+    internal const int ReplaceAttempts = 5;
+
     private readonly TagWriterOptions _options;
     private readonly Func<string, string, TagFile> _open;
     private readonly ILogger _logger;
@@ -151,14 +154,62 @@ public sealed class TagLibTagWriter : ITagWriter
             _onStage?.Invoke(TagWriteStage.Verified, temp);
 
             _onStage?.Invoke(TagWriteStage.Replacing, temp);
-            // Replace rather than Delete-then-Move: it is a single directory operation, it keeps the original's
-            // ACLs and creation time, and it cannot leave the user with no file at all if it fails halfway.
-            System.IO.File.Replace(temp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            Replace(temp, path);
             return true;
         }
         finally
         {
             Discard(temp);
+        }
+    }
+
+    /// <summary>
+    /// Swaps the verified copy in, retrying briefly while something else has the original open.
+    /// <para>
+    /// Replace rather than Delete-then-Move: it is a single directory operation, it keeps the original's ACLs and
+    /// creation time, and it cannot leave the user with no file at all if it fails halfway.
+    /// </para>
+    /// <para>
+    /// The retry is for "Unable to remove the file to be replaced", which is what Windows says when a handle on
+    /// the destination was opened without <c>FILE_SHARE_DELETE</c> — an indexer, a scanner, an antivirus pass on a
+    /// file written a moment ago. It is transient by nature and it is not rare: a twelve-track batch hit it once in
+    /// six runs (T-124), and once during an <em>undo</em>, which is worse than during an edit because the user had
+    /// asked for their own values back and one file kept the new ones. Retrying costs a few hundred milliseconds in
+    /// the worst case and turns most of those into a write that simply works.
+    /// </para>
+    /// <para>
+    /// It is deliberately a mitigation and not a cure: the holder was never identified. It is not this app — the
+    /// editor awaits its own rescan before returning, the working copy carries a non-audio suffix so a watcher pass
+    /// skips it, and nothing here opens the original for writing at all. Retrying is the right shape for a holder
+    /// you do not own and cannot ask to let go. If a file still will not swap after this, the write fails with the
+    /// original untouched, which is the guarantee AC-106 is about and this does not weaken it.
+    /// </para>
+    /// </summary>
+    private void Replace(string temp, string path)
+    {
+        // 20, 40, 80, 160 ms: about a third of a second in total, under a second of a user's patience, and long
+        // enough to outlast a scanner reading one file.
+        int delay = 20;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                System.IO.File.Replace(temp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+                if (attempt > 1)
+                {
+                    _logger.LogDebug("Tag write of {Path} swapped in on attempt {Attempt}", path, attempt);
+                }
+
+                return;
+            }
+            catch (IOException) when (attempt < ReplaceAttempts)
+            {
+                _logger.LogDebug(
+                    "Tag write of {Path}: the file is held open, retrying the swap in {Delay} ms (attempt {Attempt} of {Attempts})",
+                    path, delay, attempt, ReplaceAttempts);
+                Thread.Sleep(delay);
+                delay *= 2;
+            }
         }
     }
 
