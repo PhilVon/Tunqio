@@ -132,6 +132,99 @@ That is what lets AC-126 be checked rather than sampled. `Constrain` is a functi
 
 **Stopping.** `ui.reactiveTheming` off, Windows asking for reduced motion (`UISettings.AnimationsEnabled`) and a high-contrast theme each stop it and put the static theme back. The accessibility change event stops it where it is raised — measured at 0 ms on the injected clock — and the 30 Hz poll re-reads both switches anyway, so a notification that is missed or marshalled late costs at most one poll interval, measured at 33.333 ms. The event alone would not be enough: a paused player publishes no frames, and a theming that only woke on a frame would sit on the last chord's colour for as long as the music stayed paused.
 
+## Adaptive quality (as built, E4-S7)
+
+`mp_renderer_set_quality` is implemented (ABI 0.16) over a controller in `native/mpcore/src/render/quality.h`.
+The controller is a pure object — it takes a clock reading and a frame cost and answers with a tier — which is
+what lets AC-129's "without oscillating" be measured against a synthetic series rather than waited for on a
+machine somebody else is also using. `mp_render_stats` grew a tail carrying what it decided and what it decided
+it on; the diagnostics overlay shows both.
+
+**The lever is render scale, and it is the only one.** The story asked for render scale, update rate and preset
+complexity. T-148 measured the four shipped presets on WARP and only one of them can exhaust a rasteriser at
+all: `ambient-glow` at 150 fps against 1331–2596 for the other three, because it is the only one whose cost is
+per-pixel rather than per-primitive. A lever measured in pixels is therefore the only one that helps the preset
+that needs helping — fewer bars would save nothing on the wash. Update rate is not a lever at all here:
+presenting less often does not make a frame cheaper, and a tier that deliberately halves the frame rate reads,
+to any controller that measures the frame interval, as a tier that is failing its budget. Preset complexity has
+no representation in the preset schema and would need a schema 3 bump to buy nothing on the preset in trouble.
+
+The tiers draw at 1.0, 0.75 and 0.5 of the panel. The back buffer stays the panel's size and the picture is
+drawn into a rectangle of it, which the compositor stretches out — `IDXGISwapChain2::SetSourceSize` on the
+flip-model swap chain that is already there. That is one call: no intermediate render target, no upscale pass,
+no sampler, nothing new for AC-118's device-reference count to see, and going back up costs nothing because the
+buffers never changed size. The preset sees the rendered size in `b0.viewport`, not the panel's, because the
+Waveform's thickness and the Radial Spectrum's hub are in pixels and a half-scale picture drawing a half-width
+line the compositor then doubles would be a tier that changed the composition rather than the resolution.
+
+**The cost signal is a GPU timestamp pair, not the frame interval.** The frame-to-frame interval is not a
+measurement of how much work a frame is: with vsync it is pinned to the refresh whether the GPU is idle or
+drowning, so a controller reading it would be blind on exactly the path the product ships. A
+`D3D11_QUERY_TIMESTAMP` pair inside a disjoint query, read two frames behind so `GetData` never stalls the
+loop, is the work itself. WARP supports them, and the tests print which source was used. The interval is the
+fallback for a device that will not make the queries, and `mp_render_stats.cost_source` says which is in force.
+Two things a first cut of this got wrong and the tests caught: a frame cheaper than the timestamp clock can
+resolve comes back as two equal stamps, and reporting that as "no reading" rather than as "the smallest cost
+there is" stops the controller for ever; and an always-disjoint device has to count as a miss, or the fallback
+never fires.
+
+**The hysteresis is a prediction, not a threshold pair, and T-148 is why.** The sketch further down this file
+drops above 20 ms, raises below 14 ms and refuses to decide twice inside two seconds. A cooldown bounds how
+*fast* a controller oscillates, not *whether* it does: if the cost at High is over the drop threshold and the
+cost at Medium is under the raise threshold, that controller alternates for ever, one visible step every two
+seconds. Whether that trap is reachable depends on the ratio between the cost at one tier and the next, and
+that ratio is a property of the preset — 1.78 for a per-pixel one going 0.75 → 1.0, about 1.0 for a
+per-primitive one. A raise threshold tuned on the second is tuned on the wrong preset. So the raise rule asks
+about the tier it is thinking of moving to rather than the one it is on:
+
+> raise only when `smoothed_cost × gain(tier → tier+1) ≤ budget × 0.8`
+
+`gain` starts at the analytic worst case (the area ratio, which is the pure per-pixel case and an upper bound
+for any preset) and is replaced by the ratio the controller measured last time it crossed that boundary. A
+per-primitive preset teaches it 1.0 within one transition and gets a responsive controller; `ambient-glow`
+teaches it 1.78 and gets a cautious one. Neither is tuned by hand. Measured, in `[quality]`: two controllers at
+Low both showing 10.00 ms, well inside a 16.667 ms budget and inside the 13.33 ms a threshold pair would raise
+on — the per-primitive one climbs to High and the per-pixel one stays at Low, and both are right.
+
+The prediction is a guarantee only while the estimate holds, so there is a second bound that does not depend on
+it: **a raise undone inside ten seconds doubles the wait before the next raise across that boundary**, capped
+at sixty seconds and charged per boundary rather than per raise. That makes the number of tier changes in a
+window logarithmic in the window instead of linear in it, whatever the cost series does — which is what AC-129
+is actually measured as. On the trap series above (18 ms at High, 10.13 at Medium, against 16.667) over two
+minutes: the controller as shipped changes tier **once** and stays at Medium; with the prediction removed but
+the escalation kept, **11 times**, exactly the derived bound; with both removed — the sketch — **65 times**. On
+300 s of a machine flipping between 40 ms and 12 ms every 8 s, which no predictor can be right about: **8**
+changes with the escalation and **75** without, against a derived bound of 34.
+
+T-148's other consequence is that the windows are in seconds and not in frames. `ambient-glow` produces 150
+samples a second on WARP and `radial-spectrum` 2287, so a dwell counted in frames would be a dwell 15 times
+longer in seconds on one of them — while AC-128 and AC-129 are both stated in seconds. Hence
+`alpha = 1 - exp(-dt / tau)` for the smoothing, the same form E4-S6 uses, and dwells in wall-clock seconds.
+Measured: the time to reach Low differs by 31.3 ms (1.6%) between those two sampling rates, against the 40 ms
+that six decision boundaries quantised to one frame at 150 Hz allow.
+
+The numbers: budget one refresh at 60 Hz, EMA time constant 0.25 s, 0.2 s settle after a change (during which
+samples are discarded and after which the first sample becomes the EMA outright rather than being blended with
+the previous tier's), 0.75 s over budget before a drop, 2.0 s under the predicted budget before a raise.
+
+**`quality_changes` counts the controller's own decisions.** A tier the caller pinned is not one, and a preset
+switch or a resize does not clear it — the first would let a person's choices bury the signal, the second would
+let a switch hide thrashing it may itself have started. What a preset switch and a resize *do* clear is
+everything the controller learned about the cost model, because it is a different cost model: T-148 measured
+the difference between two of these presets at 10 to 17 times, and carrying a gain estimate across that is
+worse than having none.
+
+**How the on-WARP half is tested without asserting a frame rate.** Whether WARP misses 60 fps at 1080p depends
+on who else is using the CPU — the same preset has been observed at 150 fps idle, 51.9 under a concurrent build
+and 21.4 on a shared runner (T-150) — so a test that needs it to miss is a test that goes red when a machine is
+busy. Instead the test *measures* what this machine costs at each tier and then sets a budget strictly between
+two of those measurements, so the drop is forced on any machine at any load while every frame time the
+controller reads is real. On this dev machine that reads: `ambient-glow` at 1920×1080 on WARP, from a timestamp
+pair, 6.99 ms at High, 4.99 at Medium (1.40×) and 2.10 at Low (3.33×) — which is also the proof that the lever
+does what the preset's shape says it should. AC-128 reaches Low in 1.74 s of a four-second bound; AC-129, with
+the surface cut to a sixteenth of the pixels and the budget untouched, climbs back to High in 4.77 s of ten, in
+exactly two changes, and holds it.
+
 ## D3D11/WPF Integration Strategy
 
 ### DXGI Surface Sharing Implementation
@@ -602,6 +695,11 @@ public:
 ```
 
 ### Adaptive Quality Scaling
+
+> **Superseded by E4-S7** — see "Adaptive quality (as built)" above. The three-tier shape and the render-scale
+> fractions survived; the threshold pair below did not. A drop above 20 ms and a raise below 14 ms is a rule
+> about the tier that is already drawing, and it alternates for ever on any preset whose cost between tiers
+> spans that gap. On this repository's own trap case it changes tier 65 times in two minutes.
 
 When frame rate drops below 60fps, the visualization engine implements automatic quality reduction:
 

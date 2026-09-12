@@ -229,6 +229,10 @@ struct headless_renderer {
             mp_last_error(err, sizeof err);
             FAIL("mp_renderer_create failed: " << err);
         }
+        // Pinned rather than left at the renderer's own MP_QUALITY_AUTO (E4-S7). A golden image is a claim
+        // about bytes and the adaptive controller draws into a smaller rectangle when a machine is slow, so
+        // leaving it on would make every picture in this file a function of how busy the runner was.
+        REQUIRE(mp_renderer_set_quality(handle, MP_QUALITY_HIGH) == MP_OK);
     }
     ~headless_renderer() {
         if (handle != nullptr) {
@@ -965,6 +969,7 @@ TEST_CASE("every shipped preset draws 1080p on whatever adapter this machine has
         cfg.vsync = 0;
         cfg.headless = 1;
         REQUIRE(mp_renderer_create(nullptr, nullptr, &cfg, &handle) == MP_OK);
+        REQUIRE(mp_renderer_set_quality(handle, MP_QUALITY_HIGH) == MP_OK); // the number below is a full-scale one
         REQUIRE(mp_renderer_set_preset(handle, id) == MP_OK);
         core(handle)->set_analysis_override(&fixed_frame());
 

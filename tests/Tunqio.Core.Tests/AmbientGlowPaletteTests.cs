@@ -178,7 +178,9 @@ public class AmbientGlowPaletteTests
 
         public RenderStats? TryGetStats() => null;
 
-        public void SetQualityPolicy(QualityPolicy policy) => throw new NotSupportedException("E4-S7");
+        public QualityPolicy Quality { get; private set; } = QualityPolicy.Auto;
+
+        public void SetQualityPolicy(QualityPolicy policy) => Quality = policy;
 
         public void Dispose()
         {

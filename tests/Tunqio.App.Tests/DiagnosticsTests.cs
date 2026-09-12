@@ -37,7 +37,17 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         await _engine.DisposeAsync();
     }
 
-    private static RenderStats Frames(double fps = 144.0, long missed = 3) => new(
+    private static RenderStats Frames(
+        double fps = 144.0,
+        long missed = 3,
+        QualityPolicy policy = QualityPolicy.Auto,
+        QualityTier tier = QualityTier.High,
+        int qualityChanges = 0,
+        int renderWidth = 854,
+        int renderHeight = 720,
+        float renderScale = 1f,
+        double frameCostMs = 4.1,
+        RenderCostSource costSource = RenderCostSource.GpuTimestamp) => new(
         Frames: 1200,
         Resizes: 2,
         Fps: fps,
@@ -53,7 +63,15 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         Headless: false,
         DeviceLost: false,
         Visible: true,
-        Adapter: "NVIDIA GeForce RTX 4080 SUPER");
+        Adapter: "NVIDIA GeForce RTX 4080 SUPER",
+        Policy: policy,
+        Tier: tier,
+        QualityChanges: qualityChanges,
+        RenderWidth: renderWidth,
+        RenderHeight: renderHeight,
+        RenderScale: renderScale,
+        FrameCost: TimeSpan.FromMilliseconds(frameCostMs),
+        CostSource: costSource);
 
     private static string Value(IReadOnlyList<DiagnosticsSection> sections, string section, string label) =>
         sections.Single(s => s.Title == section).Rows.Single(r => r.Label == label).Value;
@@ -81,6 +99,37 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         Value(sections, "Renderer", "Frame rate").Should().Be("144.0 fps");
         Value(sections, "Renderer", "Missed refreshes").Should().Be("3");
         Value(sections, "Build", "Version").Should().Be("0.1.0");
+    }
+
+    /// <summary>
+    /// AC-128's second half: the tier the renderer dropped to has to be visible to the person watching it drop.
+    /// Checked here rather than off a screen because a number formatted inside a TextBlock can only be checked
+    /// by reading it, and this is the function that formats it.
+    /// </summary>
+    [Fact]
+    public void The_overlay_says_which_quality_tier_is_drawing_and_why()
+    {
+        IReadOnlyList<DiagnosticsSection> full = Diagnostics.Describe(null, null, Frames());
+        Value(full, "Renderer", "Quality").Should().Be("high (auto) · 854×720 at 1× · 0 changes");
+        Value(full, "Renderer", "Frame cost").Should().Be("4.10 ms (GPU timestamp)");
+
+        // A renderer that WARP has driven down to Low: the tier, the rectangle it is really drawing, and how
+        // many times the controller has changed its mind - which is the half of "without oscillating" that a
+        // person can see.
+        IReadOnlyList<DiagnosticsSection> dropped = Diagnostics.Describe(null, null, Frames(
+            tier: QualityTier.Low, qualityChanges: 2, renderWidth: 427, renderHeight: 360, renderScale: 0.5f,
+            frameCostMs: 21.35));
+        Value(dropped, "Renderer", "Quality").Should().Be("low (auto) · 427×360 at 0.5× · 2 changes");
+        Value(dropped, "Renderer", "Frame cost").Should().Be("21.35 ms (GPU timestamp)");
+
+        // A tier the user chose reads as their choice rather than as the renderer's judgement, and a cost the
+        // controller had to fall back to measuring by frame interval says so, because the two numbers do not
+        // mean the same thing.
+        IReadOnlyList<DiagnosticsSection> pinned = Diagnostics.Describe(null, null, Frames(
+            policy: QualityPolicy.Medium, tier: QualityTier.Medium, qualityChanges: 1, renderWidth: 641,
+            renderHeight: 540, renderScale: 0.75f, costSource: RenderCostSource.FrameInterval));
+        Value(pinned, "Renderer", "Quality").Should().Be("medium (set to medium) · 641×540 at 0.75× · 1 change");
+        Value(pinned, "Renderer", "Frame cost").Should().Be("4.10 ms (frame interval)");
     }
 
     /// <summary>The bare counts mean nothing without the buckets they are counts of, and the last one is open-ended.</summary>

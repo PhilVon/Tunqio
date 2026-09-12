@@ -56,7 +56,13 @@ mp::render::renderer* core(mp_renderer* r) {
 struct renderer_fixture {
     mp_renderer* renderer = nullptr;
 
-    explicit renderer_fixture(bool warp, uint32_t width = 640, uint32_t height = 360) {
+    // `quality` defaults to a pinned MP_QUALITY_HIGH rather than to the renderer's own MP_QUALITY_AUTO, so
+    // that every test in this file is about the thing it is about: a picture, a frame count or a device
+    // reference at full scale, and never at whatever scale a contended machine happened to talk the
+    // controller into. The tests that ARE about the controller ask for AUTO, and they live in
+    // test_quality.cpp.
+    explicit renderer_fixture(bool warp, uint32_t width = 640, uint32_t height = 360,
+                              mp_quality_policy quality = MP_QUALITY_HIGH) {
         mp_renderer_config cfg{};
         cfg.struct_size = sizeof cfg;
         cfg.width = width;
@@ -72,6 +78,7 @@ struct renderer_fixture {
             mp_last_error(err, sizeof err);
             FAIL("mp_renderer_create failed: " << err);
         }
+        REQUIRE(mp_renderer_set_quality(renderer, quality) == MP_OK);
     }
     ~renderer_fixture() {
         if (renderer != nullptr) {
@@ -310,10 +317,14 @@ TEST_CASE("hardware renderer falls back to WARP when no adapter exists", "[rende
     CHECK(std::string{s.adapter}.size() > 0);
 }
 
-TEST_CASE("the quality export still names its story", "[render][abi]") {
+// Was "the quality export still names its story" until E4-S7 implemented it, which makes it the last of the
+// stubs E0-S5 declared: every mp_renderer_* export now does its work. What the controller behind it decides,
+// and on what, is test_quality.cpp's.
+TEST_CASE("the quality export is implemented", "[render][abi]") {
     renderer_fixture fx{true};
-    CHECK(mp_renderer_set_quality(fx.renderer, MP_QUALITY_AUTO) == MP_E_STATE);
-    CHECK(last_error().find("E4-S7") != std::string::npos);
+    CHECK(mp_renderer_set_quality(fx.renderer, MP_QUALITY_AUTO) == MP_OK);
+    CHECK(fx.stats().quality_policy == MP_QUALITY_AUTO);
+    CHECK(fx.stats().quality_tier == MP_QUALITY_HIGH); // nothing has been over budget
 }
 
 // ---- E4-S6: the renderer-wide theme ---------------------------------------------------------------

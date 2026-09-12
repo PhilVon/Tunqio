@@ -118,7 +118,7 @@ mp_result mp_renderer_rescan_presets(mp_renderer*, uint32_t* count);       // th
 mp_result mp_renderer_set_preset(mp_renderer*, const char* id);
 mp_result mp_renderer_set_param(mp_renderer*, const char* name, float);
 mp_result mp_renderer_set_theme(mp_renderer*, const mp_theme_colors*);     // the shell's palette, into every preset's b0
-mp_result mp_renderer_set_quality(mp_renderer*, mp_quality_policy);
+mp_result mp_renderer_set_quality(mp_renderer*, mp_quality_policy);      // auto = the render-thread controller (E4-S7)
 mp_result mp_renderer_get_stats(mp_renderer*, mp_render_stats*);
 mp_result mp_log_set_sink(mp_log_cb, void* user, mp_log_level);
 ```

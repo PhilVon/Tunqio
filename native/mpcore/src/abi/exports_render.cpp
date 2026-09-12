@@ -1,7 +1,7 @@
 // The mp_renderer_* exports (ABI 0.3). Thin: validate, forward, convert errors.
 // The preset three (enum/set_preset/set_param) were declared and stubbed by E0-S5 and are implemented by E4-S3;
-// set_theme is implemented by E4-S6 and set_quality is E4-S7's and still names its story. No export moved, so
-// the ABI minor moves for the function that is new, not for a signature that changed.
+// set_theme is implemented by E4-S6 and set_quality by E4-S7, which is the last of the stubs. No export moved,
+// so the ABI minor moves for the function that is new, not for a signature that changed.
 #include "mpcore.h"
 
 #include "abi/guard.h"
@@ -175,11 +175,13 @@ MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* r, const mp_theme_co
     });
 }
 
-MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* r, mp_quality_policy /*policy*/) {
+// The last of E0-S5's stubs to start working (ABI 0.16). Nothing here takes a lock or allocates - the policy
+// is one atomic store the render thread picks up on its next frame - so it is forwarded bare, like resize.
+MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* r, mp_quality_policy policy) {
     if (r == nullptr) {
         return invalid("mp_renderer_set_quality: NULL renderer");
     }
-    return not_implemented("mp_renderer_set_quality", "E4-S7");
+    return as_renderer(r)->set_quality(policy);
 }
 
 } // extern "C"

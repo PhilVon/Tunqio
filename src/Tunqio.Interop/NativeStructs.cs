@@ -183,6 +183,17 @@ internal unsafe struct MpRenderStats
     public byte DeviceLost;
     public byte Visible;
     public fixed byte Adapter[128];
+
+    // Appended by ABI 0.16 (E4-S7). StructSize is what tells the core this binding wants them; a core built
+    // against 0.13 could not fill them, and would say so rather than write past what it knows.
+    public uint QualityPolicy;
+    public uint QualityTier;
+    public uint QualityChanges;
+    public uint RenderWidth;
+    public uint RenderHeight;
+    public float RenderScale;
+    public float FrameCostMs;
+    public uint CostSource;
 }
 
 [StructLayout(LayoutKind.Sequential)]
