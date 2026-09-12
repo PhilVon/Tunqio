@@ -535,6 +535,13 @@ public:
 
 ### Automatic Quality Adjustment
 
+> **Superseded by E4-S7** — the built design is in [visualization-engine.md](visualization-engine.md),
+> "Adaptive quality (as built)". The two-second cooldown below is where this story's "2 s hysteresis" came
+> from, and it is the part that does not work: a cooldown bounds how *fast* a controller oscillates, not
+> whether it does. `SetFFTResolution` is also not implementable as written — the FFT size is fixed at 2048 over
+> 512-frame hops and baked into the ABI (`MP_ANALYSIS_SPECTRUM_BINS`), so changing it would be an ABI-major.
+> What shipped is render scale alone, for the reason T-148 measured.
+
 ```cpp
 class QualityManager {
 private:

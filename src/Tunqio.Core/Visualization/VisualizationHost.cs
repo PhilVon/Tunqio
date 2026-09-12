@@ -53,9 +53,8 @@ public sealed class PresetCompilationException(string presetId, string compilerM
 /// the shell already holds the WinUI reference and already knows how to produce the pointer, so it produces it.
 /// </para>
 /// <para>
-/// <see cref="SetQualityPolicy"/> is declared here because it belongs to this surface, but the native core does
-/// not implement it until E4-S7 and will refuse it until then. <see cref="SetThemeColors"/> was the same until
-/// E4-S6, which implemented it.
+/// <see cref="SetQualityPolicy"/> was declared here and refused by the core until E4-S7 implemented it, which
+/// makes it the last of E0-S5's stubs; <see cref="SetThemeColors"/> was the same until E4-S6.
 /// </para>
 /// </remarks>
 public interface IVisualizationHost : IDisposable
@@ -106,6 +105,11 @@ public interface IVisualizationHost : IDisposable
     /// </summary>
     void SetThemeColors(ThemeColors colors);
 
-    /// <summary>Not implemented by the core until E4-S7.</summary>
+    /// <summary>
+    /// How the renderer may trade detail for frame rate (E4-S7). <see cref="QualityPolicy.Auto"/> - the
+    /// default - hands the tier to a controller on the render thread, which drops the render scale when the
+    /// frame cost goes over budget and raises it when the headroom comes back; the other three pin the tier
+    /// and stop it deciding. What it decided, and what it decided it on, is on <see cref="RenderStats"/>.
+    /// </summary>
     void SetQualityPolicy(QualityPolicy policy);
 }

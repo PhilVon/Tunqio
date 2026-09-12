@@ -107,7 +107,7 @@ public class VisualizationHostTests
     }
 
     [Fact]
-    public async Task The_theme_is_forwarded_and_taken_and_quality_still_names_its_story()
+    public async Task The_theme_and_the_quality_policy_are_both_forwarded_and_taken()
     {
         using var host = new VisualizationHost();
         await host.AttachAsync(nint.Zero, Headless);
@@ -123,7 +123,30 @@ public class VisualizationHostTests
         FluentActions.Invoking(() => host.SetThemeColors(new ThemeColors([float.NaN, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0])))
             .Should().Throw<NativeException>().WithMessage("*finite*");
 
-        FluentActions.Invoking(() => host.SetQualityPolicy(QualityPolicy.Auto)).Should().Throw<NativeException>().WithMessage("*E4-S7*");
+        // E4-S7: the last of E0-S5's stubs. Every policy is taken, and what the core did with it comes back on
+        // RenderStats - which is the whole managed surface of adaptive quality, since the controller itself
+        // lives on the render thread and is mpcore.tests [quality]'s to prove.
+        foreach (QualityPolicy policy in Enum.GetValues<QualityPolicy>())
+        {
+            FluentActions.Invoking(() => host.SetQualityPolicy(policy)).Should().NotThrow();
+        }
+
+        host.SetQualityPolicy(QualityPolicy.Low);
+        var seen = new List<RenderStats>();
+        using (host.Stats.Subscribe(seen.Add))
+        {
+            await Task.Delay(VisualizationHost.StatsInterval * 3);
+        }
+
+        seen.Should().NotBeEmpty();
+        RenderStats stats = seen[^1];
+        stats.Policy.Should().Be(QualityPolicy.Low);
+        stats.Tier.Should().Be(QualityTier.Low);
+        stats.RenderScale.Should().BeApproximately(0.5f, 0.001f);
+        stats.RenderWidth.Should().Be(32); // half of the 64x64 surface, so the tier reached the render thread
+        stats.RenderHeight.Should().Be(32);
+        stats.Width.Should().Be(64); // ...and the surface itself did not change
+        stats.FrameCost.Should().BeGreaterThan(TimeSpan.Zero);
     }
 
     [Fact]

@@ -99,6 +99,15 @@ mp_result renderer::init(mp_engine* engine, void* swap_chain_panel_native, const
     if (r != MP_OK) {
         return r;
     }
+    // Deliberately not fatal, and deliberately here rather than lazily in the loop: a device that will not
+    // make timestamp queries still draws, and the controller falls back to the frame interval (the fallback
+    // is what mp_render_stats.cost_source reports). Created before the render thread starts, so the nine
+    // query objects are part of the settled device reference count AC-118's leak test reads rather than
+    // something that appears under it.
+    gpu_timing_ok_ = create_gpu_timing() == MP_OK;
+    if (!gpu_timing_ok_) {
+        log(MP_LOG_WARN, "timestamp queries unavailable; adaptive quality will decide on the frame interval");
+    }
 
     load_catalog();
     // The built-in preset is the one the renderer starts on, whatever is on disk: it is the only preset that
@@ -448,6 +457,34 @@ mp_result renderer::set_theme(const mp_theme_colors& colors) {
     return MP_OK;
 }
 
+mp_result renderer::set_quality(mp_quality_policy policy) {
+    switch (policy) {
+    case MP_QUALITY_AUTO:
+    case MP_QUALITY_LOW:
+    case MP_QUALITY_MEDIUM:
+    case MP_QUALITY_HIGH:
+        break;
+    default:
+        return invalid_arg("mp_renderer_set_quality: " + std::to_string(static_cast<int>(policy)) +
+                           " is not one of MP_QUALITY_AUTO, LOW, MEDIUM or HIGH");
+    }
+    quality_policy_.store(static_cast<uint32_t>(policy), std::memory_order_release);
+    return MP_OK;
+}
+
+void renderer::set_quality_tuning(const quality_tuning& tuning) {
+    {
+        std::lock_guard lock{quality_tuning_mutex_};
+        quality_tuning_ = tuning;
+    }
+    quality_tuning_generation_.fetch_add(1, std::memory_order_release);
+}
+
+quality_tuning renderer::quality_tuning_now() const {
+    std::lock_guard lock{quality_tuning_mutex_};
+    return quality_tuning_;
+}
+
 std::string renderer::active_preset_id() const {
     std::lock_guard lock{preset_mutex_};
     return current_ ? current_->source.id : std::string{};
@@ -558,6 +595,18 @@ void renderer::get_stats(mp_render_stats& out) const noexcept {
     const size_t n = std::min(adapter_.size(), sizeof out.adapter - 1);
     std::memcpy(out.adapter, adapter_.data(), n);
     out.adapter[n] = '\0';
+    out.quality_policy = quality_policy_.load(std::memory_order_relaxed);
+    out.quality_tier = stat_quality_tier_.load(std::memory_order_relaxed);
+    out.quality_changes = stat_quality_changes_.load(std::memory_order_relaxed);
+    // Before the render thread has drawn anything these read the surface at full scale, which is what the
+    // renderer is about to draw: a zero here would say "nothing" where the truth is "not yet".
+    const uint32_t rw = stat_render_width_.load(std::memory_order_relaxed);
+    const uint32_t rh = stat_render_height_.load(std::memory_order_relaxed);
+    out.render_width = rw != 0 ? rw : out.width;
+    out.render_height = rh != 0 ? rh : out.height;
+    out.render_scale = static_cast<float>(stat_render_scale_x1000_.load(std::memory_order_relaxed)) / 1000.0f;
+    out.frame_cost_ms = static_cast<float>(stat_frame_cost_ns_.load(std::memory_order_relaxed)) / 1'000'000.0f;
+    out.cost_source = stat_cost_source_.load(std::memory_order_relaxed);
 }
 
 // ---- render thread ------------------------------------------------------------------------------
@@ -595,8 +644,13 @@ void renderer::run() {
             continue;
         }
         const int64_t now = qpc();
-        render_frame(static_cast<double>(now - start) / static_cast<double>(qpc_freq()),
-                     static_cast<double>(now - previous) / static_cast<double>(qpc_freq()));
+        const double seconds = static_cast<double>(now - start) / static_cast<double>(qpc_freq());
+        // The tier decided at the bottom of the previous iteration becomes this frame's rectangle here, so a
+        // frame is drawn entirely at one scale and the cost measured around it is the cost of one tier.
+        apply_render_scale();
+        begin_gpu_timing();
+        render_frame(seconds, static_cast<double>(now - previous) / static_cast<double>(qpc_freq()));
+        end_gpu_timing();
         previous = now;
         if (serving) {
             serve_capture();
@@ -615,6 +669,7 @@ void renderer::run() {
             context_->Flush();
             Sleep(vsync_ ? 16 : 0);
         }
+        apply_quality(seconds, now); // reads last_frame_qpc_, so before record_frame_time moves it
         record_frame_time(now);
         frames_.fetch_add(1, std::memory_order_relaxed);
     }
@@ -651,6 +706,11 @@ void renderer::apply_pending_resize() {
             return;
         }
         resizes_.fetch_add(1, std::memory_order_relaxed);
+        // ResizeBuffers puts the source size back to the whole buffer, and the picture costs a different
+        // number of pixels than it did a moment ago: both halves of the quality state are now stale.
+        render_width_ = 0;
+        render_height_ = 0;
+        quality_model_dirty_ = true;
     }
     if (swap_chain_) {
         // The panel is laid out in DIPs; the swap chain is in pixels. The inverse scale maps one onto the other.
@@ -669,6 +729,9 @@ void renderer::apply_pending_preset() {
     render_preset_ = std::move(pending_);
     pending_.reset();
     preset_pending_.store(false, std::memory_order_release);
+    // A different preset is a different cost model, and T-148 measured how different: 10 to 17 times between
+    // ambient-glow and the other three. Carrying a gain estimate across that is worse than having none.
+    quality_model_dirty_ = true;
 }
 
 void renderer::update_frame_resources(double seconds, double delta) {
@@ -697,11 +760,18 @@ void renderer::update_frame_resources(double seconds, double delta) {
         }
     }
 
+    // The size the preset is drawing at, which at anything below MP_QUALITY_HIGH is smaller than the panel.
+    // A preset must see the pixels it is actually filling: the waveform's thickness and the radial spectrum's
+    // hub are in pixels, and handing them the panel's size would make a half-scale picture draw a half-width
+    // line that the compositor then stretches back to the thickness the parameter asked for - a lower tier
+    // that changed the composition rather than only the resolution.
+    const uint32_t rw = render_width_ > 0 ? render_width_ : width_;
+    const uint32_t rh = render_height_ > 0 ? render_height_ : height_;
     frame_constants c{};
-    c.viewport[0] = static_cast<float>(width_);
-    c.viewport[1] = static_cast<float>(height_);
-    c.viewport[2] = width_ > 0 ? 1.0f / static_cast<float>(width_) : 0.0f;
-    c.viewport[3] = height_ > 0 ? 1.0f / static_cast<float>(height_) : 0.0f;
+    c.viewport[0] = static_cast<float>(rw);
+    c.viewport[1] = static_cast<float>(rh);
+    c.viewport[2] = rw > 0 ? 1.0f / static_cast<float>(rw) : 0.0f;
+    c.viewport[3] = rh > 0 ? 1.0f / static_cast<float>(rh) : 0.0f;
     c.timing[0] = static_cast<float>(seconds);
     c.timing[1] = static_cast<float>(delta);
     c.timing[2] = static_cast<float>(frames_.load(std::memory_order_relaxed));
@@ -758,9 +828,12 @@ void renderer::render_frame(double seconds, double delta) {
     ID3D11RenderTargetView* rtv = rtv_.Get();
     context_->OMSetRenderTargets(1, &rtv, nullptr);
     context_->ClearRenderTargetView(rtv, preset->source.clear);
+    // The quality tier's rectangle, not the panel's. Rasterisation is clipped to the viewport, so this is
+    // where the per-pixel saving comes from: a Low tier at 1920x1080 rasterises 960x540 pixels and the
+    // compositor stretches them (apply_render_scale).
     D3D11_VIEWPORT vp{};
-    vp.Width = static_cast<float>(width_);
-    vp.Height = static_cast<float>(height_);
+    vp.Width = static_cast<float>(render_width_ > 0 ? render_width_ : width_);
+    vp.Height = static_cast<float>(render_height_ > 0 ? render_height_ : height_);
     vp.MaxDepth = 1.0f;
     context_->RSSetViewports(1, &vp);
     context_->IASetInputLayout(nullptr);
@@ -909,6 +982,154 @@ void renderer::record_frame_time(int64_t now) {
         fps_window_start_qpc_ = now;
         fps_window_frames_ = 0;
     }
+}
+
+// ---- adaptive quality (E4-S7) --------------------------------------------------------------------
+
+mp_result renderer::create_gpu_timing() {
+    D3D11_QUERY_DESC desc{};
+    for (auto& slot : gpu_timing_) {
+        desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+        if (FAILED(device_->CreateQuery(&desc, slot.disjoint.GetAddressOf()))) {
+            return MP_E_D3D;
+        }
+        desc.Query = D3D11_QUERY_TIMESTAMP;
+        if (FAILED(device_->CreateQuery(&desc, slot.begin.GetAddressOf())) ||
+            FAILED(device_->CreateQuery(&desc, slot.end.GetAddressOf()))) {
+            return MP_E_D3D;
+        }
+    }
+    return MP_OK;
+}
+
+void renderer::begin_gpu_timing() {
+    if (!gpu_timing_ok_) {
+        return;
+    }
+    gpu_timing_slot& slot = gpu_timing_[gpu_timing_slot_];
+    context_->Begin(slot.disjoint.Get());
+    context_->End(slot.begin.Get());
+}
+
+void renderer::end_gpu_timing() {
+    if (!gpu_timing_ok_) {
+        return;
+    }
+    gpu_timing_slot& slot = gpu_timing_[gpu_timing_slot_];
+    context_->End(slot.end.Get());
+    context_->End(slot.disjoint.Get());
+    slot.issued = true;
+    // Three slots and a read two frames behind, so GetData below never has to wait for the GPU: by the time
+    // this slot comes round again its results are long finished.
+    gpu_timing_slot_ = (gpu_timing_slot_ + 1) % k_gpu_timing_slots;
+}
+
+bool renderer::take_frame_cost(int64_t now_qpc, double& out_ms, bool& out_from_gpu) {
+    if (gpu_timing_ok_) {
+        // gpu_timing_slot_ has just been advanced past the frame we issued, so it is the oldest issued slot.
+        gpu_timing_slot& slot = gpu_timing_[gpu_timing_slot_];
+        bool got = false;
+        double ms = 0.0;
+        if (slot.issued) {
+            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
+            UINT64 begin = 0;
+            UINT64 end = 0;
+            const bool ready =
+                context_->GetData(slot.disjoint.Get(), &disjoint, sizeof disjoint, D3D11_ASYNC_GETDATA_DONOTFLUSH) ==
+                    S_OK &&
+                context_->GetData(slot.begin.Get(), &begin, sizeof begin, D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK &&
+                context_->GetData(slot.end.Get(), &end, sizeof end, D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+            if (ready) {
+                slot.issued = false;
+                // A disjoint interval is one the clock changed frequency across, so the numbers in it are not
+                // a duration and the pair is dropped.
+                if (disjoint.Disjoint == 0 && disjoint.Frequency != 0 && end >= begin) {
+                    ms = static_cast<double>(end - begin) * 1000.0 / static_cast<double>(disjoint.Frequency);
+                    got = true;
+                }
+            }
+        }
+        if (got) {
+            gpu_timing_misses_ = 0;
+            // A frame can be cheaper than the timestamp clock can resolve, and on WARP at a low tier it
+            // routinely is - the two stamps come back equal. Zero is not a cost the controller will accept
+            // (it refuses anything that is not a positive number), and a controller fed nothing at all stops
+            // deciding and reports no cost, which is what a first cut of this did at 960x540. So an
+            // unresolvably cheap frame is reported as the smallest cost there is rather than as no reading.
+            out_ms = std::max(ms, 1.0e-4);
+            out_from_gpu = true;
+            return true;
+        }
+        // Not ready yet is normal for the first frames after creation. Never usable - never ready, or always
+        // disjoint - is a device whose timestamps do not work, and two seconds at 60 Hz tells the two apart.
+        if (++gpu_timing_misses_ < 120) {
+            return false;
+        }
+        gpu_timing_ok_ = false;
+        log(MP_LOG_WARN,
+            "timestamp queries produced no usable reading in %u frames; adaptive quality falls back "
+            "to the frame interval",
+            gpu_timing_misses_);
+    }
+    if (last_frame_qpc_ == 0 || now_qpc <= last_frame_qpc_) {
+        return false;
+    }
+    out_ms = static_cast<double>(now_qpc - last_frame_qpc_) * 1000.0 / static_cast<double>(qpc_freq());
+    out_from_gpu = false;
+    return true;
+}
+
+void renderer::apply_quality(double now_s, int64_t now_qpc) {
+    if (const uint32_t generation = quality_tuning_generation_.load(std::memory_order_acquire);
+        generation != quality_tuning_seen_) {
+        std::lock_guard lock{quality_tuning_mutex_};
+        quality_.set_tuning(quality_tuning_);
+        quality_tuning_seen_ = quality_tuning_generation_.load(std::memory_order_relaxed);
+    }
+    if (const uint32_t policy = quality_policy_.load(std::memory_order_acquire); policy != quality_policy_seen_) {
+        quality_.set_policy(static_cast<mp_quality_policy>(policy));
+        quality_policy_seen_ = policy;
+    }
+    if (quality_model_dirty_) {
+        quality_.reset(now_s);
+        quality_model_dirty_ = false;
+    }
+
+    double cost_ms = 0.0;
+    bool from_gpu = false;
+    if (take_frame_cost(now_qpc, cost_ms, from_gpu)) {
+        quality_.observe(now_s, cost_ms);
+        stat_cost_source_.store(
+            static_cast<uint8_t>(from_gpu ? MP_RENDER_COST_GPU_TIMESTAMP : MP_RENDER_COST_FRAME_INTERVAL),
+            std::memory_order_relaxed);
+    }
+    stat_quality_tier_.store(static_cast<uint8_t>(quality_.tier()), std::memory_order_relaxed);
+    stat_quality_changes_.store(quality_.changes(), std::memory_order_relaxed);
+    stat_frame_cost_ns_.store(static_cast<uint32_t>(std::min(quality_.smoothed_ms() * 1'000'000.0, 4.0e9)),
+                              std::memory_order_relaxed);
+}
+
+void renderer::apply_render_scale() {
+    const double scale = static_cast<double>(quality_.render_scale());
+    const uint32_t rw =
+        std::clamp(static_cast<uint32_t>(std::lround(static_cast<double>(width_) * scale)), 1u, std::max(1u, width_));
+    const uint32_t rh =
+        std::clamp(static_cast<uint32_t>(std::lround(static_cast<double>(height_) * scale)), 1u, std::max(1u, height_));
+    if (rw == render_width_ && rh == render_height_) {
+        return;
+    }
+    render_width_ = rw;
+    render_height_ = rh;
+    if (swap_chain_) {
+        // A flip-model swap chain scales its source rectangle onto the panel, so drawing smaller costs one
+        // call: no intermediate render target, no upscale pass, no sampler, and nothing new for AC-118's
+        // device-reference count to see. The buffers stay the panel's size, which is what makes going back up
+        // free too.
+        swap_chain_->SetSourceSize(rw, rh);
+    }
+    stat_render_width_.store(rw, std::memory_order_relaxed);
+    stat_render_height_.store(rh, std::memory_order_relaxed);
+    stat_render_scale_x1000_.store(static_cast<uint32_t>(std::lround(scale * 1000.0)), std::memory_order_relaxed);
 }
 
 void renderer::collect_dxgi_statistics() {

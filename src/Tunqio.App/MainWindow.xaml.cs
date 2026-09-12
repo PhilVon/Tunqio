@@ -186,6 +186,14 @@ public sealed partial class MainWindow : Window
     public ThemePreference ThemePreference => _settings is null ? ThemePreference.System : ThemePolicy.Read(_settings);
 
     /// <summary>
+    /// The stored visualizer quality policy (<c>viz.quality</c>), applied to the renderer when it is created;
+    /// <see cref="Core.Visualization.QualityPolicy.Auto"/> when there is no settings store to read, which is
+    /// also the core's own default.
+    /// </summary>
+    public QualityPolicy QualityPolicy =>
+        _settings is null ? QualityPolicy.Auto : QualityPolicyStore.Read(_settings);
+
+    /// <summary>
     /// Switches the theme and remembers the choice. The Appearance page (E6-S3) is what will call this; it lives
     /// here because the repaint has to happen on the shell's root for it to be a repaint rather than a reload.
     /// </summary>
@@ -554,6 +562,10 @@ public sealed partial class MainWindow : Window
             (int width, int height) = PanelPixelSize();
             _renderer = NativeRenderer.Create(panelNative, new RendererConfig(
                 width, height, VisualizerPanel.CompositionScaleX, VisualizerPanel.CompositionScaleY, _forceWarp, VSync: true));
+            // viz.quality (E4-S7). The core's own default is Auto, so this only ever matters when someone has
+            // pinned a tier - but a setting nothing reads is a setting that does not exist, and the point of
+            // pinning is to be able to stop a controller from having opinions about your machine.
+            _renderer.SetQuality((int)QualityPolicy);
         }
         catch (Exception ex) when (ex is NativeException or DllNotFoundException)
         {

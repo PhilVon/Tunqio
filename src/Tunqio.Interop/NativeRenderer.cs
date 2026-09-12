@@ -74,7 +74,15 @@ public sealed unsafe class NativeRenderer : IDisposable
             s.Headless != 0,
             s.DeviceLost != 0,
             s.Visible != 0,
-            adapter);
+            adapter,
+            (QualityPolicy)s.QualityPolicy,
+            (QualityTier)s.QualityTier,
+            (int)s.QualityChanges,
+            (int)s.RenderWidth,
+            (int)s.RenderHeight,
+            s.RenderScale,
+            TimeSpan.FromMilliseconds(s.FrameCostMs),
+            (RenderCostSource)s.CostSource);
     }
 
     /// <summary>
@@ -151,6 +159,11 @@ public sealed unsafe class NativeRenderer : IDisposable
         NativeException.ThrowIfFailed(NativeMethods.RendererSetTheme(RequireHandle(), &colors), "mp_renderer_set_theme");
     }
 
+    /// <summary>
+    /// How the renderer may trade detail for frame rate (E4-S7). <c>Auto</c> hands the tier to the controller
+    /// on the render thread; the other three pin it. What the controller then decided, and on what, comes back
+    /// in <see cref="GetStats"/>.
+    /// </summary>
     public void SetQuality(int policy) =>
         NativeException.ThrowIfFailed(NativeMethods.RendererSetQuality(RequireHandle(), (MpQualityPolicy)policy), "mp_renderer_set_quality");
 

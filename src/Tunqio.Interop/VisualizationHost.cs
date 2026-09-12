@@ -71,6 +71,13 @@ public sealed class VisualizationHost : IVisualizationHost
     /// <summary>Statistics pushed to <see cref="Stats"/> since construction. Diagnostics and tests.</summary>
     public long Pushed { get; private set; }
 
+    /// <summary>
+    /// Why the statistics poll stopped, when it has. Null while it is running. The poll gives up on the first
+    /// failure that is not a detach, because it runs on a timer and a failure it cannot fix would otherwise
+    /// repeat twice a second for the life of the process.
+    /// </summary>
+    public Exception? StatsFailure { get; private set; }
+
     public Task AttachAsync(nint swapChainPanelNative, RendererConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -201,6 +208,22 @@ public sealed class VisualizationHost : IVisualizationHost
         catch (ObjectDisposedException)
         {
             // Detached between the read above and the call; nothing left to publish.
+        }
+        catch (Exception ex)
+        {
+            // A System.Threading.Timer callback runs on a pool thread, so an exception that leaves it does not
+            // fail a call - it takes the process down. Found by E4-S7: mp_render_stats grew a tail, and an
+            // Interop that asks for it against an mpcore.dll one minor older is refused on every poll, which
+            // is the ABI working exactly as the header says (a struct_size the callee has never heard of is
+            // MP_E_INVALID_ARG) and is a version pairing the loader deliberately permits, since it refuses
+            // only on a MAJOR mismatch. Twice a second, for ever, one of them fatal, was the previous
+            // behaviour of that pairing.
+            //
+            // So the poll stops rather than repeating a failure nothing will fix, and the reason is kept for
+            // whoever asks. The diagnostics overlay does not lose the renderer with it: MainWindow reads
+            // mp_renderer_get_stats on its own path and shows the failure as the Renderer row's text.
+            StatsFailure = ex;
+            _ = _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
     }
 }

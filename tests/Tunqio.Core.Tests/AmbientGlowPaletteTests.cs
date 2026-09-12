@@ -168,7 +168,9 @@ public class AmbientGlowPaletteTests
 
         public void SetThemeColors(ThemeColors colors) => Themes.Add(colors);
 
-        public void SetQualityPolicy(QualityPolicy policy) => throw new NotSupportedException("E4-S7");
+        public QualityPolicy Quality { get; private set; } = QualityPolicy.Auto;
+
+        public void SetQualityPolicy(QualityPolicy policy) => Quality = policy;
 
         public void Dispose()
         {

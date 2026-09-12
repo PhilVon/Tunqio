@@ -122,12 +122,49 @@ public static class Diagnostics
         [
             new DiagnosticsRow("Adapter", renderer.Adapter + (renderer.Warp ? " (WARP)" : string.Empty)),
             new DiagnosticsRow("Surface", Inv($"{renderer.Width}×{renderer.Height}{(renderer.Visible ? string.Empty : " (hidden)")}")),
+            new DiagnosticsRow("Quality", Quality(renderer)),
+            new DiagnosticsRow("Frame cost", FrameCost(renderer)),
             new DiagnosticsRow("Frame rate", Inv($"{renderer.Fps:F1} fps")),
             new DiagnosticsRow("Frame time", Inv($"avg {renderer.FrameAverage.TotalMilliseconds:F2} ms · max {renderer.FrameMax.TotalMilliseconds:F1} ms")),
             new DiagnosticsRow("Missed refreshes", renderer.DxgiMissedRefreshes.ToString(CultureInfo.InvariantCulture)),
             new DiagnosticsRow("Frame histogram", Histogram(renderer.FrameHistogram)),
             new DiagnosticsRow("Device lost", renderer.DeviceLost ? "yes" : "no"),
         ];
+    }
+
+    /// <summary>
+    /// The tier the renderer is drawing at, how it came to be that tier, and what it is costing in pixels
+    /// (E4-S7, AC-128). The rendered size is here rather than folded into Surface because the two really are
+    /// different things once a tier is below High: the surface is the panel and this is the rectangle of it
+    /// the picture is drawn into, which the compositor stretches back out.
+    /// </summary>
+    /// <remarks>
+    /// The change count is the part worth reading twice. A controller that is thrashing looks exactly like one
+    /// that is working if all you can see is the tier it happens to be on, and "without oscillating" is half
+    /// of what E4-S7 promises - so the number of times it has changed its mind is on the overlay and in the
+    /// pasted report. It counts the controller's own decisions; a tier the user pinned is not one of them.
+    /// </remarks>
+    private static string Quality(RenderStats renderer)
+    {
+        string tier = renderer.Tier.ToString().ToLowerInvariant();
+        string how = renderer.Policy == QualityPolicy.Auto ? "auto" : "set to " + renderer.Policy.ToString().ToLowerInvariant();
+        string size = Inv($"{renderer.RenderWidth}×{renderer.RenderHeight} at {renderer.RenderScale:0.##}×");
+        string changes = renderer.QualityChanges == 1
+            ? "1 change"
+            : Inv($"{renderer.QualityChanges} changes");
+        return Inv($"{tier} ({how}) · {size} · {changes}");
+    }
+
+    /// <summary>
+    /// What the controller is deciding on, and where it came from. The source belongs next to the number
+    /// because the two answers mean different things: a GPU timestamp is the work in a frame, while the frame
+    /// interval is the pace the frames arrived at - which under vsync says nothing about how hard the GPU was
+    /// working, and is only the fallback for a device that will not make the queries.
+    /// </summary>
+    private static string FrameCost(RenderStats renderer)
+    {
+        string source = renderer.CostSource == RenderCostSource.GpuTimestamp ? "GPU timestamp" : "frame interval";
+        return Inv($"{renderer.FrameCost.TotalMilliseconds:F2} ms ({source})");
     }
 
     /// <summary>

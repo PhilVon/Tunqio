@@ -88,7 +88,15 @@
  * costs a schema 1 preset nothing - nothing before `theme` moved, so its shader reads exactly what it read
  * before out of a buffer that is merely longer than the block it declares - and this build still loads one, as
  * mpcore.tests' schema 1 fixtures prove. What a schema number buys is the other direction: a preset written
- * against a contract this build has never heard of is refused rather than guessed at.
+ * against a contract this build has never heard of is refused rather than guessed at. 0.14 adaptive quality
+ * (E4-S7): mp_renderer_set_quality is implemented over a controller on the render thread, and mp_render_stats
+ * grows a tail saying what that controller decided and what it decided it on. Same reading as 0.8 to 0.13 for
+ * the export - declared and stubbed since 0.3, beginning to work, which is new function and so a minor - and
+ * 0.12's reading for the struct: the seven fields are APPENDED, nothing before them moved, so a caller built
+ * against 0.13 passes the struct_size it always passed and is served exactly the prefix it understands. That
+ * is the thing T-140 bought and this is the first story to spend it. One new enum, mp_render_cost_source,
+ * names which of two measurements the controller is acting on; a new type is not a break because no existing
+ * signature mentions it.
  */
 #pragma once
 
@@ -111,7 +119,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 13u
+#define MP_ABI_MINOR 14u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -415,6 +423,17 @@ typedef struct mp_renderer_config {
 
 #define MP_RENDER_HISTOGRAM_BUCKETS 6u
 
+/* Which measurement the quality controller is deciding on (ABI 0.14). The frame-to-frame interval is not a
+ * measurement of how much work a frame is: with vsync it is pinned to the refresh whether the GPU is idle or
+ * drowning, so a controller reading it would be blind on exactly the path the product ships. A D3D11 timestamp
+ * pair around the draw is the work itself. The interval is the fallback for a device that will not make the
+ * queries or keeps reporting them disjoint, and it is honest where the renderer is headless and unpaced -
+ * which is where the tests measure. */
+typedef enum mp_render_cost_source {
+    MP_RENDER_COST_GPU_TIMESTAMP = 0,
+    MP_RENDER_COST_FRAME_INTERVAL = 1
+} mp_render_cost_source;
+
 typedef struct mp_render_stats {
     uint32_t struct_size;
     uint64_t frames;  /* frames rendered since creation */
@@ -434,6 +453,22 @@ typedef struct mp_render_stats {
     uint8_t device_lost;
     uint8_t visible;
     char adapter[128];
+    /* ---- adaptive quality (ABI 0.14, appended) ----
+     * A caller built against 0.13 passes the shorter struct_size and never sees these; a caller that does see
+     * them and has never called mp_renderer_set_quality sees the defaults, which are what a renderer starts at.
+     */
+    uint32_t quality_policy;  /* mp_quality_policy as last requested; MP_QUALITY_AUTO until one is set */
+    uint32_t quality_tier;    /* the tier in force: MP_QUALITY_LOW / MEDIUM / HIGH, never MP_QUALITY_AUTO,
+                               * because auto is a policy and something is always drawing at one of the three */
+    uint32_t quality_changes; /* tier changes the CONTROLLER decided, since the renderer was created; a tier
+                               * the caller pinned is not one. The oscillation counter: a controller that is
+                               * thrashing says so here rather than only on screen */
+    uint32_t render_width;    /* the rectangle of the back buffer the picture is drawn into, which is the
+                               * surface size times the tier's render scale. Equals width/height at High */
+    uint32_t render_height;
+    float render_scale;   /* 1.0 High, 0.75 Medium, 0.5 Low */
+    float frame_cost_ms;  /* the smoothed per-frame cost the controller is deciding on */
+    uint32_t cost_source; /* mp_render_cost_source: where frame_cost_ms came from */
 } mp_render_stats;
 
 /* One entry of the preset catalogue. A preset is data (ADR-009): a directory holding preset.json and the HLSL it
@@ -453,6 +488,8 @@ typedef struct mp_theme_colors {
     float background[4];
 } mp_theme_colors;
 
+/* AUTO is the renderer's own judgement and the other three pin it. AUTO is a policy and never a tier: what
+ * mp_render_stats.quality_tier reports is always one of LOW, MEDIUM or HIGH. */
 typedef enum mp_quality_policy {
     MP_QUALITY_AUTO = 0,
     MP_QUALITY_LOW = 1,
@@ -493,8 +530,25 @@ MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* renderer, const char
  * and nothing changes. Until a theme is set every channel is zero, so alpha 0 is how a preset reads "the shell
  * has not told me one". Cheap and safe to call at the rate the shell's own theming runs (30 Hz). */
 MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* renderer, const mp_theme_colors* colors);
-MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* renderer,
-                                                 mp_quality_policy policy); /* not implemented until E4-S7 */
+/* How the renderer is allowed to trade detail for frame rate (E4-S7). MP_QUALITY_AUTO - the default - hands
+ * the tier to a controller on the render thread; the other three pin it and stop the controller deciding.
+ *
+ * What a tier changes is the RENDER SCALE: the back buffer stays the size of the panel and the picture is
+ * drawn into 100%, 75% or 50% of it, which the compositor stretches back out. That is the only lever, and
+ * T-148 is why: of the four shipped presets only ambient-glow can exhaust a rasteriser (150 fps on WARP
+ * against 1331-2596 for the other three), and it is the only one whose cost is per-pixel rather than
+ * per-primitive - so a lever measured in pixels is the only one that helps the preset that needs help.
+ *
+ * The controller decides on a smoothed per-frame cost (mp_render_stats.frame_cost_ms) against one refresh at
+ * 60 Hz. It drops a tier after three quarters of a second over budget, and raises one only when the cost it
+ * PREDICTS at the tier above - the smoothed cost times the ratio it last measured across that boundary - is
+ * inside 80% of the budget. Predicting rather than thresholding is what stops it alternating on a preset
+ * whose cost changes a lot between tiers; a raise it has to undo doubles the wait before the next one, which
+ * bounds the alternation even when the prediction is wrong.
+ *
+ * Everything the controller decided, and what it decided it on, is in mp_render_stats' 0.14 tail. Cheap to
+ * call; MP_E_INVALID_ARG on a policy that is not one of the four. */
+MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* renderer, mp_quality_policy policy);
 
 #ifdef __cplusplus
 } /* extern "C" */

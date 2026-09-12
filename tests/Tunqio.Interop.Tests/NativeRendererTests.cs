@@ -119,10 +119,30 @@ public class NativeRendererTests
     }
 
     [Fact]
-    public void Theme_and_quality_are_still_deferred_to_their_stories()
+    public void The_quality_policy_crosses_the_boundary_and_the_tier_comes_back()
     {
+        // Was Theme_and_quality_are_still_deferred_to_their_stories until E4-S7 implemented the last stub.
+        // What the controller decides is mpcore.tests [quality]'s to prove; what this proves is the binding -
+        // the policy goes out, and the 0.14 tail of mp_render_stats comes back into the managed struct at the
+        // offsets the header put it at, which is the only thing a hand-written blittable mirror can get wrong.
         using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
-        FluentActions.Invoking(() => renderer.SetQuality(0)).Should().Throw<NativeException>().WithMessage("*E4-S7*");
+        FluentActions.Invoking(() => renderer.SetQuality((int)QualityPolicy.Auto)).Should().NotThrow();
+        renderer.GetStats().Policy.Should().Be(QualityPolicy.Auto);
+        renderer.GetStats().Tier.Should().Be(QualityTier.High); // nothing has been over budget
+
+        renderer.SetQuality((int)QualityPolicy.Medium);
+        Thread.Sleep(200);
+        RenderStats stats = renderer.GetStats();
+        stats.Policy.Should().Be(QualityPolicy.Medium);
+        stats.Tier.Should().Be(QualityTier.Medium);
+        stats.RenderScale.Should().BeApproximately(0.75f, 0.001f);
+        stats.RenderWidth.Should().Be(48);
+        stats.RenderHeight.Should().Be(48);
+        stats.QualityChanges.Should().Be(0); // a tier the caller pinned is not the controller changing its mind
+        stats.CostSource.Should().BeOneOf(RenderCostSource.GpuTimestamp, RenderCostSource.FrameInterval);
+
+        // A value that is not a policy is refused by the core rather than turned into one.
+        FluentActions.Invoking(() => renderer.SetQuality(9)).Should().Throw<NativeException>();
     }
 
     [Fact]

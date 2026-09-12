@@ -13,6 +13,7 @@
 #include "mpcore.h"
 
 #include "render/preset.h"
+#include "render/quality.h"
 
 #include <array>
 #include <atomic>
@@ -53,6 +54,9 @@ public:
     // The renderer-wide theme (E4-S6): four RGBA colours into b0's `theme`, surviving preset switches, so every
     // preset and the shell's own background gradient are painted from one palette.
     mp_result set_theme(const mp_theme_colors& colors);
+    // Adaptive quality (E4-S7). MP_QUALITY_AUTO hands the tier to the controller in render/quality.h; the
+    // other three pin it. Takes effect on the render thread's next frame.
+    mp_result set_quality(mp_quality_policy policy);
     std::string active_preset_id() const;
 
     // ---- diagnostics, not on the ABI (mpcore.tests compiles these sources directly) ----
@@ -72,6 +76,11 @@ public:
     // Feeds the render thread one fixed mp_analysis_frame in place of whatever the engine has, and nullptr puts
     // it back. A golden image has to be a function of data the test chose, not of what was playing when it ran.
     void set_analysis_override(const mp_analysis_frame* frame);
+    // The controller's numbers, so a test can set a budget this machine provably cannot meet at High and
+    // provably can meet after it changes - which is what lets AC-128 be an end-to-end measurement on the real
+    // rasteriser without asserting an absolute frame rate on a machine somebody else is also using (T-150).
+    void set_quality_tuning(const quality_tuning& tuning);
+    quality_tuning quality_tuning_now() const;
 
 private:
     renderer() = default;
@@ -89,6 +98,14 @@ private:
     void serve_full_capture(ID3D11Texture2D* source);
     void record_frame_time(int64_t now_qpc);
     void collect_dxgi_statistics();
+    mp_result create_gpu_timing();
+    void begin_gpu_timing();
+    void end_gpu_timing();
+    // The frame cost the controller decides on. True when one was produced this iteration; `out_ms` is then
+    // the cost and `out_from_gpu` says whether it came from a GPU timestamp pair or from the frame interval.
+    bool take_frame_cost(int64_t now_qpc, double& out_ms, bool& out_from_gpu);
+    void apply_quality(double now_s, int64_t now_qpc);
+    void apply_render_scale();
     void run();
 
     template <typename T> using com_ptr = Microsoft::WRL::ComPtr<T>;
@@ -136,6 +153,51 @@ private:
     uint32_t theme_seen_ = 0;                              // render thread only
     std::array<float, k_theme_slots> theme_render_{};      // render thread only
     std::shared_ptr<const compiled_preset> render_preset_; // render thread only
+
+    // Adaptive quality (E4-S7). The controller itself belongs to the render thread and nothing else touches
+    // it; the control plane writes a policy and a tuning across, and reads the results out of the published
+    // atomics below. The policy is one relaxed load a frame and the tuning is the theme's generation handover
+    // - a renderer whose tuning is never set (every renderer but a test's) takes the lock exactly never.
+    quality_controller quality_; // render thread only
+    std::atomic<uint32_t> quality_policy_{MP_QUALITY_AUTO};
+    uint32_t quality_policy_seen_ = MP_QUALITY_AUTO; // render thread only
+    mutable std::mutex quality_tuning_mutex_;
+    quality_tuning quality_tuning_{};
+    std::atomic<uint32_t> quality_tuning_generation_{0};
+    uint32_t quality_tuning_seen_ = 0; // render thread only
+    // What the renderer is actually drawing at: the back buffer stays the panel's size and the picture is
+    // drawn into this rectangle of it, stretched back out by the compositor (IDXGISwapChain2::SetSourceSize).
+    uint32_t render_width_ = 0;  // render thread only
+    uint32_t render_height_ = 0; // render thread only
+    // Set when something OTHER than the controller changed what a frame costs - a resize, a preset switch -
+    // so everything the controller measured about the old cost model is discarded. A tier change is not one of
+    // these: that is the controller's own doing and the ratio across it is exactly what it wants to learn.
+    bool quality_model_dirty_ = false; // render thread only
+    // Published for mp_render_stats.
+    std::atomic<uint8_t> stat_quality_tier_{static_cast<uint8_t>(MP_QUALITY_HIGH)};
+    std::atomic<uint32_t> stat_quality_changes_{0};
+    std::atomic<uint32_t> stat_render_width_{0};
+    std::atomic<uint32_t> stat_render_height_{0};
+    std::atomic<uint32_t> stat_render_scale_x1000_{1000};
+    std::atomic<uint32_t> stat_frame_cost_ns_{0};
+    std::atomic<uint8_t> stat_cost_source_{static_cast<uint8_t>(MP_RENDER_COST_FRAME_INTERVAL)};
+
+    // GPU timestamp queries: the cost signal. The frame-to-frame interval is not one on the shipping path -
+    // with vsync it is pinned to the refresh whatever the GPU is doing, so a controller reading it would be
+    // blind exactly where the feature is supposed to work. Three slots, read two frames behind so GetData
+    // never stalls the loop. When the device will not make the queries, or keeps reporting them disjoint, the
+    // frame interval is the fallback and mp_render_stats.cost_source says so.
+    static constexpr size_t k_gpu_timing_slots = 3;
+    struct gpu_timing_slot {
+        com_ptr<ID3D11Query> disjoint;
+        com_ptr<ID3D11Query> begin;
+        com_ptr<ID3D11Query> end;
+        bool issued = false;
+    };
+    std::array<gpu_timing_slot, k_gpu_timing_slots> gpu_timing_{};
+    size_t gpu_timing_slot_ = 0;     // render thread only
+    bool gpu_timing_ok_ = false;     // render thread only
+    uint32_t gpu_timing_misses_ = 0; // render thread only: consecutive frames with no usable result
 
     // Pending resize written by the control plane, consumed by the render thread.
     std::atomic<uint32_t> pending_width_{0};
