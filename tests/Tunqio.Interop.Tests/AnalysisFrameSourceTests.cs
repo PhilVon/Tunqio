@@ -26,10 +26,12 @@ public class AnalysisFrameSourceTests
     /// <summary>
     /// Renders `frames` frames in pieces the analysis thread can keep up with. <see cref="Render"/> makes audio
     /// as fast as the CPU allows, and the tap's ring holds sixteen 512-frame hops: a second of audio pushed
-    /// through it in one go overruns it many times over, and every overrun leaves the analyzer's sliding window
-    /// with a discontinuity in it - a 1 kHz sine whose phase jumps, whose spectrum is a smear rather than a
-    /// tone. Real playback cannot do this (a device asks for 10 ms at a time, in real time), so a test that wants
-    /// a frame of the audio it played has to hand the audio over at a rate something could have listened to.
+    /// through it in one go overruns it many times over. Since T-135 an overrun costs frames rather than
+    /// correctness - the analyzer restarts its window across the gap and withholds frames until it is whole
+    /// again, and says so in <see cref="AnalysisFrame.Discontinuities"/> - so an unpaced render still publishes
+    /// nothing but true spectra, just fewer of them and with gaps between them. Real playback cannot overrun at
+    /// all (a device asks for 10 ms at a time, in real time), and a test that wants to reason about which frame
+    /// it is holding hands the audio over at a rate something could have listened to.
     /// </summary>
     private static void RenderPaced(NativeEngine engine, int frames)
     {
@@ -134,6 +136,63 @@ public class AnalysisFrameSourceTests
         }
 
         elsewhere.Should().BeLessThan(0.02f, "a single tone is in one octave band and not spread across ten");
+        frame.Discontinuities.Should().Be(0, "the audio was handed over at the rate it would be played at, so no hop was ever lost");
+    }
+
+    [Fact]
+    public void A_render_faster_than_playback_is_reported_as_a_discontinuity_and_not_as_a_smear()
+    {
+        // T-135, through the binding: audio made faster than the tap's ring can hold overruns it, and what the
+        // analyzer does about that has to reach a managed consumer - anything integrating across frames (a
+        // smoothed level, a beat history) is wrong across a gap it cannot see. The count is the field that lets
+        // it see one, and reading it here is also what proves it is marshalled at the offset the header puts it.
+        using NativeEngine engine = CreateHeadless();
+        using var source = new NativeAnalysisFrameSource(engine);
+        using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("analysis-overrun", seconds: 8.0, frequencyHz: 3046.875, amplitude: 0.5));
+        engine.Play(track);
+
+        // 341 ms of audio at a time - twice what the tap's ring holds, so the overrun is arithmetic and not a
+        // race - and then a few milliseconds for the analysis thread to drain what survived and publish it.
+        // Rendering all eight seconds in one burst overruns just as surely but leaves the sampling of the
+        // result to the scheduler, which is how this test first came out with three frames in a busy suite.
+        const int burst = 16384; // 32 hops into a 16-hop ring
+        var seen = new List<AnalysisFrame>();
+        uint last = 0;
+        for (int chunk = 0; chunk < 8 * 48000 / burst; chunk++)
+        {
+            Render(engine, burst);
+            for (int i = 0; i < 10; i++)
+            {
+                Thread.Sleep(1);
+                if (source.TryGetLatest(out AnalysisFrame frame) && frame.Sequence != last)
+                {
+                    last = frame.Sequence;
+                    seen.Add(frame);
+                }
+            }
+        }
+
+        seen.Should().HaveCountGreaterThan(10, "frames are still published between the gaps");
+        seen.Select(f => f.Discontinuities).Distinct().Should().HaveCountGreaterThan(1, "the ring overran, and the frames say so");
+
+        // And every one of them is still a spectrum of the tone that was played. 3046.875 Hz is bin 130 exactly,
+        // and before T-135 about half of these frames had the peak somewhere else entirely. The first quarter
+        // second is left out: the play-start guard fade is a rising envelope and not a steady tone.
+        long settled = 48000 / 4 * engine.MixerChannels * sizeof(float);
+        foreach (AnalysisFrame frame in seen.Where(f => f.MixerBytePosition >= settled))
+        {
+            ReadOnlySpan<float> spectrum = frame.Spectrum.Span;
+            int loudest = 0;
+            for (int i = 1; i < spectrum.Length; i++)
+            {
+                if (spectrum[i] > spectrum[loudest])
+                {
+                    loudest = i;
+                }
+            }
+
+            loudest.Should().Be(130, $"frame {frame.Sequence} must be the transform of 2048 contiguous samples, not of a splice");
+        }
     }
 
     [Fact]

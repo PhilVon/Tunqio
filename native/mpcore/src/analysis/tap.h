@@ -18,6 +18,11 @@
 // lock-free. It costs nothing in practice: the ring holds ~170 ms and the analysis thread's budget is under 4 ms
 // per 10.7 ms hop, so it drains faster than the tap fills and a stall is made up within a few hops. Dropping is
 // the producer's only failure mode; it never blocks and never waits.
+//
+// It costs hops rather than correctness only because every block says whether it follows the one before it:
+// tap_block::dropped_before is the number of hops lost immediately before that block, so a consumer holding
+// state across hops - the analyzer's sliding window, and the onset history behind it - knows to restart rather
+// than splice two pieces of audio that were never next to each other (T-135).
 #pragma once
 
 #include "common/spsc_ring.h"
@@ -36,10 +41,12 @@ struct tap_block {
     static constexpr uint32_t k_frames = 512;
     static constexpr uint32_t k_max_channels = 8;
 
-    int64_t mixer_byte_pos = 0; // mixer bytes produced before this block's first frame
-    int64_t qpc_ticks = 0;      // QueryPerformanceCounter when the block was completed
-    uint32_t frames = 0;        // always k_frames for a published block
-    uint32_t channels = 0;      // interleaved channel count in samples
+    int64_t mixer_byte_pos = 0;  // mixer bytes produced before this block's first frame
+    int64_t qpc_ticks = 0;       // QueryPerformanceCounter when the block was completed
+    uint32_t frames = 0;         // always k_frames for a published block
+    uint32_t channels = 0;       // interleaved channel count in samples
+    uint32_t dropped_before = 0; // hops the ring had no room for between the previous published block and this
+                                 // one; non-zero means this block does not follow that one (T-135)
     float samples[static_cast<size_t>(k_frames) * k_max_channels] = {};
 };
 
@@ -62,6 +69,7 @@ public:
         source_channels_ = std::max(1u, channels);
         bytes_ = 0;
         staged_ = 0;
+        pending_drops_ = 0;
         dropped_.store(0, std::memory_order_relaxed);
         published_.store(0, std::memory_order_relaxed);
         tap_block discard;
@@ -138,18 +146,29 @@ private:
         }
     }
 
+    // The producer is the only side that knows when a hop went missing, and it knows it exactly: the drop is
+    // counted here and carried on the next block that does get through, so the consumer learns of the gap on
+    // the block that sits across it rather than when dropped() moved. Those are not the same moment - the ring
+    // is full when a hop is dropped, so fifteen good blocks are still ahead of the gap - and a consumer that
+    // acted on dropped() would tear its window fifteen hops after it had reset it (T-135).
     void publish() noexcept {
+        staging_.dropped_before = pending_drops_;
         if (!ring_.try_push(staging_)) {
             dropped_.fetch_add(1, std::memory_order_relaxed); // the consumer is behind; this hop is gone
+            if (pending_drops_ != UINT32_MAX) {
+                ++pending_drops_; // saturates rather than wrapping: 2^32 drops must not read as "continuous"
+            }
             return;
         }
+        pending_drops_ = 0;
         published_.fetch_add(1, std::memory_order_relaxed);
     }
 
     mp::spsc_ring<tap_block> ring_;
-    tap_block staging_{};   // audio thread only
-    uint32_t staged_ = 0;   // frames already in staging_
-    uint32_t channels_ = 0; // channels a block carries (0 until reset)
+    tap_block staging_{};        // audio thread only
+    uint32_t staged_ = 0;        // frames already in staging_
+    uint32_t pending_drops_ = 0; // drops since the last block that got through; stamped on the next one
+    uint32_t channels_ = 0;      // channels a block carries (0 until reset)
     uint32_t source_channels_ = 1;
     int64_t bytes_ = 0;
     std::atomic<uint64_t> dropped_{0};

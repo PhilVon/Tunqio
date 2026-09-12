@@ -374,6 +374,8 @@ public unsafe struct MpAnalysisFrameBuffer
 
     public bool Onset => _frame.Onset != 0;
 
+    public byte Discontinuities => _frame.Discontinuities;
+
     public ReadOnlySpan<float> Spectrum => new(Unsafe.AsPointer(ref _frame.Spectrum[0]), MpAnalysisFrame.SpectrumBins);
 
     public ReadOnlySpan<float> Waveform => new(Unsafe.AsPointer(ref _frame.Waveform[0]), MpAnalysisFrame.WaveformSamples);

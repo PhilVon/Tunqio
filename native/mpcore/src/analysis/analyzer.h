@@ -16,6 +16,16 @@
 // that a missed analysis frame would glitch the audio - it would not - but that this thread runs at Pro Audio
 // priority, and a thread that can block at that priority is a thread that can hold up the one that matters.
 //
+// A sliding window is only a window on one signal while the hops sliding through it are contiguous, and the tap
+// drops a hop rather than blocking the mixer when this thread falls 170 ms behind. So a dropped hop is not a
+// missing frame, it is a splice: the window would hold three quarters of one piece of audio and a quarter of
+// another, and the spectrum of that is a perfectly plausible picture of something nobody played. The window is
+// therefore restarted on the hop the tap says is not continuous with the last one, and no frame is published
+// until it is four contiguous hops again - a frame withheld is a visualizer holding its last picture for 32 ms,
+// where a torn one is a visualizer confidently drawing a lie. The count of restarts rides out on every frame as
+// mp_analysis_frame.discontinuities, because a consumer that computes anything across frames - E4-S2's onset
+// history, E4-S6's theming - cannot see the gap in a stream it samples at 30 Hz (T-135).
+//
 // Why polling and not a semaphore the tap signals: the tap's producer is the WASAPI mix thread inside BASS's own
 // DSP callback, and signalling from there is a kernel transition on the audio path to save this thread a 2 ms
 // sleep. The ring holds sixteen hops - 170 ms - so a poll that is late by a scheduling quantum loses nothing,
@@ -46,6 +56,7 @@ public:
     // 2048-point FFT advanced by one 512-frame hop: 23.44 Hz bins at 48 kHz, a new frame every 10.67 ms.
     static constexpr uint32_t k_fft_size = 2048;
     static constexpr uint32_t k_hop = tap_block::k_frames;
+    static constexpr uint32_t k_window_hops = k_fft_size / k_hop;        // 4: the hops a full window is made of
     static constexpr uint32_t k_bins = MP_ANALYSIS_SPECTRUM_BINS;        // 1024: bins 0..1023, Nyquist dropped
     static constexpr uint32_t k_waveform = MP_ANALYSIS_WAVEFORM_SAMPLES; // 512: exactly one hop, mono
     static_assert(k_bins * 2 == k_fft_size, "the spectrum is the real FFT's bins below Nyquist");
@@ -83,9 +94,17 @@ public:
     // mp_analysis_frame.sequence to know whether what it holds is new.
     uint64_t frames() const noexcept { return frames_.load(std::memory_order_acquire); }
 
+    // Times the analyzer has had to restart its window because the tap lost hops (T-135). Zero in real-time
+    // playback, where the ring holds 170 ms and the producer is the WASAPI thread; non-zero only where audio is
+    // made faster than it is heard. The low byte of this is what mp_analysis_frame.discontinuities carries.
+    uint64_t discontinuities() const noexcept { return discontinuities_.load(std::memory_order_acquire); }
+
     // ---- the per-hop work, exposed so the tests can drive it without a thread ----
 
-    // One hop into one frame, published. Real-time: no allocation, no lock (rt::scope asserts it in Debug).
+    // One hop into the sliding window, and a frame out of it when the window holds four contiguous hops.
+    // Publishes on every hop of an unbroken stream; on the hop after a gap it restarts the window instead, and
+    // then publishes nothing until the window is whole again - k_window_hops - 1 hops later. Real-time: no
+    // allocation, no lock (rt::scope asserts it in Debug).
     void analyze(const tap_block& block) noexcept;
 
     // The Hann window the analysis applies, k_fft_size long.
@@ -104,6 +123,9 @@ private:
     void run() noexcept;
     // Mixes one hop down to mono at the end of the sliding window, advancing it by k_hop.
     void slide(const tap_block& block) noexcept;
+    // Throws the window and the extraction's history away because the hop about to arrive does not follow the
+    // last one, and suppresses publishing until the window is four contiguous hops again.
+    void restart() noexcept;
 
     PFFFT_Setup* fft_ = nullptr;
     alignas(16) float hann_[k_fft_size]{};
@@ -122,6 +144,13 @@ private:
     std::atomic<bool> stop_{false};
     std::atomic<bool> running_{false};
     std::atomic<uint64_t> frames_{0};
+    // Hops the window still needs before it is whole again after a restart; 0 whenever it is. Analysis thread.
+    uint32_t refill_ = 0;
+    // Monotonic since construction, like frames_ and for the same reason: the frame carries it and a consumer
+    // decides whether what it holds is continuous with what it holds next by whether the number moved.
+    std::atomic<uint64_t> discontinuities_{0};
+    uint64_t dropped_hops_ = 0;             // hops lost to the tap since start(), for the log line stop() writes
+    uint64_t discontinuities_at_start_ = 0; // so that line counts this run's restarts and not every run's
 };
 
 #pragma warning(pop)

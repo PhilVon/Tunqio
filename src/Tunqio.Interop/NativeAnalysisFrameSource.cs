@@ -93,7 +93,8 @@ public sealed class NativeAnalysisFrameSource : IAnalysisFrameSource, IDisposabl
             buffer.SpectralCentroidHz,
             buffer.HarmonicRatio,
             buffer.Bands.ToArray(),
-            buffer.Onset);
+            buffer.Onset,
+            buffer.Discontinuities);
 
     private void Poll(object? state)
     {

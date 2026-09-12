@@ -230,7 +230,7 @@ internal unsafe struct MpAnalysisFrame
     public float SpectralCentroidHz;
     public float HarmonicRatio;
     public byte Onset;
+    public byte Discontinuities;
     public byte Reserved0;
     public byte Reserved1;
-    public byte Reserved2;
 }

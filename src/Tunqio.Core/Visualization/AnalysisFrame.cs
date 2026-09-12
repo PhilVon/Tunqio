@@ -38,6 +38,15 @@ namespace Tunqio.Core.Visualization;
 /// resolution is the hop: it means "during the 10.67 ms starting at <paramref name="MixerBytePosition"/>". A
 /// detected onset suppresses the next three hops, so one event is one flag.
 /// </param>
+/// <param name="Discontinuities">
+/// Counts, modulo 256, the times the native analysis has had to restart because hops were lost between the
+/// mixer and the analysis thread. Anything carried from one frame to the next - a smoothed level, a beat
+/// history - compares this with the value on the frame it held before and starts again if it moved. Every frame
+/// is itself a spectrum of contiguous audio whatever this says; it is only about what was computed across
+/// frames. It is a count and not a flag because this stream is sampled at 30 Hz and the native side publishes
+/// at 94, so the one frame a flag would sit on is usually a frame nobody sees. In real-time playback it never
+/// moves - it takes audio produced faster than it is played, which is a headless render and not a device.
+/// </param>
 public readonly record struct AnalysisFrame(
     uint Sequence,
     long MixerBytePosition,
@@ -49,7 +58,8 @@ public readonly record struct AnalysisFrame(
     float SpectralCentroidHz,
     float HarmonicRatio,
     ReadOnlyMemory<float> Bands,
-    bool Onset);
+    bool Onset,
+    byte Discontinuities);
 
 /// <summary>
 /// The analysis stream (docs/solution-structure.md, "Key managed contracts"), implemented over the native core

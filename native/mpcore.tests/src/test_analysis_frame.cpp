@@ -314,6 +314,32 @@ TEST_CASE("a hop allocates nothing (RT_ASSERT_NO_ALLOC)", "[analysis][frame][rt]
     CHECK(mp::rt::violations() == 0);
     CHECK(a.frames() == 65);
 }
+
+TEST_CASE("restarting the window after a dropped hop allocates nothing either", "[analysis][frame][rt]") {
+    // The recovery path is on the same thread under the same rule (T-135), and it is the one that does the most
+    // work per hop: an 8 KB memset, the extraction's own reset, and the band edges recomputed. Every hop here
+    // says a hop was lost in front of it, so the counted loop is nothing but restarts.
+    analyzer a;
+    std::vector<tap_block> hops;
+    hops.reserve(64);
+    for (int i = 0; i < 64; ++i) {
+        hops.push_back(hop_of(static_cast<int64_t>(i) * analyzer::k_hop, 2,
+                              [](int64_t t) { return static_cast<float>(std::sin(0.01 * static_cast<double>(t))); }));
+        hops.back().dropped_before = 1;
+    }
+    a.analyze(hops[0]);
+
+    mp::rt::reset_violations();
+    {
+        mp::rt::scope inside;
+        for (const tap_block& hop : hops) {
+            a.analyze(hop);
+        }
+    }
+    CHECK(mp::rt::violations() == 0);
+    CHECK(a.discontinuities() == 65);
+    CHECK(a.frames() == 0); // nothing was ever four contiguous hops, so there was never a frame to publish
+}
 #endif
 
 // ---- AC-111: the rate frames arrive at, and when they stop ---------------------------------------------
@@ -400,6 +426,209 @@ TEST_CASE("frames arrive at the hop rate while playing and stop soon after a pau
     INFO("last frame " << stopped_ms << " ms after pause (the " << mp::audio::engine::k_guard_fade_ms
                        << " ms guard fade is still real audio, and is part of it)");
     CHECK(stopped_ms < 100.0);
+
+    mp_engine_stop(fx.engine, MP_FADE_NONE);
+    mp_track_close(track);
+}
+
+// ---- T-135: a ring overrun must not be slid across -----------------------------------------------------
+
+namespace {
+
+// Bin 130 of the analysis window, as a function of the absolute frame index, so consecutive hops of it are one
+// signal. The bin matters: 130 cycles per 2048 samples is 32.5 per 512-frame hop, so an odd number of hops lost
+// puts the splice half a cycle out of phase - the worst tear there is, and the one a window cannot hide. A bin
+// centre also means the right answer is exact: one bin holds the tone and the Hann skirt holds two more.
+constexpr uint32_t k_tone_bin = 130;
+constexpr double k_tone_hz = 48000.0 * k_tone_bin / k_n; // 3046.875 Hz
+
+float tone_at(int64_t frame) {
+    return static_cast<float>(std::sin(2.0 * std::numbers::pi * k_tone_bin * static_cast<double>(frame) / k_n));
+}
+
+uint32_t loudest_bin(const mp_analysis_frame& frame) {
+    uint32_t best = 0;
+    for (uint32_t k = 1; k < analyzer::k_bins; ++k) {
+        if (frame.spectrum[k] > frame.spectrum[best]) {
+            best = k;
+        }
+    }
+    return best;
+}
+
+} // namespace
+
+TEST_CASE("a hop lost to an overrun restarts the window instead of being spliced into it",
+          "[analysis][frame][overrun]") {
+    // The whole defect, with no threads in it: the tap is filled past its ring and then drained, so the hop the
+    // analyzer sees after the gap is genuinely not the one after the hop before it. What the analyzer used to do
+    // was slide it in anyway, publishing a window of three hops of one piece of audio and one of another.
+    mp::analysis::tap source;
+    source.reset(2);
+    analyzer a;
+
+    std::vector<float> hop(static_cast<size_t>(analyzer::k_hop) * 2);
+    const auto write_hops = [&](int64_t first_hop, int count) {
+        for (int h = 0; h < count; ++h) {
+            const int64_t first = (first_hop + h) * analyzer::k_hop;
+            for (uint32_t f = 0; f < analyzer::k_hop; ++f) {
+                hop[static_cast<size_t>(f) * 2] = hop[static_cast<size_t>(f) * 2 + 1] = tone_at(first + f);
+            }
+            source.write(hop.data(), analyzer::k_hop, 0);
+        }
+    };
+    const auto drain = [&](int expected) {
+        tap_block block;
+        int read = 0;
+        while (source.try_read(block)) {
+            a.analyze(block);
+            ++read;
+        }
+        REQUIRE(read == expected);
+    };
+
+    constexpr auto k_ring = static_cast<int64_t>(mp::analysis::tap::k_blocks);
+    constexpr int k_lost = 5; // odd, so the splice is half a cycle of the tone out of phase
+
+    write_hops(0, static_cast<int>(k_ring)); // fills the ring
+    write_hops(k_ring, k_lost);              // nowhere to put these: the tap drops them
+    REQUIRE(source.dropped() == k_lost);
+    drain(static_cast<int>(k_ring)); // hops 0..15, contiguous, and a true spectrum out of them
+
+    mp_analysis_frame before{};
+    REQUIRE(a.try_get_latest(before));
+    REQUIRE(loudest_bin(before) == k_tone_bin);
+    REQUIRE(before.sequence == k_ring);
+    REQUIRE(a.discontinuities() == 0);
+
+    // The next hop the analyzer is given is hop 21, and the window holds hops 13, 14 and 15. Sliding 21 in
+    // makes a spectrum of a signal that jumps phase three quarters of the way through - which is what this
+    // measured before the fix: the loudest bin wandered off 130 and the centroid read about 4 kHz.
+    write_hops(k_ring + k_lost, 1);
+    drain(1);
+
+    mp_analysis_frame across{};
+    REQUIRE(a.try_get_latest(across));
+    CHECK(a.discontinuities() == 1);
+    INFO("across the gap: loudest bin " << loudest_bin(across) << ", centroid " << across.spectral_centroid_hz
+                                        << " Hz, sequence " << across.sequence);
+    // Nothing new was published, because there was nothing true to publish: the newest frame is still the last
+    // contiguous one, unchanged, and a consumer polling sees the picture it already had rather than a wrong one.
+    CHECK(across.sequence == before.sequence);
+    CHECK(loudest_bin(across) == k_tone_bin);
+    CHECK(across.spectral_centroid_hz == Catch::Approx(k_tone_hz).epsilon(0.02));
+
+    // Three more hops and the window is four contiguous hops again, so frames resume - and the one that comes
+    // out carries the restart, which is how a consumer holding anything across frames learns to start again.
+    write_hops(k_ring + k_lost + 1, 3);
+    drain(3);
+
+    mp_analysis_frame after{};
+    REQUIRE(a.try_get_latest(after));
+    INFO("after refilling: loudest bin " << loudest_bin(after) << ", centroid " << after.spectral_centroid_hz << " Hz");
+    CHECK(after.sequence == before.sequence + 1); // three hops made no frame; the fourth made one
+    CHECK(loudest_bin(after) == k_tone_bin);
+    CHECK(after.spectral_centroid_hz == Catch::Approx(k_tone_hz).epsilon(0.02));
+    CHECK(after.discontinuities == 1);
+    CHECK(after.onset == 0); // the flux across a gap is a difference between two signals, not an onset
+    CHECK(a.discontinuities() == 1);
+}
+
+TEST_CASE("an unbroken stream publishes a frame per hop and never reports a discontinuity",
+          "[analysis][frame][overrun]") {
+    // The other half of the claim: the cost of all this in the normal case is nothing. Sixty-four contiguous
+    // hops through the tap, drained as they arrive, are sixty-four frames.
+    mp::analysis::tap source;
+    source.reset(2);
+    analyzer a;
+
+    std::vector<float> hop(static_cast<size_t>(analyzer::k_hop) * 2);
+    tap_block block;
+    for (int h = 0; h < 64; ++h) {
+        const int64_t first = static_cast<int64_t>(h) * analyzer::k_hop;
+        for (uint32_t f = 0; f < analyzer::k_hop; ++f) {
+            hop[static_cast<size_t>(f) * 2] = hop[static_cast<size_t>(f) * 2 + 1] = tone_at(first + f);
+        }
+        source.write(hop.data(), analyzer::k_hop, 0);
+        REQUIRE(source.try_read(block));
+        a.analyze(block);
+    }
+
+    CHECK(source.dropped() == 0);
+    CHECK(a.frames() == 64);
+    CHECK(a.discontinuities() == 0);
+
+    mp_analysis_frame frame{};
+    REQUIRE(a.try_get_latest(frame));
+    CHECK(frame.sequence == 64);
+    CHECK(frame.discontinuities == 0);
+    CHECK(loudest_bin(frame) == k_tone_bin);
+}
+
+TEST_CASE("a headless render faster than real time publishes only continuous frames",
+          "[analysis][frame][engine][overrun]") {
+    // How this was found: the offline engine renders as fast as it is asked to, the tap's ring holds 170 ms of
+    // audio, and a second of audio produced in a few milliseconds overruns it. Every frame the analysis thread
+    // publishes while that is happening still has to be the transform of 2048 samples that were next to each
+    // other, and the only oracle needed is that the tone is where the tone is.
+    mp::tests::offline_engine fx;
+    auto* core = reinterpret_cast<mp::audio::engine*>(fx.engine);
+    analyzer& a = core->analysis_thread();
+    REQUIRE(a.running());
+
+    mp::tests::wav_spec spec;
+    spec.seconds = 20.0;
+    spec.frequency_hz = k_tone_hz; // a bin centre of the analysis window, so the right answer is one bin
+    spec.amplitude = 0.5;
+    mp_track* track = fx.open(mp::tests::write_sine_wav(spec, "analysis-overrun"));
+    REQUIRE(mp_engine_play(fx.engine, track, 0) == MP_OK);
+
+    // 341 ms of audio at a time and then a few milliseconds to watch what comes out. The burst is twice what
+    // the ring holds, so the overrun is arithmetic rather than a race with the analysis thread; the pause is
+    // what makes the result observable, because rendering all twenty seconds in one go overruns just as surely
+    // but leaves how many frames a test gets to see up to the scheduler.
+    constexpr uint32_t k_burst_frames = 32 * analyzer::k_hop; // 32 hops into a 16-hop ring
+    std::vector<float> buffer(static_cast<size_t>(mp::tests::k_buffer_frames) * mp::tests::k_channels);
+    const int64_t settled_frames = 48000 / 4; // past the guard fade, so the window is full of steady tone
+    uint32_t checked = 0;
+    uint32_t last_sequence = 0;
+    uint32_t wrong_bin = 0;
+    uint32_t worst_bin = 0;
+    const auto bursts = static_cast<int>(spec.seconds * 48000 / k_burst_frames);
+    for (int b = 0; b < bursts; ++b) {
+        for (uint32_t done = 0; done < k_burst_frames; done += mp::tests::k_buffer_frames) {
+            REQUIRE(mp_engine_render(fx.engine, buffer.data(), mp::tests::k_buffer_frames) == MP_OK);
+        }
+        for (int i = 0; i < 10; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+            mp_analysis_frame frame{};
+            frame.struct_size = sizeof frame;
+            if (mp_analysis_try_get_latest(fx.engine, &frame) != MP_OK || frame.sequence == last_sequence) {
+                continue;
+            }
+            last_sequence = frame.sequence;
+            if (frame.mixer_byte_pos / (mp::tests::k_channels * static_cast<int64_t>(sizeof(float))) < settled_frames) {
+                continue;
+            }
+            ++checked;
+            const uint32_t bin = loudest_bin(frame);
+            if (bin != k_tone_bin) {
+                ++wrong_bin;
+                worst_bin = bin;
+            }
+        }
+    }
+
+    const uint64_t dropped = core->analysis_tap().dropped();
+    INFO("the tap dropped " << dropped << " hop(s) and the analysis restarted " << a.discontinuities() << " time(s); "
+                            << checked << " published frame(s) inspected, " << wrong_bin
+                            << " with the tone somewhere other than bin " << k_tone_bin << " (worst " << worst_bin
+                            << ")");
+    // The condition has to have happened for the rest to mean anything.
+    REQUIRE(dropped > 0);
+    REQUIRE(a.discontinuities() > 0);
+    REQUIRE(checked >= 10);
+    CHECK(wrong_bin == 0);
 
     mp_engine_stop(fx.engine, MP_FADE_NONE);
     mp_track_close(track);

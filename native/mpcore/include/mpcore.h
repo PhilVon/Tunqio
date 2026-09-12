@@ -9,7 +9,10 @@
  *  - Handles are opaque pointers. A handle is invalid after its destroy/close call returns, and every
  *    track handle is invalid after its engine is destroyed.
  *  - Structs are POD with uint32_t struct_size first; the callee rejects a size it does not know with
- *    MP_E_INVALID_ARG, so fields can be appended in an ABI-minor bump.
+ *    MP_E_INVALID_ARG, so fields can be appended in an ABI-minor bump. As implemented that check is an exact
+ *    `struct_size == sizeof`, which refuses a caller built against the shorter struct as well as a longer one:
+ *    until it accepts a smaller size and fills only the fields that size covers, the way to append a field
+ *    without breaking a caller is to spend one of a struct's `reserved` bytes, as ABI 0.11 does.
  *  - Strings are UTF-8, NUL-terminated. Out-strings are fixed-size fields inside structs.
  *  - Callbacks run on native threads (WASAPI mix thread, event threads). Do nothing but enqueue.
  *  - Appending exports or struct fields is ABI-minor; changing or removing anything is ABI-major.
@@ -52,7 +55,17 @@
  * - but a field that was documented as zero and is now a measurement is new function by the same reading as 0.8
  * and 0.9, and a caller that special-cased the zeros wants to know. The band count stays ten, which is what the
  * header and the preset constant buffer have said since 0.8 and 0.9 (docs/roadmap-and-backlog.md said six; ten
- * is what shipped and ten is what twenty hertz to twenty kilohertz actually is).
+ * is what shipped and ten is what twenty hertz to twenty kilohertz actually is). 0.11 analysis continuity
+ * (T-135): the analysis restarts its sliding window when the tap has lost hops instead of sliding it across the
+ * gap, publishes no frame until the window is contiguous again, and reports the restarts in the first of the
+ * three bytes mp_analysis_frame.reserved held. A minor and not a major, on the same reading as 0.8 to 0.10 and
+ * for the same reason the rule at the top gives: nothing moved. The struct is the same size, every field is at
+ * the offset it was at, sizeof is the number every caller already passes, and a binary built against 0.10 reads
+ * exactly the bytes it read before - what changed is that a byte documented as reserved (so, zero) now carries
+ * a measurement, which is new function, and new function is a minor. Note that appending a field would NOT have
+ * been: the header's rule says a size the callee does not know is refused, but the check is `struct_size ==
+ * sizeof(T)`, so a longer struct would refuse every existing caller rather than serve them the old fields. The
+ * reserved bytes are there so that a new field costs nothing, and this is what they are for.
  */
 #pragma once
 
@@ -75,7 +88,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 10u
+#define MP_ABI_MINOR 11u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -327,7 +340,18 @@ MP_API mp_result MP_CALL mp_preview_stop(mp_engine* engine); /* not implemented 
  * noise, 0 in silence. It is not a count of harmonics. `onset` is 1 on the hop a transient was detected in
  * (half-wave-rectified spectral flux against a threshold that is part of the frame's own spectral sum and part
  * the median of the last 43 hops' flux), and stays 0 for three hops afterwards so one event is one flag. Its
- * resolution is the hop: the flag means "during the 10.67 ms starting at `mixer_byte_pos`". */
+ * resolution is the hop: the flag means "during the 10.67 ms starting at `mixer_byte_pos`".
+ *
+ * `discontinuities` counts, modulo 256, the times the analysis has had to restart: the tap's ring overran and
+ * hops were lost, so the window could not slide on. A consumer that carries anything from one frame to the next
+ * - a smoothed level, a beat history, anything integrated over time - compares this with the value on the frame
+ * it held before, and starts again if it moved. It is a count and not a flag because the frame it would flag is
+ * one frame in ninety-four a second, and a 30 Hz poll would miss two out of three of them; a number that
+ * differs is still different however slowly it is sampled. Every frame published is the transform of 2048
+ * contiguous samples whatever this says - after a gap the analysis withholds frames until that is true again,
+ * rather than publishing the spectrum of a splice - so this is about what a consumer computed across frames,
+ * never about the frame in hand. In real-time playback it never moves: the ring holds 170 ms and the producer
+ * is the WASAPI mix thread. It moves where audio is made faster than it is played, as a headless render does. */
 typedef struct mp_analysis_frame {
     uint32_t struct_size;
     uint32_t sequence;
@@ -341,7 +365,8 @@ typedef struct mp_analysis_frame {
     float spectral_centroid_hz;
     float harmonic_ratio;
     uint8_t onset;
-    uint8_t reserved[3];
+    uint8_t discontinuities;
+    uint8_t reserved[2];
 } mp_analysis_frame;
 
 /* Copies the newest complete frame. MP_E_STATE when none is available yet (nothing has played since the engine,

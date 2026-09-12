@@ -1,5 +1,6 @@
 #include "analysis/analyzer.h"
 
+#include "common/log.h"
 #include "common/rt_guard.h"
 
 #include <algorithm>
@@ -74,6 +75,12 @@ void analyzer::start(tap& source, uint32_t sample_rate) {
     // and the extractor must not read the difference between the two streams' spectra as an onset.
     std::memset(history_, 0, sizeof history_);
     features_.reset(sample_rate_);
+    // The window starting empty at the head of a stream is not a discontinuity: the silence in front of the
+    // first hop is true - nothing was mixed before it - so those first frames are published, unlike the ones a
+    // restart withholds, where the silence would be standing in for audio that really happened.
+    refill_ = 0;
+    dropped_hops_ = 0;
+    discontinuities_at_start_ = discontinuities_.load(std::memory_order_acquire);
     stop_.store(false, std::memory_order_release);
     running_.store(true, std::memory_order_release);
     thread_ = std::thread{[this] { run(); }};
@@ -85,6 +92,19 @@ void analyzer::stop() noexcept {
         thread_.join();
     }
     running_.store(false, std::memory_order_release);
+    // The one place a dropped hop is reported in words, and it is here rather than where it is noticed because
+    // where it is noticed is a Pro Audio thread inside rt::scope: log() formats and hands the message to a
+    // managed sink, which is exactly the "do nothing but enqueue" that thread is not allowed to break (nothing
+    // on the audio path logs, for the same reason). By the time this runs the thread is joined and the caller
+    // is the control thread, so the cost is a line per mixer and only when there was something to say.
+    if (dropped_hops_ != 0) {
+        log(MP_LOG_WARN,
+            "analysis: the tap dropped %llu hop(s); the window was restarted %llu time(s). The analysis thread "
+            "fell more than 170 ms behind the mixer, which cannot happen at playback speed.",
+            static_cast<unsigned long long>(dropped_hops_),
+            static_cast<unsigned long long>(discontinuities_.load(std::memory_order_acquire) -
+                                            discontinuities_at_start_));
+    }
 }
 
 bool analyzer::try_get_latest(mp_analysis_frame& out) const noexcept {
@@ -131,6 +151,21 @@ void analyzer::slide(const tap_block& block) noexcept {
     }
 }
 
+void analyzer::restart() noexcept {
+    // Zeroing is belt and braces - nothing is published until the last of these samples has been shifted out
+    // again - but it is 8 KB of memset on a path taken once per gap, and it means there is no state left in
+    // which a future publish could show half of one stream and half of another.
+    std::memset(history_, 0, sizeof history_);
+    // The extraction's memory is as broken by the gap as the window is: previous_ holds the spectrum from
+    // before it, and a flux taken against that is a difference between two pieces of audio rather than a change
+    // within one - an onset the music did not have. reset() is the sledgehammer (it also throws away the 43-hop
+    // median the threshold adapts with), and it is the right one: the adaptation is worth less than the
+    // certainty that nothing pre-gap survives, and the alternative is a second kind of reset to reason about.
+    features_.reset(sample_rate_);
+    refill_ = k_window_hops - 1;
+    discontinuities_.fetch_add(1, std::memory_order_acq_rel);
+}
+
 void analyzer::forward(const float* windowed, float* out_bins) noexcept {
     pffft_transform_ordered(fft_, windowed, spectrum_, work_, PFFFT_FORWARD);
     // pffft's ordered real output packs the two purely real bins together: spectrum_[0] is DC and spectrum_[1]
@@ -147,7 +182,24 @@ void analyzer::forward(const float* windowed, float* out_bins) noexcept {
 void analyzer::analyze(const tap_block& block) noexcept {
     [[maybe_unused]] mp::rt::scope rt_guard; // counts allocations in Debug (AC-112); nothing in Release
 
+    // The tap says so when this hop is not the one after the last: the ring overran and what fell out of it is
+    // audio that was played and will not be seen here. Sliding across that would put a splice in the middle of
+    // the window (T-135).
+    if (block.dropped_before != 0) {
+        dropped_hops_ += block.dropped_before;
+        restart();
+    }
+
     slide(block);
+
+    // Still refilling: the window holds the fabricated silence a restart left in front of this hop, and a
+    // spectrum of that is a spectrum of nothing that was played. Three hops - 32 ms - is the whole cost, and it
+    // is paid in frames not produced rather than frames produced wrong. The level and the waveform would be
+    // honest, but a frame with a spectrum in it that nobody can trust is worse than no frame at all.
+    if (refill_ != 0) {
+        --refill_;
+        return;
+    }
 
     // RMS and peak are of the hop as it was mixed, all channels: that is the level a meter shows, and it must not
     // change because the mix is wide. Taking them from the interleaved block rather than the mono downmix keeps a
@@ -180,6 +232,10 @@ void analyzer::analyze(const tap_block& block) noexcept {
 
     staging_.mixer_byte_pos = block.mixer_byte_pos;
     staging_.qpc_ticks = block.qpc_ticks;
+    // Not a flag on the frame after the gap but a count that rides on every frame: the theming poll samples at
+    // 30 Hz and the renderer at 60, so a one-frame flag at 94 Hz is a flag most consumers never see. A number
+    // that differs from the one on the frame they held last says the same thing and survives being sampled.
+    staging_.discontinuities = static_cast<uint8_t>(discontinuities_.load(std::memory_order_acquire));
     staging_.sequence = static_cast<uint32_t>(frames_.fetch_add(1, std::memory_order_acq_rel) + 1);
     published_.publish(staging_);
 }

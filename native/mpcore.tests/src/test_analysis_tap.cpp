@@ -144,8 +144,50 @@ TEST_CASE("a consumer that falls behind loses hops and is told how many", "[anal
     for (size_t i = 0; i < tap::k_blocks; ++i) {
         REQUIRE(t.try_read(block));
         CHECK(check_block(block) == static_cast<int64_t>(i) * tap_block::k_frames);
+        // None of these is the block the gap is in front of: the ring was full when the drops happened, so all
+        // sixteen of them were written before any hop was lost.
+        CHECK(block.dropped_before == 0);
     }
     CHECK(t.byte_position() == hops * tap_block::k_frames * k_frame_bytes);
+}
+
+TEST_CASE("the block after a drop says how many hops are missing in front of it", "[analysis][tap]") {
+    // T-135: the count a consumer needs is not "have any been dropped" but "is this block the one after the
+    // last". dropped() answers the first fifteen hops too early - the ring is full when a hop is lost, so
+    // everything already in it is still to come - and the gap is where the ring runs dry and refills.
+    tap t;
+    t.reset(k_channels);
+    const auto write_hop = [&](int64_t hop) {
+        const std::vector<float> piece = make_frames(hop * tap_block::k_frames, tap_block::k_frames);
+        t.write(piece.data(), tap_block::k_frames, 0);
+    };
+
+    for (int64_t hop = 0; hop < static_cast<int64_t>(tap::k_blocks) + 5; ++hop) {
+        write_hop(hop);
+    }
+    REQUIRE(t.dropped() == 5);
+
+    tap_block block;
+    for (size_t i = 0; i < tap::k_blocks; ++i) {
+        REQUIRE(t.try_read(block));
+    }
+    REQUIRE_FALSE(t.try_read(block));
+
+    // Room again: the next two hops are published, and the first of them is the one that does not follow what
+    // the consumer last saw.
+    write_hop(static_cast<int64_t>(tap::k_blocks) + 5);
+    write_hop(static_cast<int64_t>(tap::k_blocks) + 6);
+    REQUIRE(t.try_read(block));
+    CHECK(check_block(block) == static_cast<int64_t>(tap::k_blocks + 5) * tap_block::k_frames);
+    CHECK(block.dropped_before == 5);
+    REQUIRE(t.try_read(block));
+    CHECK(block.dropped_before == 0); // and the gap is reported once, not on every block after it
+
+    // reset() is a new mixer and a new stream: nothing is owed from the old one.
+    t.reset(k_channels);
+    write_hop(0);
+    REQUIRE(t.try_read(block));
+    CHECK(block.dropped_before == 0);
 }
 
 TEST_CASE("a mixer with more channels than a block carries is narrowed, not torn", "[analysis][tap]") {
