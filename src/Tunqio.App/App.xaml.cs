@@ -115,7 +115,10 @@ public partial class App : Application
             // The container's visualizer surface: the window attaches it to the panel and Settings >
             // Visualization (E4-S9) drives the same object, so a second one would switch a preset on a
             // renderer nobody is looking at.
-            _host.Services.GetRequiredService<IVisualizationHost>());
+            _host.Services.GetRequiredService<IVisualizationHost>(),
+            // The album art cache (T-147): the same one the panel draws from, so the glow's colours and the
+            // picture above it come out of one decode.
+            _host.Services.GetService<IArtCache>());
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());

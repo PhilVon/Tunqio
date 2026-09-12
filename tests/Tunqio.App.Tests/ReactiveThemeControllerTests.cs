@@ -98,13 +98,21 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
     {
         public List<ThemeColors> Themes { get; } = [];
 
-        public bool IsAttached => true;
+        /// <summary>Settable, because "the renderer went away under a running theming" is a case (T-156).</summary>
+        public bool IsAttached { get; set; } = true;
+
+        /// <summary>What the next <see cref="SetThemeColors"/> throws, if anything. The detach race, and worse.</summary>
+        public Exception? Refuses { get; set; }
 
         public IReadOnlyList<PresetInfo> Presets => [];
 
         public string? ActivePresetId => "spectrum-bars";
 
         public IObservable<RenderStats> Stats => Observable.Empty<RenderStats>();
+
+#pragma warning disable CS0067 // Nothing switches a preset under this fake; the theme is what is under test.
+        public event EventHandler<string>? PresetChanged;
+#pragma warning restore CS0067
 
         public Task AttachAsync(nint swapChainPanelNative, RendererConfig config) => Task.CompletedTask;
 
@@ -130,7 +138,15 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
 
         public void SetQualityPolicy(QualityPolicy policy) => Quality = policy;
 
-        public void SetThemeColors(ThemeColors colors) => Themes.Add(colors);
+        public void SetThemeColors(ThemeColors colors)
+        {
+            if (Refuses is { } problem)
+            {
+                throw problem;
+            }
+
+            Themes.Add(colors);
+        }
 
         public IReadOnlyList<PresetParameter> GetPresetParameters(string presetId) => [];
 
@@ -165,10 +181,13 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
 
         public bool Dark { get; set; } = true;
 
+        /// <summary>False builds the controller with no visualizer at all - the shape the shell had before T-156.</summary>
+        public bool WithRenderer { get; init; } = true;
+
         public Harness Build()
         {
             Controller = new ReactiveThemeController(
-                Frames, Settings, Accessibility, Sink, () => Dark, Renderer, Clock);
+                Frames, Settings, Accessibility, Sink, () => Dark, WithRenderer ? Renderer : null, Clock);
             Controller.Evaluate();
             return this;
         }
@@ -283,6 +302,130 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
         took.Should().BeLessThanOrEqualTo(TimeSpan.FromSeconds(1), "AC-127");
     }
 
+    // ---- T-156: the palette reaching the presets, and what happens when it cannot -------------------------------
+
+    /// <summary>
+    /// The argument that was never passed. Before T-156 the shell built this controller with five arguments, so
+    /// <c>mp_renderer_set_theme</c> had no caller in the running app and the sixteen floats E4-S6 added to every
+    /// preset's <c>b0</c> carried nothing. The count is what the diagnostics overlay shows.
+    /// </summary>
+    [Fact]
+    public void Every_painted_palette_reaches_the_presets_and_is_counted()
+    {
+        using var h = new Harness().Build();
+
+        h.Run(60);
+
+        h.Controller.RendererPushes.Should().Be(60);
+        h.Controller.RendererSkips.Should().Be(0);
+        h.Controller.RendererProblem.Should().BeNull();
+        // The same colours, not a second mapping: one palette painted twice.
+        h.Renderer.Themes.Should().HaveCount(60);
+        h.Renderer.Themes[^1].Primary.Should().Equal(h.Sink.Applied[^1].ToThemeColors().Primary);
+    }
+
+    /// <summary>
+    /// AC-298. A renderer that never came up is the shipped case on a machine without a GPU, and it must cost
+    /// the theming nothing: the window's own gradient keeps moving and nothing throws off the timer thread.
+    /// </summary>
+    [Fact]
+    public void A_detached_renderer_costs_the_theming_nothing()
+    {
+        using var h = new Harness().Build();
+        h.Renderer.IsAttached = false;
+
+        h.Run(60);
+
+        h.Sink.Applied.Should().HaveCount(60, "the window's gradient does not depend on the visualizer");
+        h.Renderer.Themes.Should().BeEmpty();
+        h.Controller.RendererSkips.Should().Be(60);
+        h.Controller.RendererPushes.Should().Be(0);
+        h.Controller.RendererProblem.Should().Be("the renderer is not attached");
+        h.Controller.TickFailure.Should().BeNull("nothing here is a fault");
+    }
+
+    /// <summary>
+    /// The race the guard alone cannot cover: attached when checked, gone by the time the call lands, which is
+    /// what closing the window does. <c>NativeException</c> is an <c>InvalidOperationException</c>, so a core
+    /// that refuses the call arrives here too.
+    /// </summary>
+    [Fact]
+    public void A_renderer_that_goes_away_mid_call_is_caught_rather_than_thrown_at_thirty_hertz()
+    {
+        using var h = new Harness().Build();
+        h.Renderer.Refuses = new InvalidOperationException("the visualization host is not attached");
+
+        FluentActions.Invoking(() => h.Run(60)).Should().NotThrow();
+
+        h.Sink.Applied.Should().HaveCount(60);
+        h.Controller.RendererSkips.Should().Be(60);
+        h.Controller.RendererProblem.Should().Be("the visualization host is not attached");
+    }
+
+    /// <summary>A renderer that comes back is used again, because detachment is transient and not terminal.</summary>
+    [Fact]
+    public void A_renderer_that_comes_back_is_told_again()
+    {
+        using var h = new Harness().Build();
+        h.Renderer.IsAttached = false;
+        h.Run(10);
+
+        h.Renderer.IsAttached = true;
+        h.Run(10, fromSequence: 11);
+
+        h.Controller.RendererPushes.Should().Be(10);
+        h.Controller.RendererSkips.Should().Be(10);
+        h.Controller.RendererProblem.Should().BeNull("the visualizer is being told again");
+    }
+
+    /// <summary>
+    /// A renderer with no theming to give it. The controller is built without one by every test that does not
+    /// name it, and the shell built it that way for the whole of E4-S6's life.
+    /// </summary>
+    [Fact]
+    public void No_renderer_at_all_is_the_same_shape_as_a_detached_one()
+    {
+        using var h = new Harness { WithRenderer = false }.Build();
+
+        h.Run(30);
+
+        h.Sink.Applied.Should().HaveCount(30);
+        h.Controller.RendererProblem.Should().Be("no renderer was passed");
+        h.Controller.RendererSkips.Should().Be(30);
+    }
+
+    /// <summary>
+    /// A theming that never starts still tells the visualizer once, and the readout must not assert a renderer
+    /// state nobody has looked at. It said "the renderer is not attached" beside a Renderer section reporting
+    /// 144 fps on the first live run of the harness, which is the readout being wrong in exactly the way T-155
+    /// exists to stop.
+    /// </summary>
+    [Fact]
+    public void A_theming_that_never_runs_still_puts_the_static_theme_on_the_presets()
+    {
+        using var h = new Harness().Build();
+        h.Accessibility.Set(animations: false, highContrast: false);
+
+        h.Run(30);
+
+        h.Controller.Active.Should().BeFalse();
+        h.Controller.RendererPushes.Should().Be(1, "stopping is said once, not thirty times");
+        h.Controller.RendererSkips.Should().Be(0);
+        h.Controller.RendererProblem.Should().BeNull();
+    }
+
+    /// <summary>The same, with no renderer to tell: the reason is what nobody has looked at, not a claim.</summary>
+    [Fact]
+    public void With_no_renderer_the_readout_says_that_rather_than_guessing_at_one()
+    {
+        using var h = new Harness { WithRenderer = false }.Build();
+        h.Accessibility.Set(animations: false, highContrast: false);
+
+        h.Run(30);
+
+        h.Controller.RendererProblem.Should().Be("no renderer was passed");
+    }
+
     [Fact]
     public void The_poll_interval_is_the_thirty_hertz_the_analysis_publishes_at()
     {
@@ -301,7 +444,32 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
 
         h.Controller.Active.Should().BeFalse();
         h.Sink.Applied.Should().BeEmpty("the user's accessibility choice is not a preference this can outvote");
-        h.Renderer.Themes.Should().BeEmpty();
+        // One push, and it is the resting palette: see Stopping_tells_the_visualizer_to_stop_too.
+        h.Renderer.Themes.Should().HaveCount(1);
+    }
+
+    /// <summary>
+    /// AC-297. The renderer holds the theme across a preset switch by design, so a theming that just stops
+    /// talking leaves the presets on the last chord for ever - the window back to its static colours and the
+    /// visualizer inside it frozen, which is precisely the two-palettes-in-one-window state this class exists
+    /// to prevent. Stopping has to be said, not merely stopped saying.
+    /// </summary>
+    [Fact]
+    public void Stopping_tells_the_visualizer_to_stop_too()
+    {
+        using var h = new Harness().Build();
+        h.Run(30);
+        h.Renderer.Themes.Clear();
+
+        h.Settings.SetValue(SettingsKeys.UiReactiveTheming, false);
+
+        h.Sink.Cleared.Should().BeGreaterThan(0);
+        h.Renderer.Themes.Should().HaveCount(1, "the presets are told once, and it is not the last chord");
+        // Resting is the engine's own "what off looks like", which is what the window has gone back to: one
+        // palette across the whole window, in the stopped state as well as the running one.
+        ThemeColors rest = new ReactiveThemeEngine(h.Dark, ReactiveThemeOptions.Read(h.Settings)).Resting.ToThemeColors();
+        h.Renderer.Themes[0].Primary.Should().Equal(rest.Primary);
+        h.Renderer.Themes[0].Background.Should().Equal(rest.Background);
     }
 
     [Fact]
