@@ -51,11 +51,28 @@ jobs:
       # that can say so. The runner image has no ffmpeg, so without this the check would skip on the one
       # machine everybody reads the result from. It also restores FixtureLibraryTests.Generation_is_deterministic
       # to the full 60-file fixture set: without an encoder it only compares the 8 natively written ones.
+      #
+      # Retried because the source is a public feed and it does fail: this step came back
+      # "ffmpeg not installed. The package was not found with the source(s) listed" on a run whose only change
+      # was to a C++ test file, having installed cleanly an hour earlier. That is the feed, not the repository,
+      # and a gate that goes red when somebody else's server has a bad minute teaches people to re-run rather
+      # than to read. A hash-pinned download would remove the dependency rather than tolerate it, the way
+      # tools/fetch-native.ps1 already does for BASS; that is T-136 and this is the stopgap.
       - name: Install ffmpeg (the independent tagger for the tag-writer tests)
         shell: pwsh
         run: |
-          choco install ffmpeg --no-progress -y
+          $delay = 5
+          foreach ($attempt in 1..3) {
+            choco install ffmpeg --no-progress -y
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { throw "choco install ffmpeg failed $attempt times" }
+            Write-Host "attempt $attempt failed; retrying in $delay s"
+            Start-Sleep -Seconds $delay
+            $delay *= 3
+          }
           $env:PATH = "$env:PATH;C:\ProgramData\chocolatey\bin"
+          # Not decoration: choco can exit 0 having installed nothing useful, and the tests below are told to
+          # treat a missing ffprobe as a failure rather than a skip, so this is where that promise is kept.
           ffprobe -version | Select-Object -First 1
           ffmpeg -version | Select-Object -First 1
 
