@@ -6,7 +6,10 @@
 
 #include <catch2/catch_amalgamated.hpp>
 #include <cstring>
+#include <stdexcept>
 #include <string>
+
+#include <windows.h>
 
 namespace {
 
@@ -37,6 +40,44 @@ std::string last_error() {
 }
 
 } // namespace
+
+// ---- T-164: the fixtures themselves ----------------------------------------------------------------
+//
+// These two are about the test harness rather than the engine, and they are here because this file is the
+// harness's oldest consumer. They exist because the harness's failure mode was to blame the engine: a fixture
+// that could not be written returned a bare empty string, and the reader met REQUIRE_FALSE(path.empty()) at
+// offline_engine.h:57 with no fixture named and no reason given.
+
+TEST_CASE("fixtures live in a directory this process does not share", "[fixture]") {
+    const std::string root = mp::tests::fixture_root();
+    INFO("fixture root: " << root);
+    // The pid is what stops two mpcore.tests.exe -- parallel agents in separate worktrees, or a gate sweep
+    // beside a peer's -- writing, reading and deleting the same files.
+    CHECK(root.find("tunqio-tests-" + std::to_string(GetCurrentProcessId())) != std::string::npos);
+    // And a fixture really is written inside it, rather than beside it in the machine-wide %TEMP%.
+    const std::string path = mp::tests::write_sine_wav({}, "fixture-isolation");
+    CHECK(path.rfind(root, 0) == 0);
+}
+
+TEST_CASE("a fixture that cannot be written names the fixture and the reason", "[fixture]") {
+    // A stem that puts the file in a subdirectory nobody created: the closest thing to a disk problem that is
+    // reproducible on any machine, and it exercises exactly the path a full disk or a denied ACL would take.
+    std::string message;
+    try {
+        (void)mp::tests::write_sine_wav({}, "no-such-subdirectory\\fixture-failure");
+        FAIL("writing into a directory that does not exist was expected to throw");
+    } catch (const std::runtime_error& e) {
+        message = e.what();
+    }
+    INFO("thrown message: " << message);
+    // The fixture, so a reader knows WHICH one.
+    CHECK(message.find("no-such-subdirectory\\fixture-failure") != std::string::npos);
+    // The full path, so a reader can go and look.
+    CHECK(message.find(mp::tests::fixture_root()) != std::string::npos);
+    // The OS's own reason, so a disk problem reads as a disk problem and not as an audio-engine regression.
+    CHECK(message.find("errno 2") != std::string::npos);
+    CHECK(message.find("engine") == std::string::npos);
+}
 
 // Was "rejects a bad config struct_size" and used sizeof - 4, which since ABI 0.12 is an older header being
 // served rather than an error (test_abi.cpp asserts that direction). What is left an error is a size no header

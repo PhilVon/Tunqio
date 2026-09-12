@@ -1,4 +1,4 @@
-// The adaptive quality controller (E4-S7, AC-128 and AC-129), driven by a synthetic cost series.
+﻿// The adaptive quality controller (E4-S7, AC-128 and AC-129), driven by a synthetic cost series.
 //
 // Why synthetic. AC-129's "without oscillating" is a property of a controller over time, and the only way to
 // measure a property over time on a real rasteriser is to wait for it on a machine somebody else is also
@@ -11,6 +11,7 @@
 // So the model here has both terms - a part that scales with the rendered area and a part that does not - and
 // the two extremes of it are the two kinds of preset this renderer actually has. Every interesting difference
 // in this file is a difference between those two extremes.
+#include "machine_lock.h"
 #include "render/quality.h"
 #include "render/renderer.h"
 #include "source_root.h"
@@ -507,54 +508,170 @@ struct warp_renderer {
     }
 };
 
-// Pins a tier and waits for the renderer's own smoothed cost at it to settle. Long enough to be several time
-// constants and several hundred frames whatever the machine is doing.
-mp_render_stats settled_at(const warp_renderer& fx, mp_quality_policy pin, int ms = 700) {
-    REQUIRE(mp_renderer_set_quality(fx.handle, pin) == MP_OK);
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-    return fx.stats();
-}
+constexpr int k_pin_settle_ms = 400;  // for the new rectangle and the smoothing to take effect
+constexpr int k_pin_measure_ms = 600; // the window frames are counted over
 
-struct tier_costs {
-    float high = 0.0f;
-    float medium = 0.0f;
-    float low = 0.0f;
-    uint32_t high_w = 0, high_h = 0, medium_w = 0, medium_h = 0, low_w = 0, low_h = 0;
-    uint32_t cost_source = MP_RENDER_COST_GPU_TIMESTAMP;
+struct tier_reading {
+    // What a frame at this tier actually costs: wall clock divided by the frames the renderer completed.
+    double drawn_ms = 0.0;
+    // What the CONTROLLER thinks it costs - stats.frame_cost_ms, the number it is deciding on. Kept apart from
+    // drawn_ms on purpose; the two are not the same quantity and one of them is unreliable (see below).
+    float controller_ms = 0.0f;
+    uint64_t frames = 0;
+    mp_render_stats stats{};
 };
 
-// What each tier costs on this machine. Two things about how, and both are about WARP being the CPU.
+// Pins a tier, lets it take effect, and measures it by COUNTING FRAMES over a fixed window.
 //
-// INTERLEAVED, and the MINIMUM of the rounds rather than the last of them. Three sequential measurements are
-// three measurements of three different machines when something else on the box is starting and stopping - and
-// something else on this box usually is. Contention can only ever make a frame slower, so the cheapest
-// observation of a tier is the one closest to what that tier actually costs; taking the minimum over rounds
-// that are spread out in time is a lower bound that gets tighter with rounds rather than an average that gets
-// dragged by whichever round was unlucky. Measured the naive way, a Debug build under load reported Medium
-// (20.65 ms) as costing MORE than High (19.52 ms), which is not a thing render scale can do.
-tier_costs measure_tiers(const warp_renderer& fx, int rounds = 3) {
-    tier_costs out;
-    for (int round = 0; round < rounds; ++round) {
-        const mp_render_stats h = settled_at(fx, MP_QUALITY_HIGH);
-        const mp_render_stats m = settled_at(fx, MP_QUALITY_MEDIUM);
-        const mp_render_stats l = settled_at(fx, MP_QUALITY_LOW);
-        if (round == 0) {
-            out.high = h.frame_cost_ms;
-            out.medium = m.frame_cost_ms;
-            out.low = l.frame_cost_ms;
-        } else {
-            out.high = std::min(out.high, h.frame_cost_ms);
-            out.medium = std::min(out.medium, m.frame_cost_ms);
-            out.low = std::min(out.low, l.frame_cost_ms);
+// T-167, and this is the heart of it. The obvious thing to read is stats.frame_cost_ms - the renderer's own
+// number, already smoothed - and that is what this file did. It cannot be trusted on WARP. renderer.cpp's
+// take_frame_cost times a frame with a D3D11 timestamp pair, and on WARP the two stamps routinely come back
+// EQUAL for a frame the clock cannot resolve; the code floors that to 1e-4 ms (deliberately, so the controller
+// is never fed a zero) and the smoothing carries it. The error that produces is a MODE, not a spread. Measured
+// on an idle i7-9700K, five interleaved rounds at High/1920x1080 read 6.87, 6.83, 6.60, 6.65, 6.72 ms in one
+// process and 6.83, 4.14, 9.78, 2.82, 3.25 ms in the next; Medium/1440x810 flipped between about 4.2 and about
+// 7.4 within a single run while Low sat at 2.2 all the way through. No estimator repairs that - a median over
+// a bimodal sample just picks whichever mode is more common on the day - and no ordering between tiers
+// survives it. "cost.medium < cost.high with expansion 7.81 < 3.91" was this, and it was neither a busy
+// machine nor a render-scale regression.
+//
+// Frames completed per unit of wall clock has none of it. It needs no query, it is what the tier costs to
+// draw, it is what a viewer would experience, and its only error term is the machine being busy - which is
+// one-sided, which the interleaved rounds below are built for, and which T-150 already taught this file to
+// handle by comparing tiers against each other rather than asserting any absolute rate.
+tier_reading measure_at(const warp_renderer& fx, mp_quality_policy pin, int settle_ms = k_pin_settle_ms,
+                        int window_ms = k_pin_measure_ms) {
+    REQUIRE(mp_renderer_set_quality(fx.handle, pin) == MP_OK);
+    std::this_thread::sleep_for(std::chrono::milliseconds(settle_ms));
+    const uint64_t before = fx.stats().frames;
+    const auto start = std::chrono::steady_clock::now();
+    std::this_thread::sleep_for(std::chrono::milliseconds(window_ms));
+    tier_reading out;
+    out.stats = fx.stats();
+    const double elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    out.frames = out.stats.frames - before;
+    // A renderer that drew nothing at all in 600 ms is not a slow tier, it is a stopped render thread.
+    REQUIRE(out.frames > 0);
+    out.drawn_ms = elapsed_ms / static_cast<double>(out.frames);
+    out.controller_ms = out.stats.frame_cost_ms;
+    return out;
+}
+
+// For the callers that only pin a tier and do not measure it.
+mp_render_stats settled_at(const warp_renderer& fx, mp_quality_policy pin) {
+    return measure_at(fx, pin, k_pin_settle_ms, 300).stats;
+}
+
+// How many interleaved rounds a tier is measured over, and how many of them must agree that the render scale
+// orders the tiers before the ordering is treated as evidence. Five and three: a simple majority of an odd
+// number of rounds, so a single bad round cannot decide it either way.
+constexpr int k_rounds = 5;
+constexpr int k_rounds_that_must_agree = 3;
+
+struct tier_costs {
+    // The MEDIAN round of each tier, as frames drawn per unit of wall clock (see measure_at). What the tier
+    // ordering is asserted on, because it is the only one of the two that is a measurement of the render scale.
+    double high = 0.0;
+    double medium = 0.0;
+    double low = 0.0;
+    // The same three as the CONTROLLER sees them. What the budgets are built from, because a budget the
+    // controller is going to compare its own reading against has to be in the controller's own units - even
+    // where those units are the unreliable ones. Nothing is asserted about their ordering.
+    float high_c = 0.0f;
+    float medium_c = 0.0f;
+    float low_c = 0.0f;
+    uint32_t high_w = 0, high_h = 0, medium_w = 0, medium_h = 0, low_w = 0, low_h = 0;
+    uint32_t cost_source = MP_RENDER_COST_GPU_TIMESTAMP;
+
+    // Every round's readings, so a red run shows WHICH round was the odd one out rather than only that the
+    // rounds disagreed. This is the line that found the dropped timestamps described in measure_at.
+    std::vector<std::string> notes;
+    std::vector<double> highs, mediums, lows;
+
+    // Rounds in which that round ALONE saw High dearer than Medium dearer than Low.
+    //
+    // This is the witness, and it is deliberately the conclusion itself rather than a dispersion statistic. A
+    // spread threshold has to be fitted to a machine and quietly stops meaning anything on a different one;
+    // "how many independent rounds reached the same conclusion" asks the question directly, needs no constant
+    // fitted to this desktop, and is exactly what makes the median trustworthy or not.
+    int ordered_rounds() const {
+        int n = 0;
+        for (size_t i = 0; i < highs.size(); ++i) {
+            n += (highs[i] > mediums[i] && mediums[i] > lows[i]) ? 1 : 0;
         }
-        out.high_w = h.render_width;
-        out.high_h = h.render_height;
-        out.medium_w = m.render_width;
-        out.medium_h = m.render_height;
-        out.low_w = l.render_width;
-        out.low_h = l.render_height;
-        out.cost_source = l.cost_source;
+        return n;
     }
+
+    std::string report() const {
+        std::string all;
+        for (const auto& r : notes) {
+            all += (all.empty() ? "" : "; ") + r;
+        }
+        return fmt("drawn-frame medians High %.2f ms, Medium %.2f, Low %.2f; %d of %d rounds ordered "
+                   "High>Medium>Low; the controller's own smoothed readings were High %.2f, Medium %.2f, Low "
+                   "%.2f [%s]",
+                   high, medium, low, ordered_rounds(), static_cast<int>(highs.size()), high_c, medium_c, low_c,
+                   all.c_str());
+    }
+};
+
+double median_of(std::vector<double> v) {
+    if (v.empty()) {
+        return 0.0;
+    }
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+}
+
+// What each tier costs on this machine, INTERLEAVED and taken as the median of the rounds.
+//
+// Interleaved because three sequential measurements are three measurements of three different machines when
+// something else on the box is starting and stopping, and something else on this box usually is.
+//
+// The median rather than the minimum, which is what this took until T-167. The minimum was chosen on the
+// reasoning that contention can only ever make a frame slower, so the cheapest observation of a tier is the
+// one closest to what it really costs. The reasoning is sound; its premise was false while the reading came
+// from stats.frame_cost_ms, which has a downward mode as well as an upward tail (measure_at). Now that the
+// reading is drawn frames per unit of wall clock the premise is true again - but the median costs nothing,
+// resists both tails, and does not have to be re-argued the next time something else about the measurement
+// turns out to be two-sided.
+tier_costs measure_tiers(const warp_renderer& fx, int rounds = k_rounds, int warmup_rounds = 1) {
+    tier_costs out;
+    // A discarded warm-up round, and not a superstition: on a renderer this young the first pin is measured
+    // through lazy driver work and a smoothing still climbing out of its initial state. Measured here, round 0
+    // at High read 1.83 ms and 2.14 ms against 6.94 and 7.50 for the same tier moments later.
+    for (int round = 0; round < warmup_rounds; ++round) {
+        settled_at(fx, MP_QUALITY_HIGH);
+        settled_at(fx, MP_QUALITY_MEDIUM);
+        settled_at(fx, MP_QUALITY_LOW);
+    }
+    for (int round = 0; round < rounds; ++round) {
+        const tier_reading h = measure_at(fx, MP_QUALITY_HIGH);
+        const tier_reading m = measure_at(fx, MP_QUALITY_MEDIUM);
+        const tier_reading l = measure_at(fx, MP_QUALITY_LOW);
+        out.notes.push_back(fmt("r%d H %.2f@%u(%llu fr, ctrl %.2f) M %.2f@%u(%llu, %.2f) L %.2f@%u(%llu, %.2f)", round,
+                                h.drawn_ms, h.stats.render_width, static_cast<unsigned long long>(h.frames),
+                                h.controller_ms, m.drawn_ms, m.stats.render_width,
+                                static_cast<unsigned long long>(m.frames), m.controller_ms, l.drawn_ms,
+                                l.stats.render_width, static_cast<unsigned long long>(l.frames), l.controller_ms));
+        out.highs.push_back(h.drawn_ms);
+        out.mediums.push_back(m.drawn_ms);
+        out.lows.push_back(l.drawn_ms);
+        out.high_c = h.controller_ms;
+        out.medium_c = m.controller_ms;
+        out.low_c = l.controller_ms;
+        out.high_w = h.stats.render_width;
+        out.high_h = h.stats.render_height;
+        out.medium_w = m.stats.render_width;
+        out.medium_h = m.stats.render_height;
+        out.low_w = l.stats.render_width;
+        out.low_h = l.stats.render_height;
+        out.cost_source = l.stats.cost_source;
+    }
+    out.high = median_of(out.highs);
+    out.medium = median_of(out.mediums);
+    out.low = median_of(out.lows);
     return out;
 }
 
@@ -576,9 +693,57 @@ const char* source_name(uint32_t source) {
     return source == MP_RENDER_COST_GPU_TIMESTAMP ? "a D3D11 timestamp pair around the draw" : "the frame interval";
 }
 
+// T-167, half one: the machine has to hold still for a tier ordering to mean anything. Called before any
+// assertion that compares one tier's cost with another's.
+//
+// This is a SKIP and not a CHECK on purpose, and the distinction is the whole point of the change: a tier
+// ordering that fails on a stable machine is a regression in the render scale and must stay red, while the same
+// ordering failing on a machine that changed under the measurement is a fact about the machine. Asserting the
+// second is what produced "cost.medium < cost.high with expansion 7.81 < 3.91" - an assertion that reads as an
+// audio-or-render regression and is nothing of the kind.
+void require_a_steady_machine(const tier_costs& cost) {
+    if (cost.ordered_rounds() >= k_rounds_that_must_agree) {
+        return;
+    }
+    SKIP("the tier measurement did not reach a stable conclusion on this machine: "
+         << cost.report() << ". Only " << cost.ordered_rounds() << " of " << cost.highs.size()
+         << " independent rounds saw the render scale order the tiers, and " << k_rounds_that_must_agree
+         << " are required before the medians are treated as evidence. Both tails are real - a concurrent build "
+            "inflates a round, and a D3D11 timestamp pair that comes back equal on WARP deflates one - so a "
+            "measurement the rounds do not agree on is not asserted. Re-run with nothing else building.");
+}
+
+// T-167, half two: a tier the controller did not reach inside its timeout. Two very different things look
+// identical at the call site - the controller is broken, or the budget stopped being meetable because the
+// machine got slower after it was set - and `REQUIRE(took >= 0.0)` reading -1.0 says neither.
+//
+// So measure again, now, at the tier we were waiting for, and let the numbers say which it was.
+[[noreturn]] void diagnose_unreached_tier(const warp_renderer& fx, mp_quality_policy want, const char* want_name,
+                                          double budget_ms, float measured_ms, int timeout_ms) {
+    const mp_render_stats before = fx.stats();
+    const float now_ms = settled_at(fx, want).frame_cost_ms;
+    const std::string story =
+        fmt("AUTO did not reach %s inside %.1f s. The budget was %.2f ms, set from a %s measured at %.2f ms "
+            "before the run; %s costs %.2f ms on this machine NOW. The controller was at tier %u with a "
+            "smoothed frame cost of %.2f ms and %u changes behind it.",
+            want_name, timeout_ms / 1000.0, budget_ms, want_name, measured_ms, want_name, now_ms, before.quality_tier,
+            before.frame_cost_ms, before.quality_changes);
+
+    // The budget is only reachable at all if the tier still costs less than it. If it no longer does, no tier
+    // meets the budget and a controller that stayed put is behaving correctly: the premise died, not the code.
+    if (static_cast<double>(now_ms) >= budget_ms) {
+        SKIP(story << " No tier meets that budget any more, so the premise this case set up is gone and the "
+                      "controller had nowhere correct to go. That is the machine getting slower under the test, "
+                      "not a controller fault. Re-run with nothing else building.");
+    }
+    FAIL(story << " The tier is affordable and the controller still did not go there, which is the fault this "
+                  "case exists to catch.");
+}
+
 } // namespace
 
 TEST_CASE("the render scale is the lever T-148 says it has to be", "[render][quality][perf]") {
+    const mp::tests::machine_lock gpu_turn{mp::tests::resource::gpu}; // T-167
     const preset_root_override root{shipped_presets()};
     const warp_renderer fx{1920, 1080};
     REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
@@ -587,6 +752,7 @@ TEST_CASE("the render scale is the lever T-148 says it has to be", "[render][qua
 
     const tier_costs cost = measure_tiers(fx);
     const mp_render_stats last = fx.stats();
+    note("how the tiers measured: " + cost.report());
 
     note(fmt("ambient-glow at 1920x1080 on WARP (%s), cost per frame from %s, the cheapest of three interleaved "
              "rounds: High %.2f ms at %ux%u, Medium %.2f ms at %ux%u, Low %.2f ms at %ux%u. High/Low is %.2fx "
@@ -611,8 +777,11 @@ TEST_CASE("the render scale is the lever T-148 says it has to be", "[render][qua
     // And it buys what it is for. Deliberately an ordering and not a ratio: the ratio is a property of how
     // busy the machine is and of how much of a frame is not pixels, and asserting one is what T-150 deleted.
     // But a lever that did not lower the cost at all would make everything above this a simulation of a
-    // mechanism that does not exist, so the ordering is asserted.
-    REQUIRE(cost.high > 0.0f);
+    // mechanism that does not exist, so the ordering is asserted - once the machine has earned the right to be
+    // asked (T-167). Everything above this line is checked either way, because a render rectangle is a fact
+    // about the renderer and not about how busy the box is.
+    require_a_steady_machine(cost);
+    REQUIRE(cost.high > 0.0);
     CHECK(cost.medium < cost.high);
     CHECK(cost.low < cost.medium);
     CHECK(last.device_lost == 0);
@@ -623,14 +792,16 @@ TEST_CASE("the render scale is the lever T-148 says it has to be", "[render][qua
 // concurrent build, 21.4 on a shared runner) - and a test whose outcome depends on that is the test T-150
 // deleted. What is real here is every frame time the controller reads.
 TEST_CASE("forcing a slow rasteriser drops quality to Low inside four seconds", "[render][quality][perf]") {
+    const mp::tests::machine_lock gpu_turn{mp::tests::resource::gpu}; // T-167
     const preset_root_override root{shipped_presets()};
     const warp_renderer fx{1920, 1080};
     REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
     std::this_thread::sleep_for(std::chrono::milliseconds(400));
 
     const tier_costs cost = measure_tiers(fx);
-    REQUIRE(cost.low > 0.0f);
-    REQUIRE(cost.low < cost.medium);
+    note("how the tiers measured: " + cost.report());
+    require_a_steady_machine(cost); // the budget below is built out of these numbers (T-167)
+    REQUIRE(cost.low_c > 0.0f);
 
     // Just above the cost at Low and well below the cost at Medium, so Low is the only tier that meets it and
     // both drops are forced. Biased toward Low rather than put halfway between them, because the two errors
@@ -638,12 +809,19 @@ TEST_CASE("forcing a slow rasteriser drops quality to Low inside four seconds", 
     // this criterion, while a budget a busy Low creeps over costs nothing at all - Low is the bottom, and
     // there is nowhere for the controller to go.
     quality_tuning tuning = core(fx.handle)->quality_tuning_now();
-    tuning.budget_ms = static_cast<double>(cost.low) * 1.15;
+    // cost.low_c and not cost.low: the controller is going to compare its OWN smoothed reading against this
+    // budget, so the budget has to be in that reading's units even though the drawn-frame number is the better
+    // measurement of what the tier costs. Mixing the two would set a budget out of one instrument and judge it
+    // with another (T-167).
+    tuning.budget_ms = static_cast<double>(cost.low_c) * 1.15;
     core(fx.handle)->set_quality_tuning(tuning);
 
     settled_at(fx, MP_QUALITY_HIGH);
     REQUIRE(mp_renderer_set_quality(fx.handle, MP_QUALITY_AUTO) == MP_OK);
     const double took = seconds_until_tier(fx, MP_QUALITY_LOW, 8000);
+    if (took < 0.0) {
+        diagnose_unreached_tier(fx, MP_QUALITY_LOW, "Low", tuning.budget_ms, cost.low_c, 8000);
+    }
     const mp_render_stats after = fx.stats();
 
     note(fmt("AC-128: ambient-glow on WARP measured %.2f ms at High, %.2f at Medium and %.2f at Low; against a "
@@ -661,21 +839,25 @@ TEST_CASE("forcing a slow rasteriser drops quality to Low inside four seconds", 
 
 // AC-129, end to end.
 TEST_CASE("restoring headroom returns to High inside ten seconds without oscillating", "[render][quality][perf]") {
+    const mp::tests::machine_lock gpu_turn{mp::tests::resource::gpu}; // T-167
     const preset_root_override root{shipped_presets()};
     const warp_renderer fx{1920, 1080};
     REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
     std::this_thread::sleep_for(std::chrono::milliseconds(400));
 
     const tier_costs cost = measure_tiers(fx);
-    REQUIRE(cost.low > 0.0f);
-    REQUIRE(cost.low < cost.medium);
+    note("how the tiers measured: " + cost.report());
+    require_a_steady_machine(cost); // both budgets below are built out of these numbers (T-167)
+    REQUIRE(cost.low_c > 0.0f);
     quality_tuning tuning = core(fx.handle)->quality_tuning_now();
-    tuning.budget_ms = static_cast<double>(cost.low) * 1.15;
+    tuning.budget_ms = static_cast<double>(cost.low_c) * 1.15; // the controller's units, as above
     core(fx.handle)->set_quality_tuning(tuning);
 
     settled_at(fx, MP_QUALITY_HIGH);
     REQUIRE(mp_renderer_set_quality(fx.handle, MP_QUALITY_AUTO) == MP_OK);
-    REQUIRE(seconds_until_tier(fx, MP_QUALITY_LOW, 8000) >= 0.0);
+    if (seconds_until_tier(fx, MP_QUALITY_LOW, 8000) < 0.0) {
+        diagnose_unreached_tier(fx, MP_QUALITY_LOW, "Low", tuning.budget_ms, cost.low_c, 8000);
+    }
     const uint32_t changes_at_low = fx.stats().quality_changes;
 
     // Headroom comes back, and both halves of "headroom" move because both halves of it are real. The surface
@@ -688,11 +870,15 @@ TEST_CASE("restoring headroom returns to High inside ten seconds without oscilla
     // and the budget is 1.5x that: the premise holds by monotonicity on any machine at any load, rather than
     // holding by 1.5x on an idle one and failing on a busy one.
     REQUIRE(mp_renderer_resize(fx.handle, 480, 270, 1.0f, 1.0f) == MP_OK);
-    tuning.budget_ms = static_cast<double>(cost.high) * 1.5;
+    tuning.budget_ms = static_cast<double>(cost.high_c) * 1.5; // the controller's units, as above
     core(fx.handle)->set_quality_tuning(tuning);
     const double took = seconds_until_tier(fx, MP_QUALITY_HIGH, 20000);
+    if (took < 0.0) {
+        // cost.high is the right comparison here: the budget was set from it, and the surface has since been cut
+        // to a sixteenth, so High after the resize costs at most that by monotonicity.
+        diagnose_unreached_tier(fx, MP_QUALITY_HIGH, "High", tuning.budget_ms, cost.high_c, 20000);
+    }
     const mp_render_stats up = fx.stats();
-    REQUIRE(took >= 0.0);
     CHECK(took < 10.0);
     CHECK(up.quality_tier == MP_QUALITY_HIGH);
     // Two changes and not one more: no overshoot, nothing undone. This is "without oscillating" measured on

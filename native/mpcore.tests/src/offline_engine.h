@@ -54,7 +54,11 @@ struct offline_engine {
     offline_engine& operator=(const offline_engine&) = delete;
 
     mp_track* open(const std::string& path) {
-        REQUIRE_FALSE(path.empty());
+        // Not the fixture guard it used to be: write_wav throws naming the fixture and the OS reason since
+        // T-164, so an empty path here means a caller passed one, not that a fixture silently failed to write.
+        if (path.empty()) {
+            FAIL("offline_engine::open was given an empty path (a fixture failure would have thrown by now)");
+        }
         mp_track* t = nullptr;
         if (mp_track_open(engine, path.c_str(), &t) != MP_OK) {
             FAIL("mp_track_open(" << path << ") failed: " << last_error());

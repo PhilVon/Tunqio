@@ -9,6 +9,9 @@ public static class NativeEngineInfo
     /// <summary>The ABI major this assembly was written against (<c>MP_ABI_MAJOR</c>).</summary>
     public const int ExpectedAbiMajor = NativeLibraryLoader.ExpectedAbiMajor;
 
+    /// <summary>The ABI minor this assembly was written against (<c>MP_ABI_MINOR</c>); a core below it is refused.</summary>
+    public const int ExpectedAbiMinor = NativeLibraryLoader.ExpectedAbiMinor;
+
     /// <summary>ABI major of the loaded library.</summary>
     public static int AbiMajor => (int)(NativeMethods.AbiVersion() >> 16);
 

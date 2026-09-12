@@ -10,6 +10,7 @@
 #include "mpcore.h"
 
 #include "audio/bass_engine.h"
+#include "machine_lock.h"
 #include "wav_fixture.h"
 
 #include <catch2/catch_amalgamated.hpp>
@@ -153,13 +154,32 @@ std::string last_error() {
     return buf;
 }
 
+// T-143: why there is no device to test with, in the engine's own words. "no output device on this machine" was
+// the only thing these cases ever said, and it was seen to be false - a second mpcore.tests.exe holding the
+// device made an enumeration come back empty on a desktop that has one, and a reader taking that message at face
+// value goes looking for a machine problem that is not there. machine_lock is what stops the collision; this is
+// what the message says if a device is missing anyway.
+std::string no_device_reason(mp_engine* engine) {
+    uint32_t count = 0;
+    const mp_result r = mp_engine_enum_devices(engine, nullptr, &count);
+    std::string why = "no output device to test with: mp_engine_enum_devices returned " +
+                      std::to_string(static_cast<int>(r)) + " and counted " + std::to_string(count) +
+                      " enabled device(s)";
+    if (const std::string err = last_error(); !err.empty()) {
+        why += "; mp_last_error: " + err;
+    }
+    return why + ". Either this machine has none, or another process has taken it.";
+}
+
 } // namespace
 
 TEST_CASE("a device can be chosen by index and by default", "[output][device]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     const auto list = devices(fx.engine);
     if (list.empty()) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
 
     mp_output_config out = output_on(MP_DEVICE_DEFAULT, MP_OUTPUT_SHARED);
@@ -190,13 +210,15 @@ TEST_CASE("a device index that does not exist is refused", "[output][device]") {
 }
 
 TEST_CASE("exclusive mode opens the device at its own rate, not the engine's", "[output][exclusive]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     // 96 kHz is deliberately not what a desktop device sits at: before E1-S6 the exclusive init asked for the
     // mixer's rate, so the device would have been driven at 96 kHz and every source resampled to it.
     engine_fixture fx{96000};
     const auto list = devices(fx.engine);
     const mp_device_info* device = default_device(list);
     if (device == nullptr) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
     if (device->mix_sample_rate == 0) {
         SKIP("the default device does not report a mix rate");
@@ -212,9 +234,11 @@ TEST_CASE("exclusive mode opens the device at its own rate, not the engine's", "
 }
 
 TEST_CASE("an exclusive mode the driver refuses falls back to shared and says why", "[output][exclusive]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     if (devices(fx.engine).empty()) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
     event_log log;
     REQUIRE(mp_engine_set_event_callback(fx.engine, &event_log::sink, &log) == MP_OK);
@@ -305,12 +329,14 @@ int32_t default_device_index(mp_engine* engine) {
 } // namespace
 
 TEST_CASE("losing the open device parks playback and says which device went", "[output][device-change]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     event_log log;
     REQUIRE(mp_engine_set_event_callback(fx.engine, &event_log::sink, &log) == MP_OK);
     mp_track* track = play_on_the_default_device(fx.engine, "device-lost");
     if (track == nullptr) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
     const int32_t device = default_device_index(fx.engine);
     log.clear();
@@ -334,12 +360,14 @@ TEST_CASE("losing the open device parks playback and says which device went", "[
 }
 
 TEST_CASE("a device that comes back is offered, not taken", "[output][device-change]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     event_log log;
     REQUIRE(mp_engine_set_event_callback(fx.engine, &event_log::sink, &log) == MP_OK);
     mp_track* track = play_on_the_default_device(fx.engine, "device-back");
     if (track == nullptr) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
     const int32_t device = default_device_index(fx.engine);
     simulate_device_notification(k_notify_fail, static_cast<uint32_t>(device));
@@ -366,12 +394,14 @@ TEST_CASE("a device that comes back is offered, not taken", "[output][device-cha
 }
 
 TEST_CASE("a device nobody is listening to coming and going is ignored", "[output][device-change]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     event_log log;
     REQUIRE(mp_engine_set_event_callback(fx.engine, &event_log::sink, &log) == MP_OK);
     mp_track* track = play_on_the_default_device(fx.engine, "device-other");
     if (track == nullptr) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
     const int32_t device = default_device_index(fx.engine);
     log.clear();
@@ -388,13 +418,15 @@ TEST_CASE("a device nobody is listening to coming and going is ignored", "[outpu
 }
 
 TEST_CASE("following the default device follows it when it moves", "[output][device-change]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     event_log log;
     REQUIRE(mp_engine_set_event_callback(fx.engine, &event_log::sink, &log) == MP_OK);
     // Opened as MP_DEVICE_DEFAULT: the caller asked to follow the default, not for a particular device.
     mp_track* track = play_on_the_default_device(fx.engine, "device-default");
     if (track == nullptr) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
     const int32_t device = default_device_index(fx.engine);
     log.clear();
@@ -415,13 +447,15 @@ TEST_CASE("following the default device follows it when it moves", "[output][dev
 }
 
 TEST_CASE("a caller that named a device is left alone when the default moves", "[output][device-change]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     event_log log;
     REQUIRE(mp_engine_set_event_callback(fx.engine, &event_log::sink, &log) == MP_OK);
     const auto list = devices(fx.engine);
     const mp_device_info* device = default_device(list);
     if (device == nullptr) {
-        SKIP("no output device on this machine");
+        SKIP(no_device_reason(fx.engine));
     }
     // Named by index: the user chose this device, so Windows changing its mind is not their instruction.
     mp_output_config out = output_on(device->index, MP_OUTPUT_SHARED);
@@ -435,6 +469,8 @@ TEST_CASE("a caller that named a device is left alone when the default moves", "
 }
 
 TEST_CASE("200 simulated device changes leave the handle count where it started", "[output][device-change][soak]") {
+    // The device is machine-wide and exclusive: two mpcore.tests.exe cannot both have it (T-143).
+    const mp::tests::machine_lock device_turn{mp::tests::resource::output_device};
     engine_fixture fx;
     event_log log;
     REQUIRE(mp_engine_set_event_callback(fx.engine, &event_log::sink, &log) == MP_OK);

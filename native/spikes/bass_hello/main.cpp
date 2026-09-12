@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <string>
 #include <thread>
 #include <vector>
@@ -182,9 +183,13 @@ int main(int argc, char* argv[]) {
 
     mp::tests::wav_spec spec;
     spec.seconds = static_cast<double>(seconds + exclusive_seconds + 10);
-    const std::string wav = mp::tests::write_sine_wav(spec, "spike-440");
-    if (wav.empty()) {
-        std::printf("FAIL could not write the WAV fixture\n");
+    // write_sine_wav throws naming the fixture and the OS reason (T-164); the old "could not write the WAV
+    // fixture" said neither, which is the whole point of the change.
+    std::string wav;
+    try {
+        wav = mp::tests::write_sine_wav(spec, "spike-440");
+    } catch (const std::exception& e) {
+        std::printf("FAIL %s\n", e.what());
         return 1;
     }
     mp_track* track = nullptr;
