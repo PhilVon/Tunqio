@@ -42,8 +42,29 @@
               AutomationProperties.Name="Visualization settings" />
     </StackPanel>
 
-    <ScrollViewer Grid.Row="2" Padding="16,0,16,16">
-      <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+    <!--
+      Named so a harness can read its bounding rectangle and check that every control on the page is inside it
+      (tools/check-visualization-settings.ps1). This surface is stretched by the pane's Frame, so its width IS
+      the space the page has, and "no control extends past its right edge" is the invariant a fixed-width
+      control breaks.
+    -->
+    <!--
+      HorizontalContentAlignment="Stretch" is the half that is easy to miss: a ScrollViewer arranges its content
+      at the content alignment, and the default leaves a Stretch child sitting at its desired width. Without it
+      the column measured 119 px inside a 224 px panel even with HorizontalAlignment="Stretch" on the panel.
+    -->
+    <ScrollViewer x:Name="SettingsSurface" Grid.Row="2" Padding="16,0,16,16"
+                  HorizontalContentAlignment="Stretch"
+                  AutomationProperties.Name="Visualization settings surface">
+      <!--
+        Stretch, not Left. Left makes the panel take its DESIRED width, which in a sidebar this narrow measured
+        119 px inside a 224 px content box - so the page used half the room it had and every control was laid out
+        against a column narrower than the panel. Stretch fills the panel and MaxWidth stops a wide one becoming
+        a 1200 px line of text. Named so the harness can read this column's rectangle: "no control extends past
+        the column that lays the page out" is the invariant, and it needs the column, not the ScrollViewer.
+      -->
+      <StackPanel x:Name="SettingsColumn" MaxWidth="720" HorizontalAlignment="Stretch"
+                  AutomationProperties.Name="Visualization settings content">
         <InfoBar IsOpen="{x:Bind ViewModel.HasNotice, Mode=OneWay}" Message="{x:Bind ViewModel.Notice, Mode=OneWay}"
                  Severity="{x:Bind shell:VisualizationSettingsPage.SeverityOf(ViewModel.NoticeIsError), Mode=OneWay}"
                  IsClosable="True" Closed="OnNoticeClosed" Margin="0,8,0,0" />
@@ -93,13 +114,20 @@
                     <TextBlock Text="{x:Bind Label}" />
                     <TextBlock Grid.Column="1" Text="{x:Bind Display, Mode=OneWay}" Opacity="0.7" />
                   </Grid>
+                  <!--
+                    Stretch and no Width. A fixed Width cannot shrink, so in a sidebar narrower than it the
+                    control keeps its size and hangs off the right of the panel, under the controls panel -
+                    which is what Phil found and what a 360 here did. There is no MaxWidth either: the column
+                    above is already capped at 720, and one cap in one place is easier to keep true than a
+                    number repeated on every control.
+                  -->
                   <Slider Grid.Row="1" Visibility="{x:Bind IsSlider}"
                           Minimum="{x:Bind Minimum}" Maximum="{x:Bind Maximum}" StepFrequency="{x:Bind StepFrequency}"
-                          Value="{x:Bind Value, Mode=TwoWay}" Width="360" HorizontalAlignment="Left"
+                          Value="{x:Bind Value, Mode=TwoWay}" HorizontalAlignment="Stretch"
                           AutomationProperties.Name="{x:Bind AutomationName, Mode=OneWay}" />
                   <ComboBox Grid.Row="1" Visibility="{x:Bind IsChoice}"
                             ItemsSource="{x:Bind Choices}" SelectedIndex="{x:Bind SelectedChoice, Mode=TwoWay}"
-                            Width="240" HorizontalAlignment="Left"
+                            HorizontalAlignment="Stretch"
                             AutomationProperties.Name="{x:Bind AutomationName, Mode=OneWay}" />
                 </Grid>
               </DataTemplate>
@@ -134,7 +162,7 @@
         <TextBlock Text="Smoothing" Margin="0,12,0,0" />
         <Slider x:Name="SmoothingSlider" Minimum="0" Maximum="1" StepFrequency="0.05"
                 Value="{x:Bind ViewModel.ReactiveSmoothing, Mode=TwoWay}"
-                Width="360" HorizontalAlignment="Left"
+                HorizontalAlignment="Stretch"
                 IsEnabled="{x:Bind ViewModel.ReactiveTheming, Mode=OneWay}"
                 AutomationProperties.Name="Reactive theming smoothing" />
         <!--

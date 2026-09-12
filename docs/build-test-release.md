@@ -41,6 +41,29 @@ How the code is built, what "tested" means for each layer, how performance claim
 
 Coverage target: 80% line coverage on `mpcore` (via `OpenCppCoverage`), Core, Interop and Library; none on XAML.
 
+**A UIA harness must assert where a control IS, not only that it exists.** A WinUI window captures black in a
+screenshot, so the shell's on-screen criteria are settled by walking the live automation tree
+(`tools/check-transport-automation.ps1`, `check-shortcuts.ps1`, `check-tag-editor.ps1`,
+`check-visualization-settings.ps1`). Four stories have now shipped something that was present and correct in that
+tree and wrong on the screen — T-137 (a verdict column that existed and could not be seen), T-138 (a list that
+scrolled its parent before itself), T-139 (a row overflowing a dialog), and E4-S9's settings page, whose sliders
+ran under the controls panel while a 17-case harness passed. Every one was found by a person. `BoundingRectangle`
+is the fix, and three things learned the hard way in E4-S9 are worth knowing before reaching for it:
+
+- **A control's rectangle is clipped to what is visible**, so "is this control inside its panel" is very nearly
+  always true and catches nothing. `ScrollPattern` is no help either where horizontal scrolling is disabled: it
+  reports `HorizontalViewSize = 100` whatever the content does.
+- **Over-wide content moves the container, not the control.** The rectangle that gave E4-S9's bug away was the
+  *ScrollViewer's*: it had grown to 256 px inside the 151 px the shell gave the sidebar, and reached 105 px under
+  the panel next door. So the invariant that works is about a boundary between two siblings — "the sidebar's
+  content must not reach the controls panel" — which is also the sentence the user wrote in the rejection.
+- **A control below the fold is `IsOffscreen` with an infinite rectangle** and will be skipped in silence. Walk
+  each scroll position, and fail the check when it measured fewer controls than the page has; a geometry check
+  that quietly examined six of fourteen controls is how E4-S9's reactive-theming slider, which had the same
+  fixed width, went unlooked-at.
+
+Prove such a case the way a golden image is proved: put the bug back, watch it go red, and record the number.
+
 ### Performance verification
 
 | Claim | Harness | Runs |
