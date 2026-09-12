@@ -693,14 +693,18 @@ const char* source_name(uint32_t source) {
     return source == MP_RENDER_COST_GPU_TIMESTAMP ? "a D3D11 timestamp pair around the draw" : "the frame interval";
 }
 
-// T-167, half one: the machine has to hold still for a tier ordering to mean anything. Called before any
-// assertion that compares one tier's cost with another's.
+// T-167, half one: the rounds have to agree before a tier ordering means anything. Called before any assertion
+// that compares one tier's cost with another's.
 //
 // This is a SKIP and not a CHECK on purpose, and the distinction is the whole point of the change: a tier
-// ordering that fails on a stable machine is a regression in the render scale and must stay red, while the same
-// ordering failing on a machine that changed under the measurement is a fact about the machine. Asserting the
-// second is what produced "cost.medium < cost.high with expansion 7.81 < 3.91" - an assertion that reads as an
-// audio-or-render regression and is nothing of the kind.
+// ordering that fails when the rounds agreed is a regression in the render scale and must stay red, while the
+// same ordering failing when they did not is a fact about the measurement. Asserting the second is what
+// produced "cost.medium < cost.high with expansion 7.81 < 3.91" - which reads as a render regression and was
+// nothing of the kind.
+//
+// The witness is deliberately the conclusion itself rather than a dispersion threshold. A spread limit has to
+// be fitted to a machine and quietly stops meaning anything on a different one; counting how many independent
+// rounds reached the same ordering needs no constant fitted to this desktop.
 void require_a_steady_machine(const tier_costs& cost) {
     if (cost.ordered_rounds() >= k_rounds_that_must_agree) {
         return;
@@ -754,13 +758,14 @@ TEST_CASE("the render scale is the lever T-148 says it has to be", "[render][qua
     const mp_render_stats last = fx.stats();
     note("how the tiers measured: " + cost.report());
 
-    note(fmt("ambient-glow at 1920x1080 on WARP (%s), cost per frame from %s, the cheapest of three interleaved "
-             "rounds: High %.2f ms at %ux%u, Medium %.2f ms at %ux%u, Low %.2f ms at %ux%u. High/Low is %.2fx "
-             "against the 4.00x the areas differ by; the shortfall is the part of a frame that is not pixels "
-             "(clear, constant buffer, present), which the render scale cannot touch.",
-             last.adapter, source_name(cost.cost_source), cost.high, cost.high_w, cost.high_h, cost.medium,
-             cost.medium_w, cost.medium_h, cost.low, cost.low_w, cost.low_h,
-             static_cast<double>(cost.high) / std::max(1e-6, static_cast<double>(cost.low))));
+    note(fmt("ambient-glow at 1920x1080 on WARP (%s), cost per frame from frames drawn over wall clock, the "
+             "median of %d interleaved rounds: High %.2f ms at %ux%u, Medium %.2f ms at %ux%u, Low %.2f ms at "
+             "%ux%u. High/Low is %.2fx against the 4.00x the areas differ by; the shortfall is the part of a "
+             "frame that is not pixels (clear, constant buffer, present), which the render scale cannot touch. "
+             "The renderer's own cost source is %s, which is what the CONTROLLER decides on and is not what "
+             "these three numbers are - see measure_at and T-169.",
+             last.adapter, k_rounds, cost.high, cost.high_w, cost.high_h, cost.medium, cost.medium_w, cost.medium_h,
+             cost.low, cost.low_w, cost.low_h, cost.high / (std::max)(1e-6, cost.low), source_name(cost.cost_source)));
 
     // The rectangle really is what the tier says.
     CHECK(cost.high_w == 1920);
