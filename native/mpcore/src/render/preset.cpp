@@ -18,7 +18,12 @@ namespace {
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-constexpr uint32_t k_schema = 1u;
+// The constant-buffer contract's version (preset.h). 2 appended `theme` to b0 for E4-S6; 1 is still read,
+// because appending to the end of b0 moved nothing a schema 1 preset declares and its shader is still correct
+// against a buffer that is now longer than the block it names. A schema this build has never heard of is
+// refused rather than guessed at, which is what the number is for.
+constexpr uint32_t k_schema = 2u;
+constexpr uint32_t k_min_schema = 1u;
 constexpr size_t k_max_id = 63;         // mp_preset_info.id is char[64]
 constexpr size_t k_max_name = 127;      // mp_preset_info.name is char[128]
 constexpr size_t k_max_hlsl = 1u << 20; // a preset shader is source, not an asset
@@ -36,6 +41,7 @@ cbuffer Frame : register(b0) {
     float4 counts;
     float4 bands[3];
     float4 params[4];
+    float4 theme[4];
 };
 Buffer<float> Spectrum : register(t0);
 Buffer<float> Waveform : register(t1);
@@ -231,9 +237,9 @@ bool load_preset_source(const fs::path& json_path, preset_source& out, std::stri
     preset_source p;
     try {
         const auto schema = doc.value("schema", k_schema);
-        if (schema != k_schema) {
+        if (schema < k_min_schema || schema > k_schema) {
             error = where + ": schema " + std::to_string(schema) + " is not understood (this build reads schema " +
-                    std::to_string(k_schema) + ")";
+                    std::to_string(k_min_schema) + " to " + std::to_string(k_schema) + ")";
             return false;
         }
         p.id = doc.value("id", std::string{});

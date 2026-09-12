@@ -14,8 +14,12 @@
 #include <array>
 #include <catch2/catch_amalgamated.hpp>
 #include <chrono>
+#include <cmath>
+#include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -245,14 +249,177 @@ TEST_CASE("hardware renderer falls back to WARP when no adapter exists", "[rende
     CHECK(std::string{s.adapter}.size() > 0);
 }
 
-TEST_CASE("theme and quality exports still name their story", "[render][abi]") {
+TEST_CASE("the quality export still names its story", "[render][abi]") {
     renderer_fixture fx{true};
-    mp_theme_colors colors{};
-    colors.struct_size = sizeof colors;
-    CHECK(mp_renderer_set_theme(fx.renderer, &colors) == MP_E_STATE);
-    CHECK(last_error().find("E4-S6") != std::string::npos);
     CHECK(mp_renderer_set_quality(fx.renderer, MP_QUALITY_AUTO) == MP_E_STATE);
     CHECK(last_error().find("E4-S7") != std::string::npos);
+}
+
+// ---- E4-S6: the renderer-wide theme ---------------------------------------------------------------
+
+namespace {
+
+// Four colours chosen so that no two channels of any two of them are equal and none of them is a value a ramp
+// in this repo happens to produce: a pixel carrying one of these carries it from set_theme and nowhere else.
+// Every number is a multiple of 1/255 so it survives the 8-bit UNORM target exactly.
+constexpr float k_theme[4][4] = {
+    {200.0f / 255, 30.0f / 255, 40.0f / 255, 255.0f / 255},  // primary
+    {10.0f / 255, 160.0f / 255, 90.0f / 255, 128.0f / 255},  // secondary
+    {70.0f / 255, 20.0f / 255, 220.0f / 255, 64.0f / 255},   // accent
+    {240.0f / 255, 210.0f / 255, 50.0f / 255, 192.0f / 255}, // background
+};
+
+mp_theme_colors theme_of(const float rgba[4][4], uint32_t struct_size = sizeof(mp_theme_colors)) {
+    mp_theme_colors c{};
+    c.struct_size = struct_size;
+    std::memcpy(c.primary, rgba[0], sizeof c.primary);
+    std::memcpy(c.secondary, rgba[1], sizeof c.secondary);
+    std::memcpy(c.accent, rgba[2], sizeof c.accent);
+    std::memcpy(c.background, rgba[3], sizeof c.background);
+    return c;
+}
+
+// The theme-probe fixture paints colour `which` into the `which`-th column: RGB in the top half, alpha in all
+// three channels in the bottom half. Returns {r, g, b, a} as bytes, which is what the fixture makes readable.
+std::array<int, 4> probe_colour(const renderer_fixture& fx, int which) {
+    const mp_render_stats s = fx.stats();
+    const uint32_t x = (s.width * (2u * static_cast<uint32_t>(which) + 1u)) / 8u;
+    std::array<uint8_t, 4> top{};
+    std::array<uint8_t, 4> bottom{};
+    REQUIRE(core(fx.renderer)->capture_pixel(x, s.height / 4, top.data()));
+    REQUIRE(core(fx.renderer)->capture_pixel(x, (s.height * 3) / 4, bottom.data()));
+    return {top[2], top[1], top[0], bottom[1]}; // capture_pixel is B, G, R, A
+}
+
+std::array<int, 4> expected_bytes(const float rgba[4]) {
+    std::array<int, 4> out{};
+    for (size_t i = 0; i < 4; ++i) {
+        out[i] = static_cast<int>(std::lround(rgba[i] * 255.0f));
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("all sixteen floats of the theme reach the shader through b0", "[render][theme]") {
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 64, 64};
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "theme-probe") == MP_OK);
+
+    // Before anything sets one, every channel is zero - which is what alpha 0 means to a preset: "the shell has
+    // not told me a theme". Proved before setting one, so the assertions below cannot be reading a default.
+    for (int i = 0; i < 4; ++i) {
+        CHECK(probe_colour(fx, i) == std::array<int, 4>{0, 0, 0, 0});
+    }
+
+    const mp_theme_colors colors = theme_of(k_theme);
+    REQUIRE(mp_renderer_set_theme(fx.renderer, &colors) == MP_OK);
+
+    for (int i = 0; i < 4; ++i) {
+        INFO("colour " << i);
+        const auto expected = expected_bytes(k_theme[i]);
+        const auto got = probe_colour(fx, i);
+        for (size_t ch = 0; ch < 4; ++ch) {
+            INFO("channel " << ch);
+            CHECK(std::abs(got[ch] - expected[ch]) <= 1);
+        }
+    }
+}
+
+TEST_CASE("the theme outlives a preset switch, unlike a parameter", "[render][theme]") {
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 64, 64};
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "theme-probe") == MP_OK);
+    const mp_theme_colors colors = theme_of(k_theme);
+    REQUIRE(mp_renderer_set_theme(fx.renderer, &colors) == MP_OK);
+    REQUIRE(probe_colour(fx, 0)[0] == 200);
+
+    // Away and back. A parameter would be at its default again; the theme belongs to the renderer, not to a
+    // preset, because the shell's gradient does not change colour when someone picks a different visualizer.
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "solid-green") == MP_OK);
+    REQUIRE(fx.centre_pixel()[1] == 255);
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "theme-probe") == MP_OK);
+
+    for (int i = 0; i < 4; ++i) {
+        INFO("colour " << i);
+        CHECK(probe_colour(fx, i) == expected_bytes(k_theme[i]));
+    }
+}
+
+TEST_CASE("a schema 1 preset still draws against the longer b0", "[render][theme][preset]") {
+    // solid-green declares schema 1 and a cbuffer block without `theme`. Appending a field to the end of b0 is
+    // a schema bump precisely so this stays true: nothing before `theme` moved, so its shader reads what it
+    // always read out of a buffer that is merely longer than the block it names.
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 64, 64};
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "solid-green") == MP_OK);
+    const mp_theme_colors colors = theme_of(k_theme);
+    REQUIRE(mp_renderer_set_theme(fx.renderer, &colors) == MP_OK);
+    REQUIRE(mp_renderer_set_param(fx.renderer, "level", 1.0f) == MP_OK);
+
+    const auto px = fx.centre_pixel();
+    CHECK(static_cast<int>(px[1]) == 255); // green, exactly as before the theme existed
+    CHECK(static_cast<int>(px[0]) == 0);
+    CHECK(static_cast<int>(px[2]) == 0);
+}
+
+TEST_CASE("set_theme validates its colours", "[render][theme][abi]") {
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 64, 64};
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "theme-probe") == MP_OK);
+
+    SECTION("a channel outside 0..1 is clamped to it, as a parameter is clamped to its declared range") {
+        float wild[4][4] = {{4.0f, -2.0f, 0.5f, 1.0f}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+        const mp_theme_colors colors = theme_of(wild);
+        REQUIRE(mp_renderer_set_theme(fx.renderer, &colors) == MP_OK);
+        const auto got = probe_colour(fx, 0);
+        CHECK(got[0] == 255);
+        CHECK(got[1] == 0);
+        CHECK(std::abs(got[2] - 128) <= 2);
+    }
+
+    SECTION("a channel that is not a finite number is refused and nothing changes") {
+        const mp_theme_colors good = theme_of(k_theme);
+        REQUIRE(mp_renderer_set_theme(fx.renderer, &good) == MP_OK);
+        REQUIRE(probe_colour(fx, 0)[0] == 200);
+
+        float broken[4][4] = {{0.1f, 0.1f, 0.1f, 1.0f}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+        broken[2][1] = std::numeric_limits<float>::quiet_NaN();
+        const mp_theme_colors colors = theme_of(broken);
+        CHECK(mp_renderer_set_theme(fx.renderer, &colors) == MP_E_INVALID_ARG);
+        CHECK(last_error().find("finite") != std::string::npos);
+        CHECK(probe_colour(fx, 0)[0] == 200); // the theme that was drawing is still drawing
+    }
+
+    SECTION("a NULL renderer or a NULL struct is MP_E_INVALID_ARG") {
+        const mp_theme_colors colors = theme_of(k_theme);
+        CHECK(mp_renderer_set_theme(nullptr, &colors) == MP_E_INVALID_ARG);
+        CHECK(mp_renderer_set_theme(fx.renderer, nullptr) == MP_E_INVALID_ARG);
+    }
+}
+
+TEST_CASE("a caller that carries only the first colour is served that prefix", "[render][theme][abi]") {
+    // The struct_size rule (T-140, ABI 0.12) in the one export that landed after it: a shell built against a
+    // header where mp_theme_colors stopped after `primary` sends 20 bytes, and the three colours its header did
+    // not have take their documented zero default rather than whatever was behind its struct.
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 64, 64};
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "theme-probe") == MP_OK);
+
+    const uint32_t prefix =
+        static_cast<uint32_t>(offsetof(mp_theme_colors, primary) + sizeof(mp_theme_colors::primary));
+    const mp_theme_colors colors = theme_of(k_theme, prefix);
+    REQUIRE(mp_renderer_set_theme(fx.renderer, &colors) == MP_OK);
+
+    CHECK(probe_colour(fx, 0) == expected_bytes(k_theme[0]));
+    for (int i = 1; i < 4; ++i) {
+        INFO("colour " << i);
+        CHECK(probe_colour(fx, i) == std::array<int, 4>{0, 0, 0, 0});
+    }
+
+    // And the other direction is still refused: a struct longer than this build's asks for fields it cannot fill.
+    mp_theme_colors too_long = theme_of(k_theme, sizeof(mp_theme_colors) + 4u);
+    CHECK(mp_renderer_set_theme(fx.renderer, &too_long) == MP_E_INVALID_ARG);
 }
 
 // ---- E4-S3: the preset loader --------------------------------------------------------------------
@@ -280,7 +447,8 @@ TEST_CASE("presets on disk are enumerated beside the built-in", "[render][preset
 
     uint32_t count = 0;
     REQUIRE(mp_renderer_enum_presets(fx.renderer, nullptr, &count) == MP_OK);
-    CHECK(count == 4); // built-in + solid-blue + solid-green + broken-shader; the two malformed ones are skipped
+    // built-in + solid-blue + solid-green + theme-probe + broken-shader; the two malformed ones are skipped
+    CHECK(count == 5);
 
     std::vector<mp_preset_info> presets(count);
     for (auto& p : presets) {

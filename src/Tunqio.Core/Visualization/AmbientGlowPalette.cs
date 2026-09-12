@@ -10,11 +10,12 @@ namespace Tunqio.Core.Visualization;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why parameters and not <see cref="IVisualizationHost.SetThemeColors"/>.</b> That is E4-S6's, and the core
-/// refuses it until then. E4-S6 is a renderer-wide theme: four colours reaching every preset and the shell's own
-/// background gradient, polled at 30 Hz with smoothing and a contrast guarantee. AC-124 is narrower - one
-/// preset's colour <i>source</i> - and the preset contract already expresses that, so this needs no ABI change,
-/// no new field in the shader's constant buffer and none of E4-S6's policy decided early.
+/// <b>Why parameters and not <see cref="IVisualizationHost.SetThemeColors"/>.</b> That is E4-S6's: a
+/// renderer-wide theme of four colours reaching every preset and the shell's own background gradient, polled at
+/// 30 Hz with smoothing and a contrast guarantee, and it needed a new field at the end of the shader's constant
+/// buffer to land. AC-124 is narrower - one preset's colour <i>source</i> - and the preset contract already
+/// expressed that, so this needed no ABI change and decided none of E4-S6's policy early. They remain separate
+/// now that E4-S6 has landed: the theme is the window's palette and this is where one preset gets its colours.
 /// </para>
 /// <para>
 /// <b>The packing.</b> A parameter is one <see cref="float"/>, so a colour is packed into one:

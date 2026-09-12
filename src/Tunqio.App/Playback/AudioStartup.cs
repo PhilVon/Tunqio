@@ -3,6 +3,7 @@ using Tunqio.Core;
 using Tunqio.Core.Audio;
 using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
+using Tunqio.Core.Visualization;
 using Tunqio.Interop;
 
 namespace Tunqio.App.Playback;
@@ -71,6 +72,13 @@ public sealed class AudioStartup : IPlaybackSessionSource, IDisposable
     /// <summary>The session, once <see cref="StartAsync"/> has succeeded; null before that and when audio is unavailable.</summary>
     public PlaybackSession? Session { get; private set; }
 
+    /// <summary>
+    /// The analysis stream over this session's engine, for audio-reactive theming (E4-S6) and the visualizer.
+    /// Null until <see cref="StartAsync"/> has produced an engine, and null for a fake one: a test engine has no
+    /// native analysis thread behind it, and the theming is tested against synthetic frames rather than this.
+    /// </summary>
+    public IAnalysisFrameSource? AnalysisFrames { get; private set; }
+
     /// <inheritdoc />
     public event EventHandler<PlaybackSession>? SessionReady;
 
@@ -112,6 +120,11 @@ public sealed class AudioStartup : IPlaybackSessionSource, IDisposable
             _engine = null;
             await engine.DisposeAsync().ConfigureAwait(false);
             return notice;
+        }
+
+        if (engine is NativeAudioEngine native)
+        {
+            AnalysisFrames = new NativeAnalysisFrameSource(native.Native);
         }
 
         var session = new PlaybackSession(
@@ -219,6 +232,10 @@ public sealed class AudioStartup : IPlaybackSessionSource, IDisposable
         _disposed = true;
         PlaybackSession? session = Session;
         IAudioEngine? engine = _engine;
+        // Before the engine: the frame source polls it, and polling a destroyed engine is the one way this can
+        // touch a handle after its owner has gone.
+        (AnalysisFrames as IDisposable)?.Dispose();
+        AnalysisFrames = null;
         Session = null;
         _engine = null;
         if (session is null && engine is null)

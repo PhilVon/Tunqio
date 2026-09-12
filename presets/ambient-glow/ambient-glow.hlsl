@@ -24,10 +24,11 @@
 // independent relaxed atomics that the render thread reads once a frame, so three channel parameters set in
 // sequence can be read half-applied and show a wrong colour for one frame. A packed colour is one atomic store.
 //
-// This is deliberately NOT mp_renderer_set_theme, which is a stub reserved for E4-S6. That is a renderer-wide
-// theme - four colours reaching every preset and the shell's own Composition gradient, polled at 30 Hz with EMA
-// smoothing and a contrast guarantee - and it needs a field in b0, which is a schema bump. What AC-124 asks for
-// is one preset's colour SOURCE, which this contract already expresses.
+// This is deliberately NOT mp_renderer_set_theme, which E4-S6 has since implemented as b0's `theme` (the schema
+// bump to 2). That is a renderer-wide palette - four colours reaching every preset and the shell's own
+// Composition gradient, polled at 30 Hz with EMA smoothing and a contrast guarantee - and it outlives a preset
+// switch. What AC-124 asks for is one preset's colour SOURCE, which this contract already expresses, and the
+// two remain different things: this preset still reads art_* and does not read `theme`.
 //
 // ---- flash safety ---------------------------------------------------------------------------------
 //
@@ -49,6 +50,7 @@ cbuffer Frame : register(b0) {
     float4 counts;
     float4 bands[3];
     float4 params[4];
+    float4 theme[4];
 };
 Buffer<float> Spectrum : register(t0);
 Buffer<float> Waveform : register(t1);

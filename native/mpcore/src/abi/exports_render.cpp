@@ -1,6 +1,7 @@
 // The mp_renderer_* exports (ABI 0.3). Thin: validate, forward, convert errors.
 // The preset three (enum/set_preset/set_param) were declared and stubbed by E0-S5 and are implemented by E4-S3;
-// set_theme is E4-S6 and set_quality E4-S7, and both still name their story. No export moved, so no ABI bump.
+// set_theme is implemented by E4-S6 and set_quality is E4-S7's and still names its story. No export moved, so
+// the ABI minor moves for the function that is new, not for a signature that changed.
 #include "mpcore.h"
 
 #include "abi/guard.h"
@@ -124,12 +125,17 @@ MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* r, const char* utf8_
     });
 }
 
+// Guarded because set_theme takes a lock, and a caller built against ABI 0.12's mp_theme_colors - which had
+// primary alone past struct_size - is served that prefix, the three colours its header did not have arriving as
+// the zeros in_struct's whole struct gives them.
 MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* r, const mp_theme_colors* colors) {
-    if (r == nullptr) {
-        return invalid("mp_renderer_set_theme: NULL renderer");
-    }
-    return in_struct(colors, "mp_renderer_set_theme",
-                     [](const mp_theme_colors&) { return not_implemented("mp_renderer_set_theme", "E4-S6"); });
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr) {
+            return invalid("mp_renderer_set_theme: NULL renderer");
+        }
+        return in_struct(colors, "mp_renderer_set_theme",
+                         [&](const mp_theme_colors& whole) { return as_renderer(r)->set_theme(whole); });
+    });
 }
 
 MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* r, mp_quality_policy /*policy*/) {

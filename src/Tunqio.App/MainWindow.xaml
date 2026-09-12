@@ -17,6 +17,14 @@
     dragging an album onto a music player is not aiming at a region.
   -->
   <Grid x:Name="Root" AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" DragLeave="OnDragLeave">
+
+    <!--
+      Audio-reactive theming (E4-S6) paints its Composition gradient into this layer, which is empty and first
+      so it sits behind every panel: the contract says reactive theming blends the background layer only.
+      Invisible until something is playing and the switches allow it, so a window without it looks as it did.
+    -->
+    <Grid x:Name="ReactiveLayer" IsHitTestVisible="False" />
+
     <Grid x:Name="ShellGrid">
 
       <!-- Now Playing: the visualizer surface with the metadata block over it (E2-S3). -->

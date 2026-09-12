@@ -53,8 +53,9 @@ public sealed class PresetCompilationException(string presetId, string compilerM
 /// the shell already holds the WinUI reference and already knows how to produce the pointer, so it produces it.
 /// </para>
 /// <para>
-/// <see cref="SetThemeColors"/> and <see cref="SetQualityPolicy"/> are declared here because they belong to this
-/// surface, but the native core does not implement them until E4-S6 and E4-S7 and will refuse them until then.
+/// <see cref="SetQualityPolicy"/> is declared here because it belongs to this surface, but the native core does
+/// not implement it until E4-S7 and will refuse it until then. <see cref="SetThemeColors"/> was the same until
+/// E4-S6, which implemented it.
 /// </para>
 /// </remarks>
 public interface IVisualizationHost : IDisposable
@@ -98,7 +99,11 @@ public interface IVisualizationHost : IDisposable
     /// <summary>Sets a parameter the active preset declares; values outside its range are clamped to it.</summary>
     void SetParameter(string name, float value);
 
-    /// <summary>Not implemented by the core until E4-S6.</summary>
+    /// <summary>
+    /// The renderer-wide theme (E4-S6): four colours into every preset's constant buffer, surviving a preset
+    /// switch, and the same ones the shell's own background gradient is painted from. Channels outside 0..1 are
+    /// clamped; one that is not a finite number throws.
+    /// </summary>
     void SetThemeColors(ThemeColors colors);
 
     /// <summary>Not implemented by the core until E4-S7.</summary>

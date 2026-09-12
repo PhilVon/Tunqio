@@ -80,6 +80,15 @@
  * asking for fields this build cannot fill), and so is one too small to hold the struct's first meaningful
  * field. One protocol was tightened to pay for it: mp_engine_enum_devices now requires out[0].struct_size, the
  * way mp_renderer_enum_presets always has, because with a variable element size that number is the stride.
+ * 0.13 the theme (E4-S6): mp_renderer_set_theme is implemented over a new field at the end of the preset
+ * constant buffer, so the four colours the shell paints its own background gradient from reach every preset
+ * too. Same reading as 0.8 to 0.12 - an export that was declared and stubbed since 0.3 beginning to work is new
+ * function, and new function is a minor. mp_theme_colors did not move and no signature changed. The *preset*
+ * contract is versioned separately and it did move: b0's schema is 2, because a field was appended to it. That
+ * costs a schema 1 preset nothing - nothing before `theme` moved, so its shader reads exactly what it read
+ * before out of a buffer that is merely longer than the block it declares - and this build still loads one, as
+ * mpcore.tests' schema 1 fixtures prove. What a schema number buys is the other direction: a preset written
+ * against a contract this build has never heard of is refused rather than guessed at.
  */
 #pragma once
 
@@ -102,7 +111,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 12u
+#define MP_ABI_MINOR 13u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -478,8 +487,12 @@ MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* renderer, const cha
  * it. MP_E_INVALID_ARG names the parameter, and what the preset does declare, when it does not declare this one.
  * Parameters return to their defaults on a preset switch. */
 MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* renderer, const char* utf8_name, float value);
-MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* renderer,
-                                               const mp_theme_colors* colors); /* not implemented until E4-S6 */
+/* Sets the renderer-wide theme (E4-S6): the four colours reach every preset as b0's `theme`, in this struct's
+ * order, and survive a preset switch - unlike a parameter, which belongs to one preset and returns to its
+ * default. Channels outside 0..1 are clamped to it; a channel that is not a finite number is MP_E_INVALID_ARG
+ * and nothing changes. Until a theme is set every channel is zero, so alpha 0 is how a preset reads "the shell
+ * has not told me one". Cheap and safe to call at the rate the shell's own theming runs (30 Hz). */
+MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* renderer, const mp_theme_colors* colors);
 MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* renderer,
                                                  mp_quality_policy policy); /* not implemented until E4-S7 */
 

@@ -109,6 +109,10 @@ public class AmbientGlowPaletteTests
         host.Parameters.Should().HaveCount(3);
         host.Parameters.Select(p => p.Name).Should().Equal("art_primary", "art_secondary", "art_accent");
         host.Parameters[0].Value.Should().Be(AmbientGlowPalette.Pack(Colour(200, 30, 40)));
+        // Still parameters and still not the theme, now that E4-S6 has implemented mp_renderer_set_theme: the
+        // theme is the renderer's whole palette and this is one preset's colour source, and they are different
+        // things reaching the shader by different routes.
+        host.Themes.Should().BeEmpty();
     }
 
     [Fact]
@@ -159,7 +163,10 @@ public class AmbientGlowPaletteTests
 
         public void SetParameter(string name, float value) => Parameters.Add((name, value));
 
-        public void SetThemeColors(ThemeColors colors) => throw new NotSupportedException("E4-S6");
+        /// <summary>Recorded, and a failure if it is used: the art palette is parameters, never the theme.</summary>
+        public List<ThemeColors> Themes { get; } = [];
+
+        public void SetThemeColors(ThemeColors colors) => Themes.Add(colors);
 
         public void SetQualityPolicy(QualityPolicy policy) => throw new NotSupportedException("E4-S7");
 

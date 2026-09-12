@@ -37,6 +37,10 @@ public sealed partial class MainWindow : Window
     private readonly bool _ownsNotices;
     private readonly DiagnosticsViewModel _diagnostics;
     private readonly OpenCoordinator? _open;
+    private ReactiveThemeLayer? _reactiveLayer;
+    private SystemAccessibilitySignals? _accessibility;
+    private ReactiveThemeController? _reactiveTheme;
+    private volatile bool _isDark;
     private NativeRenderer? _renderer;
 
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
@@ -74,6 +78,15 @@ public sealed partial class MainWindow : Window
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
         _chrome.ApplyLayout(ShellLayout.MediumThreshold);
         Root.SizeChanged += (_, e) => _chrome.ApplyLayout(e.NewSize.Width);
+        // Which theme is on screen decides which text the reactive contrast guarantee is made against, and the
+        // theming ticks on a timer thread where ActualTheme cannot be read at all. So it is cached here, on the
+        // thread that owns it, and the theming reads the cache.
+        _isDark = Root.ActualTheme == ElementTheme.Dark;
+        Root.ActualThemeChanged += (_, _) =>
+        {
+            _isDark = Root.ActualTheme == ElementTheme.Dark;
+            _reactiveTheme?.Evaluate();
+        };
         // The error surfaces (E2-S7). Bound before the session is attached below, so a failure during start-up has
         // somewhere to be said.
         _ownsNotices = notices is null;
@@ -127,9 +140,35 @@ public sealed partial class MainWindow : Window
             }
 
             _diagnostics.Dispose();
+            _reactiveTheme?.Dispose();
+            _accessibility?.Dispose();
+            _reactiveLayer?.Dispose();
             TearDownRenderer();
         };
     }
+
+    /// <summary>
+    /// Starts audio-reactive theming (E4-S6) over <paramref name="frames"/>. Called once the audio engine is up,
+    /// which is after the window is shown, because the analysis stream does not exist until the engine does; a
+    /// session with no audio simply never calls it and the window keeps its static theme.
+    /// </summary>
+    public void AttachReactiveTheming(IAnalysisFrameSource frames, ISettingsStore settings)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentNullException.ThrowIfNull(settings);
+        if (_reactiveTheme is not null)
+        {
+            return;
+        }
+
+        _reactiveLayer = new ReactiveThemeLayer(ReactiveLayer);
+        _accessibility = new SystemAccessibilitySignals();
+        _reactiveTheme = new ReactiveThemeController(frames, settings, _accessibility, _reactiveLayer, () => _isDark);
+        _reactiveTheme.Start();
+    }
+
+    /// <summary>The reactive theming, for the diagnostics overlay and the tests that drive the window.</summary>
+    internal ReactiveThemeController? ReactiveTheming => _reactiveTheme;
 
     /// <summary>The native renderer bound to the panel, once the panel has loaded.</summary>
     public NativeRenderer? Renderer => _renderer;

@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "id": "ambient-glow",
   "name": "Ambient Glow",
   "shader": "ambient-glow.hlsl",

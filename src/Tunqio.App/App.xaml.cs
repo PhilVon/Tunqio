@@ -187,9 +187,17 @@ public partial class App : Application
     {
         try
         {
-            if (await _host!.Services.GetRequiredService<AudioStartup>().StartAsync().ConfigureAwait(true) is { } notice)
+            AudioStartup audio = _host!.Services.GetRequiredService<AudioStartup>();
+            if (await audio.StartAsync().ConfigureAwait(true) is { } notice)
             {
                 window.ShowNotice(notice);
+            }
+
+            // Audio-reactive theming (E4-S6) cannot start earlier than this: the analysis stream is the engine's,
+            // and the engine is deliberately not on the path to the first frame.
+            if (audio.AnalysisFrames is { } frames)
+            {
+                window.AttachReactiveTheming(frames, _host.Services.GetRequiredService<ISettingsStore>());
             }
         }
         catch (Exception e) when (e is not OutOfMemoryException)

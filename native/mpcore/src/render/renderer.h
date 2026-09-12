@@ -50,6 +50,9 @@ public:
     mp_result set_preset(const char* utf8_id);
     // Sets a parameter the active preset declares. MP_E_INVALID_ARG names the parameter when it declares none.
     mp_result set_param(const char* utf8_name, float value);
+    // The renderer-wide theme (E4-S6): four RGBA colours into b0's `theme`, surviving preset switches, so every
+    // preset and the shell's own background gradient are painted from one palette.
+    mp_result set_theme(const mp_theme_colors& colors);
     std::string active_preset_id() const;
 
     // ---- diagnostics, not on the ABI (mpcore.tests compiles these sources directly) ----
@@ -122,6 +125,16 @@ private:
     std::shared_ptr<const compiled_preset> pending_;
     std::atomic<bool> preset_pending_{false};
     std::array<std::atomic<float>, k_max_preset_params> param_values_{};
+    // The theme (E4-S6). Deliberately not sixteen more relaxed atomics beside param_values_: four colours stored
+    // one float at a time can be read half-applied, and a background that is one frame of someone else's red is
+    // exactly the flash the accessibility contract forbids. So it is the handover the analysis override uses -
+    // one atomic generation the render thread compares per frame, and the lock taken only when it has moved, so
+    // a renderer whose theme never changes pays one relaxed load a frame and copies nothing.
+    mutable std::mutex theme_mutex_;
+    std::array<float, k_theme_slots> theme_{};
+    std::atomic<uint32_t> theme_generation_{0};
+    uint32_t theme_seen_ = 0;                              // render thread only
+    std::array<float, k_theme_slots> theme_render_{};      // render thread only
     std::shared_ptr<const compiled_preset> render_preset_; // render thread only
 
     // Pending resize written by the control plane, consumed by the render thread.

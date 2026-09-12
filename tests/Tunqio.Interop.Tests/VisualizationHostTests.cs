@@ -107,12 +107,38 @@ public class VisualizationHostTests
     }
 
     [Fact]
-    public async Task Theme_and_quality_are_forwarded_and_still_refused_by_their_stories()
+    public async Task The_theme_is_forwarded_and_taken_and_quality_still_names_its_story()
     {
         using var host = new VisualizationHost();
         await host.AttachAsync(nint.Zero, Headless);
+
+        // E4-S6: mp_renderer_set_theme is implemented, so what reached MP_E_STATE now reaches b0. What the four
+        // colours do to the picture is mpcore.tests [theme]'s to prove; what this proves is that the managed
+        // struct crosses the boundary intact - a channel out of range is clamped rather than refused, and a
+        // channel that is not a number is refused rather than written.
         var colors = new ThemeColors([1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1], [0, 0, 0, 1]);
-        FluentActions.Invoking(() => host.SetThemeColors(colors)).Should().Throw<NativeException>().WithMessage("*E4-S6*");
+        FluentActions.Invoking(() => host.SetThemeColors(colors)).Should().NotThrow();
+        FluentActions.Invoking(() => host.SetThemeColors(new ThemeColors([4, -2, 0.5f, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0])))
+            .Should().NotThrow();
+        FluentActions.Invoking(() => host.SetThemeColors(new ThemeColors([float.NaN, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0])))
+            .Should().Throw<NativeException>().WithMessage("*finite*");
+
         FluentActions.Invoking(() => host.SetQualityPolicy(QualityPolicy.Auto)).Should().Throw<NativeException>().WithMessage("*E4-S7*");
+    }
+
+    [Fact]
+    public async Task A_palette_the_reactive_theming_produced_is_one_the_renderer_takes()
+    {
+        // The join between the two halves of E4-S6: the colours the shell is painting its own gradient from are
+        // the ones handed to every preset, through the same record, without a conversion in between.
+        using var host = new VisualizationHost();
+        await host.AttachAsync(nint.Zero, Headless);
+
+        var engine = new ReactiveThemeEngine(true, ReactiveThemeOptions.Default);
+        ReactiveThemePalette palette = engine.Advance(
+            new AnalysisFrame(1, 0, 0, default, default, 0.25f, 0.3f, 4000f, 0.8f, default, false, 0),
+            TimeSpan.FromSeconds(1));
+
+        FluentActions.Invoking(() => host.SetThemeColors(palette.ToThemeColors())).Should().NotThrow();
     }
 }

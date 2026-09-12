@@ -21,9 +21,18 @@
 //       float4 counts;     // x = onset (0 or 1), y = band count, z = spectrum bins, w = waveform samples
 //       float4 bands[3];   // the 10 octave bands in .x .y .z .w order; the last two floats are unused
 //       float4 params[4];  // the preset's own parameters, in the order preset.json declares them
+//       float4 theme[4];   // schema 2: the shell's theme, primary / secondary / accent / background, each RGBA
 //   };
 //   Buffer<float> Spectrum : register(t0);   // MP_ANALYSIS_SPECTRUM_BINS magnitudes, full-scale sine = 1.0
 //   Buffer<float> Waveform : register(t1);   // MP_ANALYSIS_WAVEFORM_SAMPLES mono samples, newest hop
+//
+// `theme` is mp_renderer_set_theme's (E4-S6): one palette for the whole renderer, the same four colours the
+// shell paints its own background gradient from, so a preset and the window around it agree. It is not a
+// parameter - a parameter belongs to one preset and returns to its default on a switch, while the theme
+// outlives both - and it is not sixteen parameters either, because param_values_ is an array of independent
+// relaxed atomics and four colours stored through sixteen of them could be read half-applied. Appending it is
+// what makes this schema 2; a schema 1 preset declares the block without it and reads exactly what it always
+// read, since nothing before it moved.
 //
 // The spectrum and waveform are SRVs rather than cbuffer arrays because HLSL packs a float array one value per
 // float4 register: 1024 bins would cost 16 KB of constant buffer to carry 4 KB of data, and every read would be
@@ -47,6 +56,8 @@ inline constexpr uint32_t k_max_preset_params = 16;
 // Octave bands carried in b0, padded to whole registers.
 inline constexpr uint32_t k_band_slots = 12;
 static_assert(MP_ANALYSIS_OCTAVE_BANDS <= k_band_slots, "bands[3] has to hold every octave band");
+// The theme carried in b0 (E4-S6): four RGBA colours, in mp_theme_colors' order.
+inline constexpr uint32_t k_theme_slots = 16;
 
 // The b0 layout above, in C++. Every member is float4-aligned, which is what makes the memcpy legal.
 struct frame_constants {
@@ -56,6 +67,7 @@ struct frame_constants {
     float counts[4];
     float bands[k_band_slots];
     float params[k_max_preset_params];
+    float theme[k_theme_slots];
 };
 static_assert(sizeof(frame_constants) % 16 == 0, "a constant buffer is a whole number of float4 registers");
 

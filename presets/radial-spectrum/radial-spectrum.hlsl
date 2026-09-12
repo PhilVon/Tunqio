@@ -26,6 +26,7 @@ cbuffer Frame : register(b0) {
     float4 counts;
     float4 bands[3];
     float4 params[4];
+    float4 theme[4];
 };
 Buffer<float> Spectrum : register(t0);
 Buffer<float> Waveform : register(t1);

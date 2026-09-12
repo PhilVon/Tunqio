@@ -422,6 +422,32 @@ mp_result renderer::set_param(const char* utf8_name, float value) {
     return MP_OK;
 }
 
+mp_result renderer::set_theme(const mp_theme_colors& colors) {
+    // The four colours in mp_theme_colors' own order, which is the order b0's `theme` declares them in.
+    const float* source[4] = {colors.primary, colors.secondary, colors.accent, colors.background};
+    std::array<float, k_theme_slots> next{};
+    for (size_t c = 0; c < 4; ++c) {
+        for (size_t ch = 0; ch < 4; ++ch) {
+            const float v = source[c][ch];
+            if (!std::isfinite(v)) {
+                return invalid_arg("mp_renderer_set_theme: colour " + std::to_string(c) + " channel " +
+                                   std::to_string(ch) + " is not a finite number");
+            }
+            // Clamped rather than refused, as set_param clamps to a declared range: a shell that computed a
+            // channel slightly outside 0..1 has asked for the edge of the gamut, not made an error.
+            next[c * 4 + ch] = std::clamp(v, 0.0f, 1.0f);
+        }
+    }
+
+    {
+        std::lock_guard lock{theme_mutex_};
+        theme_ = next;
+    }
+    // Released after the write, so the render thread that sees the new generation sees the colours behind it.
+    theme_generation_.fetch_add(1, std::memory_order_release);
+    return MP_OK;
+}
+
 std::string renderer::active_preset_id() const {
     std::lock_guard lock{preset_mutex_};
     return current_ ? current_->source.id : std::string{};
@@ -694,6 +720,15 @@ void renderer::update_frame_resources(double seconds, double delta) {
     for (size_t i = 0; i < k_max_preset_params; ++i) {
         c.params[i] = param_values_[i].load(std::memory_order_relaxed);
     }
+    // One acquire load a frame; the lock is taken only on the frame after a set_theme, so the sixteen floats
+    // always reach a shader as the one palette they were set as rather than as four colours in mid-change.
+    if (const uint32_t generation = theme_generation_.load(std::memory_order_acquire); generation != theme_seen_) {
+        std::lock_guard lock{theme_mutex_};
+        theme_render_ = theme_;
+        // Re-read under the lock, because that is the generation the copy just taken corresponds to.
+        theme_seen_ = theme_generation_.load(std::memory_order_relaxed);
+    }
+    std::memcpy(c.theme, theme_render_.data(), sizeof c.theme);
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (SUCCEEDED(context_->Map(constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
