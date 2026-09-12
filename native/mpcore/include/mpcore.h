@@ -89,6 +89,20 @@
  * before out of a buffer that is merely longer than the block it declares - and this build still loads one, as
  * mpcore.tests' schema 1 fixtures prove. What a schema number buys is the other direction: a preset written
  * against a contract this build has never heard of is refused rather than guessed at.
+ * 0.15 preset parameter metadata and a second preset root (T-142, E4-S9). Three new exports and one new struct,
+ * so a minor by the plainest reading of the rule above - nothing moved and no signature changed.
+ * mp_renderer_enum_preset_params answers what mp_preset_info could not: what a parameter is called in a
+ * settings page, the range and step to offer it over, the default to reset it to, and - the field that is not
+ * a range - whether a person should be offered it at all. That last one is why the flag exists rather than
+ * only the range: ambient-glow's art_primary / art_secondary / art_accent are parameters set by CODE from the
+ * album art palette and they carry packed sRGB integers, so a settings page that listed every declared
+ * parameter would offer somebody three raw numbers between -1 and 16777215 to type. mp_renderer_set_user_preset_root
+ * adds a second directory to the scan - the shell's %LocalAppData%\Tunqio\presets - in ADDITION to the
+ * presets/ beside this module, and mp_renderer_rescan_presets is the "refresh" a user who has just dropped a
+ * preset into it needs, since the catalogue is otherwise read once at renderer creation (T-126). The preset
+ * schema does NOT move for this: `label`, `unit`, `step`, `hidden` and `choices` are manifest keys that no
+ * shader can see, and the schema versions b0 - what the shader reads - so a schema 1 or 2 preset with none of
+ * them loads exactly as before and every golden image is unchanged.
  */
 #pragma once
 
@@ -111,7 +125,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 13u
+#define MP_ABI_MINOR 15u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -445,6 +459,44 @@ typedef struct mp_preset_info {
     char name[128];
 } mp_preset_info;
 
+/* What a settings page is allowed to do with a parameter (mp_preset_param_info.flags). */
+typedef enum mp_preset_param_flags {
+    MP_PARAM_NONE = 0u,
+    /* Set by code and never by a person, so a settings page must not offer it. ambient-glow's art_primary /
+     * art_secondary / art_accent are the reason this exists: they carry one sRGB colour packed as
+     * r*65536 + g*256 + b, taken from the album art palette, and a slider from -1 to 16777215 is not a control.
+     * A parameter without this flag is offered; a preset says so with "hidden": true in its manifest. */
+    MP_PARAM_HIDDEN = 1u << 0,
+    /* An integral mode rather than a quantity: the value is one of the labels in `choices`, indexed from
+     * min_value. `colour` in all four built-ins is one - 0 position, 1 loudness, 2 spectral centroid - and a
+     * slider reading "0.7" over a mode is a worse control than a list. Implies a step of 1. */
+    MP_PARAM_CHOICE = 1u << 1
+} mp_preset_param_flags;
+
+/* One parameter of one preset, as its manifest declares it: everything a settings page needs to build a control
+ * for a preset it has never seen, including a user's own. mp_preset_info deliberately does not carry this - a
+ * preset has a variable number of parameters and mp_preset_info is one fixed element of a catalogue array - so
+ * it is a second enumeration keyed by preset id rather than more fields on the first. */
+typedef struct mp_preset_param_info {
+    uint32_t struct_size;
+    char name[64];  /* what mp_renderer_set_param takes; [A-Za-z0-9._-] */
+    char label[64]; /* display name: the manifest's "label", or `name` when it declares none */
+    char unit[16];  /* "px", "Hz", ... ; empty when the number is a bare one */
+    /* Labels for an MP_PARAM_CHOICE parameter, separated by '|' and in value order from min_value ("Position|
+     * Loudness|Spectral centroid"). Empty for every other parameter. A fixed field rather than a pointer,
+     * because every string on this ABI is a fixed field inside a struct and a caller must not have to free. */
+    char choices[256];
+    float min_value;
+    float max_value;
+    float default_value;
+    /* The granularity the preset means, or 0 for continuous. `bars` is 8-128 step 1 because two-thirds of a bar
+     * is not a bar; `gain` is 0.25-4 step 0 because any value in it is meaningful. Without this a settings page
+     * would have to know which parameters are whole numbers, which is exactly the out-of-band knowledge this
+     * struct exists to remove. */
+    float step;
+    uint32_t flags; /* mp_preset_param_flags */
+} mp_preset_param_info;
+
 typedef struct mp_theme_colors {
     uint32_t struct_size;
     float primary[4];
@@ -478,6 +530,26 @@ MP_API mp_result MP_CALL mp_renderer_get_stats(mp_renderer* renderer, mp_render_
  * are written (out[0].struct_size set by the caller names the size of every element) and *count becomes how
  * many were. The catalogue is scanned when the renderer is created and does not change under the caller. */
 MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* renderer, mp_preset_info* out, uint32_t* count);
+/* The parameters one preset declares (ABI 0.15). Same two-call protocol and the same element-size rule as
+ * mp_renderer_enum_presets. utf8_preset_id names any preset in the catalogue, not only the active one, so a
+ * settings page can describe a preset before switching to it; MP_E_INVALID_ARG when no preset has that id. A
+ * preset that declares no parameters is *count == 0 and MP_OK, which is an answer and not an error. */
+MP_API mp_result MP_CALL mp_renderer_enum_preset_params(mp_renderer* renderer, const char* utf8_preset_id,
+                                                        mp_preset_param_info* out, uint32_t* count);
+/* A second directory scanned for presets, IN ADDITION to the presets/ beside this module - the shell's own
+ * %LocalAppData%\Tunqio\presets, which mpcore cannot name for itself because the data root belongs to the app
+ * (ABI 0.15). NULL or "" removes it. The catalogue is rescanned by this call, so the presets already there
+ * appear without a mp_renderer_rescan_presets after it. A preset in the user root claiming an id the built-in
+ * root or the compiled-in preset already has is skipped and named in the log: the shipped preset wins, because
+ * a user preset that could shadow spectrum-bars would be a way to break the app with a file. */
+MP_API mp_result MP_CALL mp_renderer_set_user_preset_root(mp_renderer* renderer, const char* utf8_path);
+/* Rescans both preset roots and puts the new count in *count (which may be NULL). This is the "refresh" of a
+ * preset dropped in while the app runs: the catalogue is otherwise read once, when the renderer is created.
+ * Deliberately not a filesystem watcher - a manifest is written in pieces, and a watcher would try to compile
+ * half of one. The preset that is drawing keeps drawing whatever the rescan finds, including when its own
+ * directory has just been deleted: it is already compiled, and taking the picture away to punish the user for
+ * moving a file is worse than a catalogue entry that is briefly a memory. */
+MP_API mp_result MP_CALL mp_renderer_rescan_presets(mp_renderer* renderer, uint32_t* count);
 /* Switches preset. The HLSL is compiled on the calling thread and only swapped in if the device accepted it, so
  * MP_E_D3D means nothing changed - the preset that was drawing is still drawing - and mp_last_error carries the
  * shader compiler's own diagnostic (file, line, error code, text) for the caller to show. MP_E_INVALID_ARG when

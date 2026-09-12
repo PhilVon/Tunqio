@@ -105,6 +105,43 @@ MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* r, mp_preset_info
     });
 }
 
+// T-142. Guarded because it allocates - the choice labels are packed into a std::string per parameter - and
+// because a settings page calls it for every preset in the catalogue.
+MP_API mp_result MP_CALL mp_renderer_enum_preset_params(mp_renderer* r, const char* utf8_preset_id,
+                                                        mp_preset_param_info* out, uint32_t* count) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr || utf8_preset_id == nullptr || count == nullptr) {
+            return invalid("mp_renderer_enum_preset_params: NULL renderer, preset id or count");
+        }
+        return out_array(out, count, "mp_renderer_enum_preset_params", [&](mp_preset_param_info* buffer, uint32_t* n) {
+            return as_renderer(r)->enum_preset_params(utf8_preset_id, buffer, n);
+        });
+    });
+}
+
+// Guarded: both of these rebuild the catalogue, which reads every manifest under both roots and allocates.
+MP_API mp_result MP_CALL mp_renderer_set_user_preset_root(mp_renderer* r, const char* utf8_path) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr) {
+            return invalid("mp_renderer_set_user_preset_root: NULL renderer");
+        }
+        return as_renderer(r)->set_user_preset_root(utf8_path);
+    });
+}
+
+MP_API mp_result MP_CALL mp_renderer_rescan_presets(mp_renderer* r, uint32_t* count) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr) {
+            return invalid("mp_renderer_rescan_presets: NULL renderer");
+        }
+        const uint32_t total = as_renderer(r)->rescan_presets();
+        if (count != nullptr) {
+            *count = total;
+        }
+        return MP_OK;
+    });
+}
+
 // Guarded rather than forwarded bare: this one compiles HLSL on the calling thread, which allocates and can
 // throw, and a preset that fails must leave the renderer exactly as it was.
 MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* r, const char* utf8_id) {

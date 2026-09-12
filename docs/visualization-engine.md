@@ -4,7 +4,7 @@
 
 ## Preset format and constant-buffer contract (as built, E4-S3)
 
-A preset is a directory: `preset.json` plus the HLSL it names. The core scans one preset root at renderer creation — `MPCORE_PRESET_ROOT` when set, otherwise `presets/` beside `mpcore.dll` — and compiles a preset's shader only when it is selected. Nothing is compiled ahead of time and nothing is cached on disk; `D3DCompile` on a preset of this size costs single-digit milliseconds.
+A preset is a directory: `preset.json` plus the HLSL it names. The core scans **two** preset roots at renderer creation — `MPCORE_PRESET_ROOT` when set, otherwise `presets/` beside `mpcore.dll`, and then whatever `mp_renderer_set_user_preset_root` names (E4-S9: the shell passes `%LocalAppData%\Tunqio\presets`, which mpcore cannot name for itself because the data root belongs to the app) — and compiles a preset's shader only when it is selected. Nothing is compiled ahead of time and nothing is cached on disk; `D3DCompile` on a preset of this size costs single-digit milliseconds. The shipped root wins every id clash and the loser is named in the log, so a file dropped into the user root cannot shadow `spectrum-bars`.
 
 The core also carries **one preset compiled into it**, `builtin-bars`. It is always first in the catalogue and is what a renderer starts on, so a missing or empty preset root costs the user a choice rather than a picture — and `mp_renderer_set_preset` always has a previous preset to fall back to. It is not one of the four built-ins of ADR-009; those are files, and E4-S4/E4-S5 write them.
 
@@ -21,12 +21,31 @@ The core also carries **one preset compiled into it**, `builtin-bars`. It is alw
   "instance_count": 64,
   "clear": [0.04, 0.04, 0.06, 1.0],
   "parameters": [
-    { "name": "gain", "default": 1.0, "min": 0.0, "max": 4.0 }
+    { "name": "gain", "label": "Gain", "default": 1.0, "min": 0.0, "max": 4.0 },
+    { "name": "bars", "label": "Bars", "default": 64.0, "min": 8.0, "max": 128.0, "step": 1.0 },
+    { "name": "thickness", "label": "Thickness", "unit": "px", "default": 2.5, "min": 1.0, "max": 8.0 },
+    { "name": "colour", "label": "Colour source", "default": 0.0, "min": 0.0, "max": 2.0,
+      "choices": ["Position", "Loudness", "Spectral centroid"] },
+    { "name": "art_primary", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true }
   ]
 }
 ```
 
 `id` and `name` are required; everything else has a default. `id` is 1–63 bytes of `[A-Za-z0-9._-]` and `name` at most 127, because both have to fit `mp_preset_info`. `shader` must name a file beside `preset.json` — absolute paths and anything containing `..` are refused rather than resolved, because a preset is data and will one day be data a user downloaded. At most 16 parameters; a `default` outside `min`..`max` is clamped to it. A manifest that does not parse, or whose shader is not there, is skipped with a warning in the log: one bad preset must not cost the user the others.
+
+**Parameter metadata (T-142, E4-S9), and why it is not a schema bump.** `label`, `unit`, `step`, `choices` and `hidden` describe a parameter to a *settings page*; no shader can see any of them, and `schema` versions `b0` — what the shader reads — so a schema 1 or schema 2 preset that declares none of them loads exactly as it did and every golden image is unchanged. What each buys:
+
+| key | default | what it is for |
+| --- | --- | --- |
+| `label` | the `name` | The display name. A control called `art_primary` is a control nobody can use. At most 63 bytes (`mp_preset_param_info.label`). |
+| `unit` | empty | `"px"`, `"Hz"`; shown beside the number. At most 15 bytes. |
+| `step` | `0` (continuous) | The granularity the preset means. `bars` is 8–128 step 1 because two-thirds of a bar is not a bar; `gain` is continuous. Without it a settings page has to know which parameters are whole numbers, which is the out-of-band knowledge the metadata exists to remove. |
+| `choices` | none | Named modes in value order from `min`, for a parameter that is a mode rather than a quantity. Implies `step` 1, and the count must equal `max - min + 1` or the manifest is refused — three labels over 0..1 means one can never be chosen, and guessing which is worse than refusing. At most 255 bytes packed with `\|` between labels, so a label may not contain one. |
+| `hidden` | `false` | The parameter is set by **code**, never by a person, and no settings page may offer it. Ambient Glow's `art_primary`/`art_secondary`/`art_accent` are the reason it exists: each carries one sRGB colour packed as `r*65536 + g*256 + b` from the album art palette, and a slider from −1 to 16 777 215 is not a control. |
+
+All of it reaches a caller through `mp_renderer_enum_preset_params(renderer, preset_id, out, count)` (ABI 0.15), which is a *second* enumeration keyed by preset id rather than more fields on `mp_preset_info`: a preset has a variable number of parameters and `mp_preset_info` is one fixed element of a catalogue array. It answers for any preset in the catalogue and not only the active one, because a settings page describes a preset before it switches to it.
+
+**The catalogue is reread on request, not watched (T-126, AC-133).** It is scanned once when the renderer is created, so a preset dropped in while the app runs is invisible until `mp_renderer_rescan_presets` — which is the Refresh button on `Settings › Visualization`, and which "after a refresh" in AC-133 means. Deliberately not a `FileSystemWatcher`: a manifest is written in pieces, so a watcher would try to compile half of one, and it would put a shader compile on a filesystem notification thread. **A rescan never changes what is drawing.** The active preset is already compiled and keeps drawing even when its own directory has just been deleted; taking the picture away to punish someone for moving a file is worse than a catalogue entry that is briefly a memory.
 
 Every preset sees the same resources and declares none of its own:
 
@@ -91,7 +110,7 @@ Measured between digital silence and full scale in every bin, which bounds any p
 
 The Waveform's is a line of a fixed pixel thickness, so a taller field makes it smaller still. Ambient Glow's zero is the reason `measure_flash` reports the largest single-pixel change as well as the area: a zero area with no reading beside it is an absence, not a measurement.
 
-**Parameter discovery is not on the ABI yet.** `mp_preset_info` carries `id` and `name` only, so a settings page cannot learn that `spectrum-bars` has a `bars` in 8–128 without being told out of band; `mp_renderer_set_param` takes a name and a value and that is the whole surface. E4-S9's settings screen needs the metadata, and adding it is an ABI minor. It matters more now than it did at E4-S4: Ambient Glow's three art parameters are set by code rather than by a person, and a settings page that listed every declared parameter would offer a user three raw packed integers to type.
+**Parameter discovery is on the ABI as of 0.15 (T-142).** `mp_preset_info` still carries `id` and `name` only; `mp_renderer_enum_preset_params` carries the rest — label, unit, range, default, step, choices and the hidden flag — for any preset in the catalogue, so `Settings › Visualization` learns that `spectrum-bars` has a `bars` in 8–128 by asking rather than by being told out of band, and learns not to offer Ambient Glow's three `art_*` parameters at all. The format section above is the manifest side of it. What the page does with it is [ui-screens-and-flows.md](ui-screens-and-flows.md), "Settings".
 
 **A golden image is only as sensitive as the picture's dynamic range.** Ambient Glow's whole picture lives in the bottom eighth of the byte range, because flash safety caps every channel it can emit at 0.28 of full scale. A 1% change to that cap moves 146443 of 230400 pixels but each by a single byte, which passes the 6-of-255 per-channel tolerance and passed the 0.5 mean tolerance the other three use — a golden test that could not fail, found by perturbing a constant rather than by reasoning, exactly as E4-S4 found that 320×180 was too small. Its mean bound is therefore 0.06, which catches the smallest perturbation tried by 2.4× while the real comparison reads 0.0000 in Debug, Release and ASan alike.
 

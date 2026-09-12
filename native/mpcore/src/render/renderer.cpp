@@ -51,6 +51,22 @@ void copy_utf8(char* dst, size_t cap, const std::string& src) {
     dst[n] = '\0';
 }
 
+// A UTF-8 path off the ABI as the wide path Windows wants. Not std::filesystem::u8path, which C++20 deprecates,
+// and not the path(std::string) constructor, which would read the bytes in the active code page and lose the
+// directory of anyone whose user name is not ASCII.
+std::filesystem::path utf8_path_of(const std::string& utf8) {
+    if (utf8.empty()) {
+        return {};
+    }
+    const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+    if (n <= 1) {
+        return {};
+    }
+    std::wstring wide(static_cast<size_t>(n - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, wide.data(), n);
+    return std::filesystem::path{wide};
+}
+
 } // namespace
 
 // ---- lifetime -----------------------------------------------------------------------------------
@@ -307,22 +323,39 @@ mp_result renderer::create_frame_resources() {
 
 void renderer::load_catalog() {
     std::lock_guard lock{preset_mutex_};
+    load_catalog_locked();
+}
+
+// Both roots, shipped first. The order is the precedence: an id already in the catalogue is skipped, so a user
+// preset cannot shadow spectrum-bars or the compiled-in one, and the skip is logged rather than silent because
+// a preset that vanishes without a word is how a user loses an afternoon.
+void renderer::load_catalog_locked() {
     catalog_.clear();
     catalog_.push_back(builtin_preset());
     preset_root_ = default_preset_root();
     std::vector<std::string> warnings;
-    for (auto& found : scan_preset_root(preset_root_, warnings)) {
-        if (found.id == builtin_preset().id) {
-            warnings.push_back("a preset on disk claims the built-in id \"" + found.id + "\"; ignoring it");
+    const std::filesystem::path roots[] = {preset_root_, user_preset_root_};
+    for (const auto& root : roots) {
+        if (root.empty()) {
             continue;
         }
-        catalog_.push_back(std::move(found));
+        for (auto& found : scan_preset_root(root, warnings)) {
+            const auto clash = std::find_if(catalog_.begin(), catalog_.end(),
+                                            [&found](const preset_source& p) { return p.id == found.id; });
+            if (clash != catalog_.end()) {
+                warnings.push_back(root.string() + ": a preset there claims the id \"" + found.id +
+                                   "\", which is already taken; ignoring it");
+                continue;
+            }
+            catalog_.push_back(std::move(found));
+        }
     }
     for (const auto& warning : warnings) {
         log(MP_LOG_WARN, "preset: %s", warning.c_str());
     }
-    log(MP_LOG_INFO, "preset root %s: %zu preset(s) including the built-in",
-        preset_root_.empty() ? "(none)" : preset_root_.string().c_str(), catalog_.size());
+    log(MP_LOG_INFO, "preset roots %s and %s: %zu preset(s) including the built-in",
+        preset_root_.empty() ? "(none)" : preset_root_.string().c_str(),
+        user_preset_root_.empty() ? "(none)" : user_preset_root_.string().c_str(), catalog_.size());
 }
 
 // ---- control plane ------------------------------------------------------------------------------
@@ -359,6 +392,61 @@ mp_result renderer::enum_presets(mp_preset_info* out, uint32_t* count) const {
     }
     *count = writable;
     return MP_OK;
+}
+
+mp_result renderer::enum_preset_params(const char* utf8_preset_id, mp_preset_param_info* out, uint32_t* count) const {
+    const std::string id{utf8_preset_id};
+    std::lock_guard lock{preset_mutex_};
+    const auto it =
+        std::find_if(catalog_.begin(), catalog_.end(), [&id](const preset_source& p) { return p.id == id; });
+    if (it == catalog_.end()) {
+        return invalid_arg("mp_renderer_enum_preset_params: no preset with id \"" + id + "\" (" +
+                           std::to_string(catalog_.size()) + " known; enumerate with mp_renderer_enum_presets)");
+    }
+
+    const auto total = static_cast<uint32_t>(it->params.size());
+    if (out == nullptr) {
+        *count = total;
+        return MP_OK;
+    }
+    const uint32_t writable = std::min(*count, total);
+    for (uint32_t i = 0; i < writable; ++i) {
+        const preset_param& declared = it->params[i];
+        mp_preset_param_info& info = out[i];
+        std::memset(&info, 0, sizeof info);
+        info.struct_size = sizeof info;
+        copy_utf8(info.name, sizeof info.name, declared.name);
+        copy_utf8(info.label, sizeof info.label, declared.label.empty() ? declared.name : declared.label);
+        copy_utf8(info.unit, sizeof info.unit, declared.unit);
+        std::string packed;
+        for (const auto& choice : declared.choices) {
+            packed += packed.empty() ? "" : "|";
+            packed += choice;
+        }
+        copy_utf8(info.choices, sizeof info.choices, packed);
+        info.min_value = declared.min_value;
+        info.max_value = declared.max_value;
+        info.default_value = declared.default_value;
+        info.step = declared.step;
+        info.flags = (declared.hidden ? static_cast<uint32_t>(MP_PARAM_HIDDEN) : 0u) |
+                     (declared.choices.empty() ? 0u : static_cast<uint32_t>(MP_PARAM_CHOICE));
+    }
+    *count = writable;
+    return MP_OK;
+}
+
+mp_result renderer::set_user_preset_root(const char* utf8_path) {
+    const std::string given = utf8_path == nullptr ? std::string{} : std::string{utf8_path};
+    std::lock_guard lock{preset_mutex_};
+    user_preset_root_ = utf8_path_of(given);
+    load_catalog_locked();
+    return MP_OK;
+}
+
+uint32_t renderer::rescan_presets() {
+    std::lock_guard lock{preset_mutex_};
+    load_catalog_locked();
+    return static_cast<uint32_t>(catalog_.size());
 }
 
 mp_result renderer::set_preset(const char* utf8_id) {

@@ -45,6 +45,15 @@ public:
     // Two-call enumeration, as mp_engine_enum_devices does it: out == nullptr reports the total in *count;
     // otherwise at most *count entries are written and *count becomes how many were.
     mp_result enum_presets(mp_preset_info* out, uint32_t* count) const;
+    // The parameters one catalogue entry declares, by id, on the same two-call protocol (T-142). const, and
+    // about any preset rather than the active one, because a settings page describes a preset before it
+    // switches to it.
+    mp_result enum_preset_params(const char* utf8_preset_id, mp_preset_param_info* out, uint32_t* count) const;
+    // A second root scanned in addition to the one beside the module (the shell's user preset directory), and
+    // the rescan that makes a preset dropped in while the app runs visible. Both rebuild the catalogue; neither
+    // touches what is drawing, which is already compiled and stays on the target.
+    mp_result set_user_preset_root(const char* utf8_path);
+    uint32_t rescan_presets();
     // Compiles `id` and, only if that succeeds, hands it to the render thread. On a compile error the previous
     // preset keeps drawing and the compiler's diagnostic is the thread's last error.
     mp_result set_preset(const char* utf8_id);
@@ -81,6 +90,7 @@ private:
     mp_result create_frame_resources();
     mp_result create_targets(uint32_t width, uint32_t height);
     void load_catalog();
+    void load_catalog_locked(); // preset_mutex_ already held
     void apply_pending_resize();
     void apply_pending_preset();
     void update_frame_resources(double seconds, double delta);
@@ -120,6 +130,7 @@ private:
     // render thread, which keeps its own reference in render_preset_ and never takes the mutex on a steady frame.
     mutable std::mutex preset_mutex_;
     std::filesystem::path preset_root_;
+    std::filesystem::path user_preset_root_; // empty until the shell names one (mp_renderer_set_user_preset_root)
     std::vector<preset_source> catalog_;
     std::shared_ptr<const compiled_preset> current_;
     std::shared_ptr<const compiled_preset> pending_;

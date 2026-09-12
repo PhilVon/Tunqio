@@ -143,6 +143,62 @@ public sealed class VisualizationHost : IVisualizationHost
 
     public void SetParameter(string name, float value) => Require().SetParameter(name, value);
 
+    public IReadOnlyList<PresetParameter> GetPresetParameters(string presetId) => Require().EnumerateParameters(presetId);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The catalogue is rescanned by the native call, so the presets already in the new root are here when this
+    /// returns and no <see cref="RefreshPresets"/> is owed after it.
+    /// </remarks>
+    public void SetUserPresetRoot(string path)
+    {
+        NativeRenderer renderer = Require();
+        renderer.SetUserPresetRoot(path);
+        IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
+        lock (_gate)
+        {
+            _presets = presets;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <see cref="ActivePresetId"/> is deliberately left alone even when the rescan no longer lists it: the
+    /// preset is compiled and still drawing, and reporting it as gone would make the shell think it had lost a
+    /// picture it can see.
+    /// </remarks>
+    public IReadOnlyList<PresetInfo> RefreshPresets()
+    {
+        NativeRenderer renderer = Require();
+        renderer.RescanPresets();
+        IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
+        lock (_gate)
+        {
+            _presets = presets;
+        }
+
+        return presets;
+    }
+
+    public RenderStats? TryGetStats()
+    {
+        NativeRenderer? renderer;
+        lock (_gate)
+        {
+            renderer = _renderer;
+        }
+
+        try
+        {
+            return renderer?.GetStats();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Detached between the read above and the call.
+            return null;
+        }
+    }
+
     public void SetThemeColors(ThemeColors colors)
     {
         ArgumentNullException.ThrowIfNull(colors);

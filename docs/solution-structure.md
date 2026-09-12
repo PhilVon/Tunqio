@@ -111,6 +111,10 @@ mp_result mp_renderer_destroy(mp_renderer*);
 mp_result mp_renderer_resize(mp_renderer*, uint32_t w, uint32_t h, float scale_x, float scale_y);
 mp_result mp_renderer_set_visible(mp_renderer*, bool);                     // stops the render loop when hidden
 mp_result mp_renderer_enum_presets(mp_renderer*, mp_preset_info*, uint32_t*);
+mp_result mp_renderer_enum_preset_params(mp_renderer*, const char* id, mp_preset_param_info*, uint32_t*);
+                                                                           // label, range, step, unit, choices, hidden
+mp_result mp_renderer_set_user_preset_root(mp_renderer*, const char* path); // a second root, scanned as well
+mp_result mp_renderer_rescan_presets(mp_renderer*, uint32_t* count);       // the Settings > Visualization refresh
 mp_result mp_renderer_set_preset(mp_renderer*, const char* id);
 mp_result mp_renderer_set_param(mp_renderer*, const char* name, float);
 mp_result mp_renderer_set_theme(mp_renderer*, const mp_theme_colors*);     // the shell's palette, into every preset's b0

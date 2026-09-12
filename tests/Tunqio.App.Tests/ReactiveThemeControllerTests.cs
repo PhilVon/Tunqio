@@ -130,6 +130,16 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
 
         public void SetThemeColors(ThemeColors colors) => Themes.Add(colors);
 
+        public IReadOnlyList<PresetParameter> GetPresetParameters(string presetId) => [];
+
+        public void SetUserPresetRoot(string path)
+        {
+        }
+
+        public IReadOnlyList<PresetInfo> RefreshPresets() => Presets;
+
+        public RenderStats? TryGetStats() => null;
+
         public void SetVisible(bool visible)
         {
         }

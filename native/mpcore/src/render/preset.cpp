@@ -4,6 +4,7 @@
 #include "common/log.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <d3dcompiler.h>
 #include <fstream>
@@ -26,6 +27,9 @@ constexpr uint32_t k_schema = 2u;
 constexpr uint32_t k_min_schema = 1u;
 constexpr size_t k_max_id = 63;         // mp_preset_info.id is char[64]
 constexpr size_t k_max_name = 127;      // mp_preset_info.name is char[128]
+constexpr size_t k_max_label = 63;      // mp_preset_param_info.label is char[64]
+constexpr size_t k_max_unit = 15;       // mp_preset_param_info.unit is char[16]
+constexpr size_t k_max_choices = 255;   // mp_preset_param_info.choices is char[256], separators included
 constexpr size_t k_max_hlsl = 1u << 20; // a preset shader is source, not an asset
 constexpr uint32_t k_max_vertices = 1u << 16;
 constexpr uint32_t k_max_instances = 1u << 12;
@@ -209,7 +213,15 @@ const preset_source& builtin_preset() {
         s.clear[1] = 0.04f;
         s.clear[2] = 0.06f;
         s.clear[3] = 1.0f;
-        s.params.push_back({"gain", 1.0f, 0.0f, 4.0f});
+        // Built by hand rather than by load_preset_source, so the metadata it would have filled in is filled
+        // here: a label that is empty would reach a settings page as a control with no name.
+        preset_param gain;
+        gain.name = "gain";
+        gain.default_value = 1.0f;
+        gain.min_value = 0.0f;
+        gain.max_value = 4.0f;
+        gain.label = "Gain";
+        s.params.push_back(std::move(gain));
         return s;
     }();
     return p;
@@ -325,6 +337,76 @@ bool load_preset_source(const fs::path& json_path, preset_source& out, std::stri
                     return false;
                 }
                 param.default_value = std::clamp(param.default_value, param.min_value, param.max_value);
+
+                // Metadata for a settings page (T-142). None of it reaches the shader - b0 carries the value
+                // and nothing else - so none of it is a schema bump, and a manifest that declares none of it
+                // is exactly the manifest it was before: label falls back to the name and step to continuous.
+                param.label = entry.value("label", std::string{});
+                if (param.label.empty()) {
+                    param.label = param.name;
+                }
+                if (param.label.size() > k_max_label) {
+                    error = where + ": parameter \"" + param.name + "\" has a \"label\" longer than " +
+                            std::to_string(k_max_label) + " bytes";
+                    return false;
+                }
+                param.unit = entry.value("unit", std::string{});
+                if (param.unit.size() > k_max_unit) {
+                    error = where + ": parameter \"" + param.name + "\" has a \"unit\" longer than " +
+                            std::to_string(k_max_unit) + " bytes";
+                    return false;
+                }
+                param.hidden = entry.value("hidden", false);
+                param.step = entry.value("step", 0.0f);
+                if (!std::isfinite(param.step) || param.step < 0.0f) {
+                    error =
+                        where + ": parameter \"" + param.name + "\" has a \"step\" that is negative or not a number";
+                    return false;
+                }
+                if (const auto choices = entry.find("choices"); choices != entry.end()) {
+                    if (!choices->is_array() || choices->empty()) {
+                        error = where + ": parameter \"" + param.name +
+                                "\" has a \"choices\" that is not a non-empty array";
+                        return false;
+                    }
+                    for (const auto& choice : *choices) {
+                        if (!choice.is_string()) {
+                            error = where + ": parameter \"" + param.name + "\" has a non-string in \"choices\"";
+                            return false;
+                        }
+                        auto label = choice.get<std::string>();
+                        // '|' is the separator the ABI packs these with, so a label may not contain one.
+                        if (label.empty() || label.find('|') != std::string::npos) {
+                            error =
+                                where + ": parameter \"" + param.name + "\" has a choice that is empty or contains '|'";
+                            return false;
+                        }
+                        param.choices.push_back(std::move(label));
+                    }
+                    // What the ABI will carry: the labels plus one '|' between each pair. The NUL is the 256th
+                    // byte of mp_preset_param_info.choices, so 255 is what the payload may be.
+                    size_t packed = param.choices.size() - 1;
+                    for (const auto& choice : param.choices) {
+                        packed += choice.size();
+                    }
+                    if (packed > k_max_choices) {
+                        error = where + ": parameter \"" + param.name + "\" has choices totalling " +
+                                std::to_string(packed) + " bytes, past the " + std::to_string(k_max_choices) +
+                                " mp_preset_param_info.choices carries";
+                        return false;
+                    }
+                    // A mode is indexed from min_value, so the declared range has to have room for the labels
+                    // and the step is 1 whatever the manifest said. Refused rather than adjusted: a manifest
+                    // whose range and choices disagree does not know what it means.
+                    const float span = param.max_value - param.min_value;
+                    if (std::lround(span) + 1 != static_cast<long>(param.choices.size())) {
+                        error = where + ": parameter \"" + param.name + "\" declares " +
+                                std::to_string(param.choices.size()) + " choices but a range of " +
+                                std::to_string(param.min_value) + " to " + std::to_string(param.max_value);
+                        return false;
+                    }
+                    param.step = 1.0f;
+                }
                 p.params.push_back(std::move(param));
             }
         }

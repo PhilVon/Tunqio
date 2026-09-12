@@ -111,6 +111,73 @@ public sealed unsafe class NativeRenderer : IDisposable
     }
 
     /// <summary>
+    /// What one preset declares (<c>mp_renderer_enum_preset_params</c>, T-142). Two calls, the same protocol as
+    /// <see cref="EnumeratePresets"/>, and about any preset in the catalogue rather than the active one.
+    /// </summary>
+    public IReadOnlyList<PresetParameter> EnumerateParameters(string presetId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(presetId);
+        nint handle = RequireHandle();
+        byte[] utf8 = Encoding.UTF8.GetBytes(presetId + "\0");
+        fixed (byte* id = utf8)
+        {
+            uint count = 0;
+            NativeException.ThrowIfFailed(NativeMethods.RendererEnumPresetParams(handle, id, null, &count), "mp_renderer_enum_preset_params");
+            if (count == 0)
+            {
+                return [];
+            }
+
+            var native = new MpPresetParamInfo[count];
+            fixed (MpPresetParamInfo* first = native)
+            {
+                for (uint i = 0; i < count; i++)
+                {
+                    first[i].StructSize = (uint)sizeof(MpPresetParamInfo);
+                }
+
+                NativeException.ThrowIfFailed(NativeMethods.RendererEnumPresetParams(handle, id, first, &count), "mp_renderer_enum_preset_params");
+                var parameters = new PresetParameter[count];
+                for (uint i = 0; i < count; i++)
+                {
+                    string choices = Utf8(first[i].Choices, 256);
+                    parameters[i] = new PresetParameter(
+                        Utf8(first[i].Name, 64),
+                        Utf8(first[i].Label, 64),
+                        Utf8(first[i].Unit, 16),
+                        first[i].MinValue,
+                        first[i].MaxValue,
+                        first[i].DefaultValue,
+                        first[i].Step,
+                        (first[i].Flags & (uint)MpPresetParamFlags.Hidden) != 0,
+                        choices.Length == 0 ? [] : choices.Split('|'));
+                }
+
+                return parameters;
+            }
+        }
+    }
+
+    /// <summary>The second preset root (<c>mp_renderer_set_user_preset_root</c>); null or empty removes it.</summary>
+    public void SetUserPresetRoot(string? path)
+    {
+        nint handle = RequireHandle();
+        byte[] utf8 = Encoding.UTF8.GetBytes((path ?? string.Empty) + "\0");
+        fixed (byte* p = utf8)
+        {
+            NativeException.ThrowIfFailed(NativeMethods.RendererSetUserPresetRoot(handle, p), "mp_renderer_set_user_preset_root");
+        }
+    }
+
+    /// <summary>Rereads both preset roots (<c>mp_renderer_rescan_presets</c>) and returns the new count.</summary>
+    public int RescanPresets()
+    {
+        uint count = 0;
+        NativeException.ThrowIfFailed(NativeMethods.RendererRescanPresets(RequireHandle(), &count), "mp_renderer_rescan_presets");
+        return (int)count;
+    }
+
+    /// <summary>
     /// Switches preset. The core compiles the HLSL on this thread and only swaps it in if the device accepted
     /// it, so a <see cref="PresetCompilationException"/> from here means nothing changed - the preset that was
     /// drawing is still drawing - and <see cref="PresetCompilationException.CompilerMessage"/> is the shader

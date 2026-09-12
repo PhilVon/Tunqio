@@ -71,11 +71,18 @@ struct frame_constants {
 };
 static_assert(sizeof(frame_constants) % 16 == 0, "a constant buffer is a whole number of float4 registers");
 
+// One declared parameter. Everything past `max_value` is metadata for a settings page (T-142) and is invisible
+// to the shader: b0 carries the value and nothing else, which is why none of it moves the preset schema.
 struct preset_param {
     std::string name;
     float default_value = 0.0f;
     float min_value = 0.0f;
     float max_value = 1.0f;
+    std::string label;                // manifest "label"; the name when it declares none
+    std::string unit;                 // manifest "unit"; "px", "Hz", empty for a bare number
+    std::vector<std::string> choices; // manifest "choices"; non-empty makes this a mode rather than a quantity
+    float step = 0.0f;                // manifest "step"; 0 is continuous, and a choice is always 1
+    bool hidden = false;              // manifest "hidden": set by code, never offered to a person
 };
 
 // A preset as preset.json describes it, with the shader text already read. No GPU involved.

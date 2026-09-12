@@ -63,6 +63,7 @@ MP_ABI_STRUCT(mp_analysis_frame, sequence);
 MP_ABI_STRUCT(mp_renderer_config, width);
 MP_ABI_STRUCT(mp_render_stats, frames);
 MP_ABI_STRUCT(mp_preset_info, id);
+MP_ABI_STRUCT(mp_preset_param_info, name);
 MP_ABI_STRUCT(mp_theme_colors, primary);
 
 // Whether a caller's struct_size names a prefix of T this build can serve.

@@ -5,6 +5,42 @@ namespace Tunqio.Core.Visualization;
 /// <param name="Name">Display name, as the preset's own manifest gives it.</param>
 public readonly record struct PresetInfo(string Id, string Name);
 
+/// <summary>
+/// One parameter a preset declares, as <c>mp_preset_param_info</c> gives it (T-142). Everything a settings page
+/// needs to build a control for a preset it has never seen - including one a user wrote - without a table of
+/// ranges compiled into it.
+/// </summary>
+/// <param name="Name">What <see cref="IVisualizationHost.SetParameter"/> takes.</param>
+/// <param name="Label">Display name; the preset's <c>label</c>, or <paramref name="Name"/> when it declares none.</param>
+/// <param name="Unit">"px", "Hz", …; empty when the number is a bare one.</param>
+/// <param name="Minimum">Low end of the declared range; a value below it is clamped, not refused.</param>
+/// <param name="Maximum">High end of the declared range.</param>
+/// <param name="Default">Where the parameter starts, and what Reset puts back.</param>
+/// <param name="Step">The granularity the preset means, or 0 for continuous.</param>
+/// <param name="Hidden">
+/// Set by code and never by a person, so a settings page must not offer it. Ambient Glow's
+/// <c>art_primary</c>/<c>art_secondary</c>/<c>art_accent</c> are the reason this exists: they carry one sRGB
+/// colour packed into a float from the album art palette, and a slider from −1 to 16 777 215 is not a control.
+/// </param>
+/// <param name="Choices">
+/// Named modes, in value order from <paramref name="Minimum"/>, for a parameter that is a mode rather than a
+/// quantity (<c>colour</c> in all four built-ins). Empty for everything else.
+/// </param>
+public sealed record PresetParameter(
+    string Name,
+    string Label,
+    string Unit,
+    float Minimum,
+    float Maximum,
+    float Default,
+    float Step,
+    bool Hidden,
+    IReadOnlyList<string> Choices)
+{
+    /// <summary>True when the parameter is a mode: <see cref="Choices"/> names each value.</summary>
+    public bool IsChoice => Choices.Count > 0;
+}
+
 /// <summary>Palette handed to the renderer (<c>mp_theme_colors</c>); each colour is RGBA in 0..1.</summary>
 public sealed record ThemeColors(
     IReadOnlyList<float> Primary,
@@ -98,6 +134,30 @@ public interface IVisualizationHost : IDisposable
 
     /// <summary>Sets a parameter the active preset declares; values outside its range are clamped to it.</summary>
     void SetParameter(string name, float value);
+
+    /// <summary>
+    /// What one preset in the catalogue declares (T-142) - any of them, not only the one drawing, so a settings
+    /// page can describe a preset before switching to it. Empty when the preset declares no parameters; throws
+    /// when no preset has that id.
+    /// </summary>
+    IReadOnlyList<PresetParameter> GetPresetParameters(string presetId);
+
+    /// <summary>
+    /// A second directory scanned for presets in addition to the ones shipped beside the core - the app's own
+    /// <c>%LocalAppData%\Tunqio\presets</c>, which the core cannot name for itself. Rescans as it is set.
+    /// </summary>
+    void SetUserPresetRoot(string path);
+
+    /// <summary>
+    /// Rereads both preset roots and returns the new catalogue. This is the "refresh" behind a preset dropped in
+    /// while the app runs: the catalogue is otherwise read once, when the renderer is created (T-126). What is
+    /// drawing keeps drawing, whatever the rescan finds.
+    /// </summary>
+    IReadOnlyList<PresetInfo> RefreshPresets();
+
+    /// <summary>The most recent render statistics, or null while detached. A pull, for a diagnostics readout
+    /// that refreshes on its own schedule rather than on <see cref="Stats"/>'.</summary>
+    RenderStats? TryGetStats();
 
     /// <summary>
     /// The renderer-wide theme (E4-S6): four colours into every preset's constant buffer, surviving a preset

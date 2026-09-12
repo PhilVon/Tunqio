@@ -194,6 +194,30 @@ internal unsafe struct MpPresetInfo
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal unsafe struct MpPresetParamInfo
+{
+    public uint StructSize;
+    public fixed byte Name[64];
+    public fixed byte Label[64];
+    public fixed byte Unit[16];
+    public fixed byte Choices[256];
+    public float MinValue;
+    public float MaxValue;
+    public float DefaultValue;
+    public float Step;
+    public uint Flags;
+}
+
+/// <summary><c>mp_preset_param_flags</c>.</summary>
+[Flags]
+internal enum MpPresetParamFlags : uint
+{
+    None = 0,
+    Hidden = 1 << 0,
+    Choice = 1 << 1,
+}
+
+[StructLayout(LayoutKind.Sequential)]
 internal unsafe struct MpThemeColors
 {
     public uint StructSize;

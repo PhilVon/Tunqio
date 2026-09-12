@@ -167,6 +167,18 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult RendererEnumPresets(nint renderer, MpPresetInfo* presets, uint* count);
 
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_enum_preset_params")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererEnumPresetParams(nint renderer, byte* utf8PresetId, MpPresetParamInfo* parameters, uint* count);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_user_preset_root")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetUserPresetRoot(nint renderer, byte* utf8Path);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_rescan_presets")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererRescanPresets(nint renderer, uint* count);
+
     [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_preset")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult RendererSetPreset(nint renderer, byte* utf8Id);

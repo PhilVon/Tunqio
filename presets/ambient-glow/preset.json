@@ -8,13 +8,14 @@
   "instance_count": 1,
   "clear": [0.02, 0.022, 0.035, 1.0],
   "parameters": [
-    { "name": "spread", "default": 0.6, "min": 0.25, "max": 1.2 },
-    { "name": "smoothing", "default": 0.4, "min": 0.0, "max": 1.0 },
-    { "name": "colour", "default": 0.0, "min": 0.0, "max": 2.0 },
-    { "name": "gain", "default": 1.0, "min": 0.25, "max": 4.0 },
-    { "name": "glow", "default": 1.0, "min": 0.25, "max": 1.0 },
-    { "name": "art_primary", "default": -1.0, "min": -1.0, "max": 16777215.0 },
-    { "name": "art_secondary", "default": -1.0, "min": -1.0, "max": 16777215.0 },
-    { "name": "art_accent", "default": -1.0, "min": -1.0, "max": 16777215.0 }
+    { "name": "spread", "label": "Spread", "default": 0.6, "min": 0.25, "max": 1.2 },
+    { "name": "smoothing", "label": "Smoothing", "default": 0.4, "min": 0.0, "max": 1.0 },
+    { "name": "colour", "label": "Colour source", "default": 0.0, "min": 0.0, "max": 2.0,
+      "choices": ["Position", "Loudness", "Spectral centroid"] },
+    { "name": "gain", "label": "Gain", "default": 1.0, "min": 0.25, "max": 4.0 },
+    { "name": "glow", "label": "Glow", "default": 1.0, "min": 0.25, "max": 1.0 },
+    { "name": "art_primary", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true },
+    { "name": "art_secondary", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true },
+    { "name": "art_accent", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true }
   ]
 }

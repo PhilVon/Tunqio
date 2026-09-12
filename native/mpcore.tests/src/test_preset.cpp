@@ -91,6 +91,108 @@ TEST_CASE("a well-formed preset.json is read whole", "[render][preset]") {
     CHECK(p.params[0].max_value == Catch::Approx(1.0f));
 }
 
+// T-142. The metadata a settings page needs, and the two claims that matter about it: a manifest that declares
+// none of it is unchanged (label falls back to the name, step to continuous, nothing hidden), and a manifest
+// that declares all of it is read whole. Neither is a shader-visible change, which is why the schema stays 2.
+TEST_CASE("a parameter's settings-page metadata is read off the manifest", "[render][preset][params]") {
+    preset_source p;
+    std::string error;
+    REQUIRE(mp::render::load_preset_source(fixtures() / "param-metadata" / "preset.json", p, error));
+    REQUIRE(p.params.size() == 6);
+
+    SECTION("a label is a display name and a name is not") {
+        CHECK(p.params[0].label == "Level");
+        CHECK(p.params[0].name == "level");
+    }
+
+    SECTION("a parameter that declares no label is labelled by its name rather than by nothing") {
+        REQUIRE(p.params[4].name == "bare");
+        CHECK(p.params[4].label == "bare");
+        CHECK(p.params[4].unit.empty());
+        CHECK(p.params[4].step == Catch::Approx(0.0f)); // continuous
+        CHECK_FALSE(p.params[4].hidden);
+        CHECK(p.params[4].choices.empty());
+    }
+
+    SECTION("step is what says a count is whole and a gain is not") {
+        REQUIRE(p.params[1].name == "count");
+        CHECK(p.params[1].step == Catch::Approx(1.0f));
+        CHECK(p.params[1].min_value == Catch::Approx(8.0f));
+        CHECK(p.params[1].max_value == Catch::Approx(128.0f));
+        CHECK(p.params[0].step == Catch::Approx(0.0f));
+    }
+
+    SECTION("a unit is carried so a number can be shown as the thing it measures") {
+        REQUIRE(p.params[2].name == "thickness");
+        CHECK(p.params[2].unit == "px");
+    }
+
+    SECTION("a mode carries its choices in value order and is stepped by one whatever the manifest said") {
+        REQUIRE(p.params[3].name == "mode");
+        REQUIRE(p.params[3].choices.size() == 3);
+        CHECK(p.params[3].choices[0] == "First");
+        CHECK(p.params[3].choices[2] == "Third");
+        CHECK(p.params[3].step == Catch::Approx(1.0f));
+    }
+
+    SECTION("hidden is what stops a settings page offering a packed sRGB integer as a slider") {
+        REQUIRE(p.params[5].name == "art_primary");
+        CHECK(p.params[5].hidden);
+        // Every other one is offered: the flag has to be an exception, or it is a way to hide a preset's
+        // whole surface by accident.
+        for (size_t i = 0; i < 5; ++i) {
+            INFO("parameter " << p.params[i].name);
+            CHECK_FALSE(p.params[i].hidden);
+        }
+    }
+}
+
+TEST_CASE("parameter metadata is validated rather than truncated", "[render][preset][params]") {
+    const std::string head = R"({"schema": 2, "shader": "s.hlsl", "id": "m", "name": "m", "parameters": [)";
+
+    auto refuses = [&](const std::string& name, const std::string& parameter, const std::string& expected) {
+        const scratch_preset s{name};
+        s.write("s.hlsl", k_trivial_hlsl);
+        s.write("preset.json", head + parameter + "]}");
+        preset_source p;
+        std::string error;
+        INFO("manifest: " << head << parameter << "]}");
+        CHECK_FALSE(s.load(p, error));
+        INFO("error: " << error);
+        CHECK(error.find(expected) != std::string::npos);
+    };
+
+    // A label that would not fit mp_preset_param_info.label, a unit that would not fit its unit, and choices
+    // that would not fit its 256 bytes. Refused at load, because a manifest silently cut in half on the way to
+    // a settings page is a preset author debugging the wrong thing.
+    refuses("long-label", R"({"name": "p", "label": ")" + std::string(64, 'x') + R"("})", "label");
+    refuses("long-unit", R"({"name": "p", "unit": "abcdefghijklmnop"})", "unit");
+    refuses("negative-step", R"({"name": "p", "step": -1.0})", "step");
+    refuses("empty-choices", R"({"name": "p", "choices": []})", "choices");
+    refuses("pipe-in-choice", R"({"name": "p", "min": 0, "max": 1, "choices": ["a|b", "c"]})", "'|'");
+    // The range and the choice list have to agree, because the value IS the index from min_value: three labels
+    // over 0..1 means one of them can never be selected, and guessing which is worse than refusing.
+    refuses("choices-vs-range", R"({"name": "p", "min": 0, "max": 1, "choices": ["a", "b", "c"]})", "choices");
+
+    SECTION("choices that fill the field exactly are accepted, so the bound is the field and not a guess") {
+        // 255 bytes of payload: 64 labels of 3 characters plus 63 separators.
+        std::string list;
+        for (int i = 0; i < 64; ++i) {
+            list += list.empty() ? "" : ", ";
+            list += "\"" + std::string(3, static_cast<char>('a' + i % 26)) + "\"";
+        }
+        const scratch_preset s{"choices-exact"};
+        s.write("s.hlsl", k_trivial_hlsl);
+        s.write("preset.json", head + R"({"name": "p", "min": 0, "max": 63, "choices": [)" + list + "]}]}");
+        preset_source p;
+        std::string error;
+        INFO("error: " << error);
+        REQUIRE(s.load(p, error));
+        REQUIRE(p.params.size() == 1);
+        CHECK(p.params[0].choices.size() == 64);
+    }
+}
+
 TEST_CASE("a malformed manifest is refused with a message that names the file", "[render][preset]") {
     preset_source p;
     std::string error;

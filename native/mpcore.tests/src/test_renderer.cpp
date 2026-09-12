@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <catch2/catch_amalgamated.hpp>
 #include <chrono>
 #include <cmath>
@@ -19,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <string>
 #include <thread>
@@ -154,6 +156,65 @@ bool frames_advance_within(const renderer_fixture& fx, uint64_t from, int timeou
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
     return false;
+}
+
+// A scratch directory the test owns, for the user preset root (T-126/AC-133) - presets written while the
+// renderer is already running, which is the whole point of a rescan.
+struct scratch_dir {
+    std::filesystem::path dir;
+
+    explicit scratch_dir(const std::string& name) {
+        dir = std::filesystem::temp_directory_path() /
+              ("tunqio-renderer-" + name + "-" + std::to_string(GetCurrentProcessId()));
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir);
+    }
+    ~scratch_dir() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+    scratch_dir(const scratch_dir&) = delete;
+    scratch_dir& operator=(const scratch_dir&) = delete;
+};
+
+// A complete, compilable preset in `dir`: one full-screen triangle in red, which no shipped fixture draws, so
+// "this preset is the one on the target" is a pixel read rather than a name comparison.
+void write_solid_preset(const std::filesystem::path& dir, const std::string& id, const std::string& name) {
+    std::filesystem::create_directories(dir);
+    std::ofstream{dir / "solid.hlsl", std::ios::binary} << R"hlsl(
+struct VSOut { float4 pos : SV_Position; };
+VSOut VSMain(uint vid : SV_VertexID) {
+    float2 corners[3] = { float2(-1.0, -3.0), float2(-1.0, 1.0), float2(3.0, 1.0) };
+    VSOut o;
+    o.pos = float4(corners[vid], 0.0, 1.0);
+    return o;
+}
+float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
+)hlsl";
+    std::ofstream{dir / "preset.json", std::ios::binary}
+        << R"({"schema": 1, "id": ")" << id << R"(", "name": ")" << name
+        << R"(", "shader": "solid.hlsl", "vertex_count": 3, "instance_count": 1, "clear": [0.0, 0.0, 0.0, 1.0]})";
+}
+
+uint32_t preset_count(const renderer_fixture& fx) {
+    uint32_t count = 0;
+    REQUIRE(mp_renderer_enum_presets(fx.renderer, nullptr, &count) == MP_OK);
+    return count;
+}
+
+bool has_preset(const renderer_fixture& fx, const std::string& id) {
+    uint32_t count = preset_count(fx);
+    if (count == 0) {
+        return false;
+    }
+    std::vector<mp_preset_info> presets(count);
+    for (auto& p : presets) {
+        p.struct_size = sizeof(mp_preset_info);
+    }
+    REQUIRE(mp_renderer_enum_presets(fx.renderer, presets.data(), &count) == MP_OK);
+    return std::any_of(presets.begin(), presets.begin() + count,
+                       [&id](const mp_preset_info& p) { return std::string{p.id} == id; });
 }
 
 } // namespace
@@ -447,8 +508,9 @@ TEST_CASE("presets on disk are enumerated beside the built-in", "[render][preset
 
     uint32_t count = 0;
     REQUIRE(mp_renderer_enum_presets(fx.renderer, nullptr, &count) == MP_OK);
-    // built-in + solid-blue + solid-green + theme-probe + broken-shader; the two malformed ones are skipped
-    CHECK(count == 5);
+    // built-in + broken-shader + param-metadata + solid-blue + solid-green + theme-probe; the two malformed
+    // ones are skipped
+    CHECK(count == 6);
 
     std::vector<mp_preset_info> presets(count);
     for (auto& p : presets) {
@@ -631,5 +693,331 @@ TEST_CASE("WARP renders at 1080p above 30 fps", "[render][perf]") {
                   fps, seconds, static_cast<unsigned long long>(after - before), fx.stats().adapter);
     WARN(note); // not a failure: a [perf] test that does not print its number is not a measurement
     CHECK(fps >= 30.0);
+    CHECK(fx.stats().device_lost == 0);
+}
+
+// ---- T-142: parameter metadata over the ABI ---------------------------------------------------------------
+//
+// The point of these is what a settings page can do with them and could not do before: build a control for a
+// preset it has never seen, including a user's own, without a table of ranges compiled into it.
+
+TEST_CASE("a preset's parameters are enumerable with the metadata a settings page needs", "[render][preset][params]") {
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 64, 64};
+
+    uint32_t count = 0;
+    REQUIRE(mp_renderer_enum_preset_params(fx.renderer, "param-metadata", nullptr, &count) == MP_OK);
+    REQUIRE(count == 6);
+
+    std::vector<mp_preset_param_info> params(count);
+    for (auto& p : params) {
+        p.struct_size = sizeof(mp_preset_param_info);
+    }
+    REQUIRE(mp_renderer_enum_preset_params(fx.renderer, "param-metadata", params.data(), &count) == MP_OK);
+    REQUIRE(count == 6);
+
+    SECTION("the range, the default and the step come off the manifest, not out of the caller") {
+        CHECK(std::string{params[1].name} == "count");
+        CHECK(std::string{params[1].label} == "Count");
+        CHECK(params[1].min_value == Catch::Approx(8.0f));
+        CHECK(params[1].max_value == Catch::Approx(128.0f));
+        CHECK(params[1].default_value == Catch::Approx(64.0f));
+        CHECK(params[1].step == Catch::Approx(1.0f));
+        CHECK(params[1].flags == MP_PARAM_NONE);
+    }
+
+    SECTION("a unit reaches the page, and a parameter with no label is labelled by its name") {
+        CHECK(std::string{params[2].unit} == "px");
+        CHECK(std::string{params[4].name} == "bare");
+        CHECK(std::string{params[4].label} == "bare");
+        CHECK(std::string{params[4].unit}.empty());
+    }
+
+    SECTION("a mode arrives as its labels rather than as a number between two numbers") {
+        CHECK(std::string{params[3].name} == "mode");
+        CHECK((params[3].flags & MP_PARAM_CHOICE) != 0u);
+        CHECK(std::string{params[3].choices} == "First|Second|Third");
+        CHECK(params[3].step == Catch::Approx(1.0f));
+    }
+
+    SECTION("the hidden flag is what keeps a packed sRGB integer off a settings page") {
+        CHECK(std::string{params[5].name} == "art_primary");
+        CHECK((params[5].flags & MP_PARAM_HIDDEN) != 0u);
+        // And it is the exception rather than the rule, or the flag would be a way to lose a preset's surface.
+        for (uint32_t i = 0; i < 5; ++i) {
+            INFO("parameter " << params[i].name);
+            CHECK((params[i].flags & MP_PARAM_HIDDEN) == 0u);
+        }
+        CHECK(std::string{params[5].choices}.empty());
+    }
+
+    SECTION("a preset that declares none answers zero rather than refusing") {
+        uint32_t none = 0;
+        REQUIRE(mp_renderer_enum_preset_params(fx.renderer, "theme-probe", nullptr, &none) == MP_OK);
+        CHECK(none == 0);
+    }
+
+    SECTION("an unknown preset is refused by name") {
+        uint32_t n = 0;
+        CHECK(mp_renderer_enum_preset_params(fx.renderer, "no-such-preset", nullptr, &n) == MP_E_INVALID_ARG);
+        CHECK(last_error().find("no-such-preset") != std::string::npos);
+    }
+
+    SECTION("the answer is about the preset asked for, not the one that is drawing") {
+        // The whole reason this takes an id: a settings page describes a preset before switching to it, and
+        // the renderer is still on the built-in here.
+        REQUIRE(core(fx.renderer)->active_preset_id() == "builtin-bars");
+        uint32_t green = 0;
+        REQUIRE(mp_renderer_enum_preset_params(fx.renderer, "solid-green", nullptr, &green) == MP_OK);
+        CHECK(green == 1);
+    }
+
+    SECTION("a caller whose mp_preset_param_info stops after the name is served at its own element size") {
+        // The T-140 rule on a struct that did not exist when it was written: out[0].struct_size is the stride,
+        // the prefix is filled and the bytes past the last element are not the callee's to touch.
+        constexpr auto k_element =
+            static_cast<uint32_t>(offsetof(mp_preset_param_info, name) + sizeof(mp_preset_param_info::name));
+        std::vector<unsigned char> storage(static_cast<size_t>(count) * k_element + 16, 0xCD);
+        auto* out = reinterpret_cast<mp_preset_param_info*>(storage.data());
+        out->struct_size = k_element;
+        uint32_t room = count;
+        REQUIRE(mp_renderer_enum_preset_params(fx.renderer, "param-metadata", out, &room) == MP_OK);
+        CHECK(room == count);
+        for (uint32_t i = 0; i < room; ++i) {
+            const auto* element =
+                reinterpret_cast<const mp_preset_param_info*>(storage.data() + static_cast<size_t>(i) * k_element);
+            INFO("element " << i);
+            CHECK(element->struct_size == k_element);
+            CHECK(std::string{element->name} == std::string{params[i].name});
+        }
+        for (size_t i = static_cast<size_t>(room) * k_element; i < storage.size(); ++i) {
+            INFO("byte " << i << ", past the last element");
+            REQUIRE(storage[i] == 0xCD);
+        }
+    }
+
+    SECTION("a struct_size larger than this build's is refused, as every other struct's is") {
+        std::vector<unsigned char> storage(sizeof(mp_preset_param_info) * 2, 0);
+        auto* out = reinterpret_cast<mp_preset_param_info*>(storage.data());
+        out->struct_size = sizeof(mp_preset_param_info) + 8u;
+        uint32_t room = 1;
+        CHECK(mp_renderer_enum_preset_params(fx.renderer, "param-metadata", out, &room) == MP_E_INVALID_ARG);
+        CHECK(last_error().find("newer mpcore.h") != std::string::npos);
+    }
+}
+
+TEST_CASE("every shipped preset describes its own parameters", "[render][preset][params]") {
+    // Against the real presets/ rather than the fixtures, because this is the claim the settings page depends
+    // on: no shipped parameter reaches a person without a label, and the three set from the album art palette
+    // are the only ones that do not reach a person at all.
+    const auto shipped = mp::tests::find_shipped_presets();
+    if (!shipped) {
+        SKIP("the shipped preset root was not found (set MPCORE_SOURCE_ROOT)");
+    }
+    const preset_root_override root{*shipped};
+    renderer_fixture fx{true, 64, 64};
+
+    uint32_t total = 0;
+    REQUIRE(mp_renderer_enum_presets(fx.renderer, nullptr, &total) == MP_OK);
+    std::vector<mp_preset_info> presets(total);
+    for (auto& p : presets) {
+        p.struct_size = sizeof(mp_preset_info);
+    }
+    REQUIRE(mp_renderer_enum_presets(fx.renderer, presets.data(), &total) == MP_OK);
+    CHECK(total == 5); // the four built-ins plus the compiled-in one
+
+    int hidden_seen = 0;
+    int offered = 0;
+    for (const auto& preset : presets) {
+        uint32_t n = 0;
+        REQUIRE(mp_renderer_enum_preset_params(fx.renderer, preset.id, nullptr, &n) == MP_OK);
+        std::vector<mp_preset_param_info> params(n);
+        for (auto& p : params) {
+            p.struct_size = sizeof(mp_preset_param_info);
+        }
+        if (n > 0) {
+            REQUIRE(mp_renderer_enum_preset_params(fx.renderer, preset.id, params.data(), &n) == MP_OK);
+        }
+        for (const auto& p : params) {
+            INFO(preset.id << "." << p.name);
+            CHECK(std::string{p.label}.size() > 0);
+            CHECK(p.min_value <= p.max_value);
+            CHECK(p.default_value >= p.min_value);
+            CHECK(p.default_value <= p.max_value);
+            if ((p.flags & MP_PARAM_HIDDEN) != 0u) {
+                ++hidden_seen;
+                CHECK(std::string{p.name}.rfind("art_", 0) == 0);
+            } else {
+                ++offered;
+                // The claim this exists for: nothing a person is offered has a range they could not reason
+                // about. 16777215 is a packed colour, and no visible parameter carries one.
+                CHECK(p.max_value <= 1000.0f);
+            }
+        }
+        if (std::string{preset.id} != "builtin-bars") {
+            // Every preset on disk declares a colour source, and it arrives as named modes rather than 0..2.
+            const auto colour = std::find_if(params.begin(), params.end(), [](const mp_preset_param_info& p) {
+                return std::string{p.name} == "colour";
+            });
+            REQUIRE(colour != params.end());
+            CHECK(std::string{colour->choices} == "Position|Loudness|Spectral centroid");
+        }
+    }
+    CHECK(hidden_seen == 3); // ambient-glow's art_primary / art_secondary / art_accent, and nothing else
+    // builtin-bars gain, spectrum-bars 4, waveform 5, radial-spectrum 5, ambient-glow 5 of its 8.
+    CHECK(offered == 20);
+}
+
+// ---- T-126 / AC-133: a second root, and a refresh -----------------------------------------------------------
+
+TEST_CASE("a user preset root is scanned in addition to the shipped one", "[render][preset][rescan]") {
+    const preset_root_override root{preset_fixtures()};
+    const scratch_dir user{"user-root"};
+    renderer_fixture fx{true, 64, 64};
+
+    const uint32_t shipped = preset_count(fx);
+    REQUIRE(shipped > 1);
+
+    SECTION("a preset dropped in before the root is named is there as soon as it is") {
+        write_solid_preset(user.dir / "user-solid", "user-solid", "User Solid (scratch)");
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, user.dir.string().c_str()) == MP_OK);
+        CHECK(preset_count(fx) == shipped + 1);
+        CHECK(has_preset(fx, "user-solid"));
+
+        SECTION("and it is a preset like any other: it loads, and it draws") {
+            REQUIRE(mp_renderer_set_preset(fx.renderer, "user-solid") == MP_OK);
+            const auto px = fx.centre_pixel();
+            CHECK(px[2] == 255); // red, which no shipped fixture draws
+            CHECK(px[1] == 0);
+        }
+    }
+
+    SECTION("a preset dropped in while the renderer runs appears on a rescan and not before it") {
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, user.dir.string().c_str()) == MP_OK);
+        CHECK(preset_count(fx) == shipped);
+
+        write_solid_preset(user.dir / "late-arrival", "late-arrival", "Late Arrival (scratch)");
+        // T-126's whole point: the catalogue is read once, so without the refresh it is still yesterday's.
+        CHECK_FALSE(has_preset(fx, "late-arrival"));
+
+        uint32_t after = 0;
+        REQUIRE(mp_renderer_rescan_presets(fx.renderer, &after) == MP_OK);
+        CHECK(after == shipped + 1);
+        CHECK(has_preset(fx, "late-arrival"));
+    }
+
+    SECTION("the preset that is drawing keeps drawing across a rescan, even one that removes it") {
+        write_solid_preset(user.dir / "doomed", "doomed", "Doomed (scratch)");
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, user.dir.string().c_str()) == MP_OK);
+        REQUIRE(mp_renderer_set_preset(fx.renderer, "doomed") == MP_OK);
+        REQUIRE(fx.centre_pixel()[2] == 255);
+
+        std::error_code ec;
+        std::filesystem::remove_all(user.dir / "doomed", ec);
+        REQUIRE(mp_renderer_rescan_presets(fx.renderer, nullptr) == MP_OK);
+        CHECK_FALSE(has_preset(fx, "doomed"));
+
+        // Already compiled, so it is still on the target. Taking the picture away to punish someone for moving
+        // a file would be a black rectangle where a visualizer was.
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        const auto px = fx.centre_pixel();
+        CHECK(px[2] == 255);
+        CHECK(core(fx.renderer)->active_preset_id() == "doomed");
+        CHECK(fx.stats().device_lost == 0);
+    }
+
+    SECTION("a user preset claiming a shipped id is refused the id, so a file cannot shadow a built-in") {
+        write_solid_preset(user.dir / "impostor", "solid-green", "Not the real solid-green");
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, user.dir.string().c_str()) == MP_OK);
+        CHECK(preset_count(fx) == shipped); // it was skipped, not added and not substituted
+        REQUIRE(mp_renderer_set_preset(fx.renderer, "solid-green") == MP_OK);
+        const auto px = fx.centre_pixel();
+        CHECK(px[1] == 255); // the shipped green, not the impostor's red
+        CHECK(px[2] == 0);
+    }
+
+    SECTION("a manifest that will not parse costs the user that preset and not the others") {
+        write_solid_preset(user.dir / "good-one", "good-one", "Good (scratch)");
+        std::filesystem::create_directories(user.dir / "bad-one");
+        std::ofstream{user.dir / "bad-one" / "preset.json", std::ios::binary} << "{ this is not json";
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, user.dir.string().c_str()) == MP_OK);
+        CHECK(preset_count(fx) == shipped + 1);
+        CHECK(has_preset(fx, "good-one"));
+    }
+
+    SECTION("an empty path removes the second root again") {
+        write_solid_preset(user.dir / "temporary", "temporary", "Temporary (scratch)");
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, user.dir.string().c_str()) == MP_OK);
+        REQUIRE(preset_count(fx) == shipped + 1);
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, "") == MP_OK);
+        CHECK(preset_count(fx) == shipped);
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, nullptr) == MP_OK);
+        CHECK(preset_count(fx) == shipped);
+    }
+
+    SECTION("a root that does not exist is an empty second root rather than an error") {
+        REQUIRE(mp_renderer_set_user_preset_root(fx.renderer, "Z:\\no\\such\\user\\presets") == MP_OK);
+        CHECK(preset_count(fx) == shipped);
+    }
+}
+
+// ---- AC-132: no black frame across a switch ------------------------------------------------------------------
+//
+// The 200 ms half of AC-132 is a Tunqio.Benchmarks [Budget] gate, because a single stopwatch reading on a machine
+// that is also building is how T-119, T-134 and T-150 went red with nothing wrong. What belongs here is the half a
+// number cannot express: that there is no frame between the two presets in which nothing is drawn.
+//
+// "Blank" is defined against the preset's own clear colour rather than against black, and both fixtures here
+// clear to black and then cover the frame, so a dropped frame is unmistakably a third reading.
+TEST_CASE("no frame between two presets is blank", "[render][preset][switch]") {
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 160, 90};
+    REQUIRE(mp_renderer_set_preset(fx.renderer, "solid-green") == MP_OK);
+
+    int frames = 0;
+    int green = 0;
+    int blue = 0;
+    std::atomic<bool> switched{false};
+    std::atomic<bool> flip_failed{false};
+    std::thread flipper{[&] {
+        for (int i = 0; i < 6; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+            const char* id = (i % 2 == 0) ? "solid-blue" : "solid-green";
+            if (mp_renderer_set_preset(fx.renderer, id) != MP_OK) {
+                flip_failed.store(true);
+                break;
+            }
+        }
+        switched.store(true);
+    }};
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < deadline && (!switched.load() || frames < 20)) {
+        std::array<uint8_t, 4> px{};
+        if (!core(fx.renderer)->capture_pixel(80, 45, px.data())) {
+            break;
+        }
+        ++frames;
+        const bool is_green = px[1] > 200 && px[0] < 40 && px[2] < 40;
+        const bool is_blue = px[0] > 200 && px[1] < 40 && px[2] < 40;
+        green += is_green ? 1 : 0;
+        blue += is_blue ? 1 : 0;
+        INFO("frame " << frames << " read B=" << int(px[0]) << " G=" << int(px[1]) << " R=" << int(px[2]));
+        // The assertion: every frame captured across six switches is one preset's picture or the other's.
+        // Neither is the clear colour, which is black here, so a dropped frame reads as a failure and not as
+        // a colour nobody noticed.
+        REQUIRE((is_green || is_blue));
+    }
+    flipper.join();
+    CHECK_FALSE(flip_failed.load());
+
+    char note[256];
+    std::snprintf(note, sizeof note, "160x90 WARP, six switches: %d frames captured, %d green, %d blue, 0 blank",
+                  frames, green, blue);
+    WARN(note); // a [switch] test that does not print what it saw is not a measurement
+    CHECK(frames >= 20);
+    // Both were seen, or the loop was watching one preset and calling it proof.
+    CHECK(green > 0);
+    CHECK(blue > 0);
     CHECK(fx.stats().device_lost == 0);
 }
