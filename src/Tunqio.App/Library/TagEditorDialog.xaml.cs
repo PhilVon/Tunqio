@@ -86,6 +86,16 @@ public sealed partial class TagEditorDialog : ContentDialog
         }
 
         _report = report;
+
+        // A clean write closes the dialog, and the shell's Undo bar is the report the user reads: it says how many
+        // tracks were updated and it stays up long enough to be read, which a dialog dismissed by its own success
+        // does not (Q-31 on T-137). The consequence is that the per-file verdict column is a FAILURE surface - on a
+        // clean batch Apply(report) writes a verdict onto every row and this line takes them off the screen in the
+        // same turn. That is deliberate, and it is why the column looks dead when you go looking for it.
+        //
+        // Which makes the other branch the one that matters: a failure must keep the dialog up, or the only
+        // statement of what went wrong goes with it. tools/check-tag-editor.ps1 holds that still by making a file
+        // read-only and asserting the dialog stays open with its verdict readable.
         if (report.Failed == 0 && report.Error is null)
         {
             Hide();

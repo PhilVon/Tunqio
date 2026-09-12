@@ -119,6 +119,7 @@ The eight library views and the two detail pages live in `Tunqio.App.Library`: `
 
 ### Tag editor dialog
 - Single: all editable fields, art preview with replace/remove. Batch: fields show "(multiple values)" and only changed fields are written. Preview list of files affected; Confirm writes with progress; Undo available from the sidebar `InfoBar` for the session.
+- A clean write closes the dialog and the sidebar `InfoBar` is the report ("12 tracks updated"), because it survives long enough to read and a dialog dismissed by its own success does not. The per-file verdict column beside each file is therefore a *failure* surface: on a clean batch the verdicts are written and dismissed together, and a file that could not be written keeps the dialog up so its reason stays on screen. The list of affected files is the only thing in the dialog that scrolls — a page that scrolls around a list that also scrolls sends the wheel to the wrong one.
 
 ### First-run welcome
 - Three steps: add folders (offers Music folder by default), choose output device, choose theme. Skippable. Scan starts immediately in the background.

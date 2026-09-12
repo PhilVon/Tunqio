@@ -107,6 +107,9 @@ function Invoke-Sql([string]$path, [string]$sql) {
 
 $script:window = $null
 $script:processId = 0
+# Set by the failure-path case, so the log check can tell the failure it caused on purpose from a real one.
+$script:expectedFailurePath = $null
+$script:t137Verdict = $null
 
 function Get-Descendants($scope) {
     $scope.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
@@ -618,6 +621,78 @@ try {
         $problems -join '; '
     }
 
+    # ---- the failure path, which is the only time the verdict column is on screen ------------------------------
+    Write-Output ''
+    Write-Output 'T-137  a file that cannot be written keeps the dialog up with its verdict'
+
+    Test-Case 'a failed file keeps the dialog open and says so, instead of closing over its own error' {
+        # Phil, reviewing E3-S10, could not find the verdict column. It is real, and it is only ever visible here:
+        # ConfirmAsync hides the dialog when report.Failed is 0, so on a clean write the verdicts are written onto
+        # the rows and dismissed in the same turn. Q-31 settled that this is right - the shell's Undo bar is the
+        # report a person actually reads - which makes the column a failure surface, and makes THIS the path worth
+        # holding still. If that Hide() condition ever loosened, a failed file would take its own error off the
+        # screen with it and a green suite would not notice.
+        #
+        # Read-only rather than a held handle: File.Replace cannot swap a read-only destination, so the outcome is
+        # Failed without racing anything, and T-124's retry has nothing to retry into.
+        $table = Get-ElementWithId $script:window 'List'
+        $rows = $table.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+        if ($rows.Count -eq 0) { return 'the Tracks table is empty' }
+
+        $name = $rows[0].Current.Name
+        $title = ($name -split ' by ', 2)[0]
+        $victimPath = $pathsByTitle[$title]
+        if (-not $victimPath) { return "could not resolve '$title' to a file on disk" }
+        $victim = Get-Item $victimPath
+        $script:expectedFailurePath = $victimPath
+        $victim.IsReadOnly = $true
+        try {
+            $rows[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+            Send-Keys '{F2}'
+            Start-Sleep -Seconds 3
+            $failing = Get-Dialog
+            if (-not $failing) { return 'F2 did not open the dialog' }
+
+            $box = Get-ElementNamed $failing 'Album artist' 'Edit'
+            if (-not $box) { return 'no Album artist box' }
+            $box.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('Tunqio Check T137')
+            Start-Sleep -Milliseconds 400
+            $confirm = Get-ElementNamed $failing 'Confirm' 'Button'
+            if (-not $confirm.Current.IsEnabled) { return 'Confirm stayed disabled after a change' }
+            $confirm.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+
+            $deadline = (Get-Date).AddSeconds(20)
+            $verdict = $null
+            while ((Get-Date) -lt $deadline -and -not $verdict) {
+                $open = Get-Dialog
+                if (-not $open) { return 'the dialog closed on a file it could not write, taking the error with it' }
+                foreach ($element in Get-Descendants $open) {
+                    if ((Get-TypeName $element) -ne 'Text') { continue }
+                    if ($element.Current.Name -match 'could not|failed|read-only|denied') { $verdict = $element.Current.Name; break }
+                }
+                if (-not $verdict) { Start-Sleep -Milliseconds 400 }
+            }
+
+            if (-not $verdict) { return 'the dialog stayed open but nothing on it says why the file was not written' }
+            # Kept for the caller to print. A Write-Output in here would be part of what the scriptblock returns,
+            # and Test-Case reads a non-empty return as the reason it failed.
+            $script:t137Verdict = $verdict
+
+            $onDisk = Get-AlbumArtistOnDisk $victimPath
+            if ($onDisk -eq 'Tunqio Check T137') { return 'the file was written despite being read-only' }
+
+            (Get-ElementNamed (Get-Dialog) 'Cancel' 'Button').GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            Start-Sleep -Seconds 2
+            return $null
+        }
+        finally {
+            $victim.IsReadOnly = $false
+        }
+    }
+
+    if ($script:t137Verdict) { Write-Output "        verdict on screen: $($script:t137Verdict)" }
+
     # ---- what the app said about itself while all that was happening -------------------------------------------
     Write-Output ''
     Test-Case 'the app logged no error of its own during the run' {
@@ -634,6 +709,9 @@ try {
         $bad = @()
         for ($i = 0; $i -lt $lines.Count; $i++) {
             if ($lines[$i] -notmatch '\[ERR\]|\[FTL\]' -and $lines[$i] -notmatch 'Tag write of .* failed') { continue }
+            # The failure-path case above makes one file unwritable on purpose, and the app is right to log that.
+            # Excluded by path so it stays one specific expected line rather than a hole the size of the word.
+            if ($script:expectedFailurePath -and $lines[$i] -like ('*' + $script:expectedFailurePath + '*')) { continue }
             $bad += $lines[$i]
             for ($j = $i + 1; $j -lt [Math]::Min($i + 4, $lines.Count); $j++) {
                 if ($lines[$j] -match '^\d{4}-\d{2}-\d{2} ') { break }
