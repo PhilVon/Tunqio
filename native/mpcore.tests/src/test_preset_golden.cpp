@@ -905,9 +905,20 @@ TEST_CASE("Ambient Glow cannot reach the flash threshold at any input", "[render
 
 // ---- AC-120's WARP half ---------------------------------------------------------------------------
 //
-// This is not the reference iGPU and cannot be: WARP is the software rasteriser. What it is good for is a floor
-// that is honest on any machine, and a number printed next to the preset it is of. The iGPU figure AC-120 asks
-// for belongs to T-90, which collects the reference-machine criteria.
+// This is not the reference iGPU and cannot be: WARP is the software rasteriser. The iGPU figure AC-120 asks for
+// belongs to T-90, which collects the reference-machine criteria.
+//
+// What is left here is a smoke floor, and the number below is chosen to be one. It was 30 fps, on the reasoning
+// that a software rasteriser gives a figure honest on any machine. It does the opposite: WARP renders on the CPU,
+// so its frame rate is the most contention-sensitive number in this suite, not the least. ambient-glow measured
+// 150 fps on the dev machine and 21.4 on a shared CI runner and turned the build red with nothing wrong (T-150) -
+// and it is the expensive one by construction, a screen-covering quad computing its wash per pixel because the
+// pipeline sets no blend state (T-148).
+//
+// So: far enough below the worst legitimate observation to mean something has broken rather than something is
+// busy, which is the same division 187609f drew for the upsert bounds. Against 21.4 fps on a loaded runner and
+// 150 on an idle desktop, five says a preset has stopped drawing rather than that a machine is busy. The rate a
+// user actually gets is AC-119's and AC-120's, and both of those belong on hardware nobody is sharing.
 
 TEST_CASE("every shipped preset renders 1080p on WARP", "[render][preset][perf]") {
     const preset_root_override root{shipped_presets()};
@@ -931,7 +942,7 @@ TEST_CASE("every shipped preset renders 1080p on WARP", "[render][preset][perf]"
         std::snprintf(note, sizeof note, "%s at 1920x1080 on WARP (%s): %.1f fps over %.2f s", id, s.adapter, fps,
                       seconds);
         WARN(note);
-        CHECK(fps >= 30.0); // the same floor E4-S3's AC-119 test holds, now per preset
+        CHECK(fps >= 5.0); // a smoke floor, not a budget - see the note above this test
         CHECK(s.device_lost == 0);
     }
 }
