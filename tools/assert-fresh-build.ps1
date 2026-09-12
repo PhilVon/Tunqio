@@ -22,7 +22,9 @@
   source), the second a stale Tunqio.dll (managed source).
 #>
 
-Set-StrictMode -Version Latest
+# No Set-StrictMode here, deliberately. This file is DOT-SOURCED, so anything it sets applies to the rest of the
+# calling harness - five scripts of several hundred lines each that were not written under it. A helper must not
+# change the language its caller is running in.
 
 function Get-NewestSource {
     param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string[]]$Include)
