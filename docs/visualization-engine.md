@@ -52,6 +52,25 @@ The contract is the versioned part: `schema` is 1, and a preset that names a sch
 
 **Error reporting.** `mp_renderer_set_preset` compiles on the *calling* thread, and hands the render thread either a finished preset or nothing at all. A shader that does not compile therefore returns `MP_E_D3D` with the compiler's own first diagnostic in `mp_last_error` — file, line, error code and message — while the preset that was already drawing keeps drawing. On the managed side that is `PresetCompilationException.CompilerMessage`, which is what the preset switcher shows.
 
+## The presets that ship (as built, E4-S4)
+
+Two so far, both in `presets/` at the top of the repository, both written against the contract above. E4-S5 adds Radial Spectrum and Ambient Glow beside them.
+
+| id | name | draws | parameters (default, range) |
+| --- | --- | --- | --- |
+| `spectrum-bars` | Spectrum Bars | one instanced quad per bar over a logarithmic slice of the 1024-bin spectrum | `bars` (64, 8–128), `smoothing` (0.35, 0–1), `colour` (0, 0–2), `gain` (1.0, 0.25–4) |
+| `waveform` | Waveform | a ribbon through the 512-sample mono waveform, one instanced quad per segment, thickened in pixels along the segment normal | `points` (192, 16–256), `smoothing` (0.2, 0–1), `colour` (0, 0–2), `gain` (1.0, 0.25–4), `thickness` (2.5 px, 1–8) |
+
+A preset's `instance_count` is fixed in its manifest, so `bars`/`points` is a *maximum* the manifest declares (128 and 256) and the parameter selects how many of those instances draw: an instance past the count emits six coincident vertices and rasterises nothing. `colour` is the colour **source**, rounded to a mode — 0 position along the spectrum (or the ribbon's own excursion), 1 loudness (`level.y`), 2 spectral centroid (`level.z`, log-mapped over 50 Hz–12 kHz).
+
+**`smoothing` is spatial, not temporal, and that is a limitation of the contract rather than a choice.** In Spectrum Bars it widens a bar's slice into its neighbours and slides the reading from that slice's peak toward its mean; in Waveform it is the width of a box filter along the hop. What a visualizer usually means by smoothing — an attack/decay envelope — needs state that survives between frames, and a preset has none: `b0` and the two SRVs are the whole surface and there are no UAVs. Temporal smoothing would have to be the renderer's, applied to the spectrum before it is uploaded, which would make it a property of the renderer rather than of one preset. It is not in this story.
+
+**Both presets are deterministic while something is playing.** Neither reads `timing` on the `timing.w > 0` branch, so the picture is a pure function of (preset, parameters, `mp_analysis_frame`, size) — which is what lets `native/mpcore.tests/fixtures/golden/*.png` be checked-in images rather than screenshots. The clock is used only by the idle animation behind `timing.w == 0`, where there is no spectrum to draw, and both idle animations run below 0.4 Hz.
+
+**Both are flash-safe by construction, and it is measured.** The accessibility contract (`docs/ui-screens-and-flows.md`) is that a preset never flashes above 3 Hz full-field luminance change; the analysis stream runs at ~93 Hz, so what a preset must avoid is changing the *field* that much, not changing quickly. In Spectrum Bars brightness is a function of screen height rather than of position within a bar, so the lower field stays near the clear colour whatever the audio does; the Waveform is a line a few pixels thick. Between digital silence and full scale in every bin — which bounds any pair of real consecutive frames — the measured change is 7.0% of the field for Spectrum Bars and 1.1% for Waveform, against the 25% WCAG 2.3.1 allows, and mean full-field relative luminance changes of 0.0275 and 0.0029 against a 0.10 flash threshold. Both figures are at the 640×360 the test renders; the Waveform's is a line of a fixed pixel thickness, so a taller field makes it smaller still.
+
+**Parameter discovery is not on the ABI yet.** `mp_preset_info` carries `id` and `name` only, so a settings page cannot learn that `spectrum-bars` has a `bars` in 8–128 without being told out of band; `mp_renderer_set_param` takes a name and a value and that is the whole surface. E4-S9's settings screen needs the metadata, and adding it is an ABI minor.
+
 The visualization engine provides real-time audio-reactive graphics through D3D11/WPF integration, achieving sub-10ms latency from audio sample to visual update while maintaining 60fps performance.
 
 ## D3D11/WPF Integration Strategy

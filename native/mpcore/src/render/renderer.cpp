@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <exception>
+#include <new>
 
 #include <windows.h>
 
@@ -459,6 +461,52 @@ bool renderer::capture_pixel(uint32_t x, uint32_t y, uint8_t out_bgra[4], int ti
     return true;
 }
 
+bool renderer::capture_frame(std::vector<uint8_t>& out_bgra, uint32_t& out_width, uint32_t& out_height,
+                             int timeout_ms) noexcept {
+    if (stop_.load(std::memory_order_acquire) || !thread_.joinable()) {
+        return false;
+    }
+    capture_full_.store(true, std::memory_order_release);
+    capture_done_.store(false, std::memory_order_release);
+    capture_pending_.store(true, std::memory_order_release);
+
+    const int64_t deadline = qpc() + static_cast<int64_t>(timeout_ms) * qpc_freq() / 1000;
+    while (!capture_done_.load(std::memory_order_acquire)) {
+        if (qpc() > deadline || stop_.load(std::memory_order_acquire)) {
+            capture_pending_.store(false, std::memory_order_release);
+            capture_full_.store(false, std::memory_order_release);
+            return false;
+        }
+        Sleep(1);
+    }
+    capture_full_.store(false, std::memory_order_release);
+    // capture_done_ was released by the render thread after it filled these, and acquired above.
+    try {
+        out_bgra = capture_pixels_;
+    } catch (const std::exception&) {
+        return false; // noexcept: a 1080p readback is 8 MB, and a caller gets `false` rather than a terminate
+    }
+    out_width = capture_pixels_width_;
+    out_height = capture_pixels_height_;
+    return out_width > 0 && out_height > 0 && out_bgra.size() == static_cast<size_t>(out_width) * out_height * 4;
+}
+
+void renderer::set_analysis_override(const mp_analysis_frame* frame) {
+    std::lock_guard lock{analysis_override_mutex_};
+    if (frame == nullptr) {
+        analysis_override_.reset();
+        analysis_override_active_.store(false, std::memory_order_release);
+        return;
+    }
+    if (!analysis_override_) {
+        analysis_override_ = std::make_unique<mp_analysis_frame>();
+    }
+    *analysis_override_ = *frame;
+    // Bumped under the same lock the render thread copies under, so a generation it has seen is a frame it has.
+    analysis_override_generation_.fetch_add(1, std::memory_order_acq_rel);
+    analysis_override_active_.store(true, std::memory_order_release);
+}
+
 void renderer::get_stats(mp_render_stats& out) const noexcept {
     std::memset(&out, 0, sizeof out);
     out.struct_size = sizeof out;
@@ -599,7 +647,22 @@ void renderer::apply_pending_preset() {
 
 void renderer::update_frame_resources(double seconds, double delta) {
     bool fresh = false;
-    if (engine_ != nullptr) {
+    if (analysis_override_active_.load(std::memory_order_acquire)) {
+        // A test's fixed frame wins over the engine's. The generation is compared before the lock is taken, so
+        // an override held across a thousand frames costs two atomic loads a frame and exactly one copy; the
+        // generation is read again inside the lock because it is what the copy taken under it corresponds to.
+        if (const uint32_t generation = analysis_override_generation_.load(std::memory_order_acquire);
+            !have_analysis_ || generation != analysis_override_seen_) {
+            std::lock_guard lock{analysis_override_mutex_};
+            if (analysis_override_) {
+                *analysis_ = *analysis_override_;
+                analysis_override_seen_ = analysis_override_generation_.load(std::memory_order_relaxed);
+                analysis_sequence_ = analysis_->sequence;
+                have_analysis_ = true;
+                fresh = true;
+            }
+        }
+    } else if (engine_ != nullptr) {
         analysis_->struct_size = sizeof(mp_analysis_frame);
         if (mp_analysis_try_get_latest(engine_, analysis_.get()) == MP_OK) {
             fresh = !have_analysis_ || analysis_->sequence != analysis_sequence_;
@@ -689,6 +752,10 @@ void renderer::serve_capture() {
     if (!source) {
         return;
     }
+    if (capture_full_.load(std::memory_order_acquire)) {
+        serve_full_capture(source.Get());
+        return;
+    }
     if (!capture_staging_) {
         D3D11_TEXTURE2D_DESC td{};
         td.Width = 1;
@@ -724,6 +791,58 @@ void renderer::serve_capture() {
         return;
     }
     capture_pending_.store(false, std::memory_order_release);
+}
+
+// The whole target rather than one pixel, for the golden-image test. Same place in the loop and the same
+// staging-then-Map shape as above; the only differences are a texture the size of the target, reused across
+// captures, and a row-by-row copy because a staging texture's pitch is not its width.
+void renderer::serve_full_capture(ID3D11Texture2D* source) {
+    if (width_ == 0 || height_ == 0) {
+        capture_pending_.store(false, std::memory_order_release);
+        return;
+    }
+    if (!capture_frame_staging_ || capture_frame_staging_width_ != width_ || capture_frame_staging_height_ != height_) {
+        capture_frame_staging_.Reset();
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = width_;
+        td.Height = height_;
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_STAGING;
+        td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(device_->CreateTexture2D(&td, nullptr, &capture_frame_staging_))) {
+            capture_pending_.store(false, std::memory_order_release);
+            return;
+        }
+        capture_frame_staging_width_ = width_;
+        capture_frame_staging_height_ = height_;
+    }
+
+    context_->CopyResource(capture_frame_staging_.Get(), source);
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(context_->Map(capture_frame_staging_.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+        capture_pending_.store(false, std::memory_order_release);
+        return;
+    }
+    const size_t row_bytes = static_cast<size_t>(width_) * 4u;
+    try {
+        capture_pixels_.resize(row_bytes * height_);
+    } catch (const std::exception&) {
+        context_->Unmap(capture_frame_staging_.Get(), 0);
+        capture_pending_.store(false, std::memory_order_release);
+        return;
+    }
+    const auto* src = static_cast<const uint8_t*>(mapped.pData);
+    for (uint32_t y = 0; y < height_; ++y) {
+        std::memcpy(capture_pixels_.data() + row_bytes * y, src + static_cast<size_t>(mapped.RowPitch) * y, row_bytes);
+    }
+    context_->Unmap(capture_frame_staging_.Get(), 0);
+    capture_pixels_width_ = width_;
+    capture_pixels_height_ = height_;
+    capture_pending_.store(false, std::memory_order_release);
+    capture_done_.store(true, std::memory_order_release);
 }
 
 void renderer::record_frame_time(int64_t now) {

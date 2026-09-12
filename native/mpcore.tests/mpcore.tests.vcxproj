@@ -52,7 +52,8 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <AdditionalLibraryDirectories>$(TunqioNativeRoot)bass\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- windowscodecs: WIC, which src/png_io.h reads and writes the golden images with (E4-S4). -->
+      <AdditionalDependencies>bass.lib;bassmix.lib;basswasapi.lib;d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;avrt.lib;windowscodecs.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -83,6 +84,7 @@
     <ClCompile Include="src\test_output.cpp" />
     <ClCompile Include="src\test_transport.cpp" />
     <ClCompile Include="src\test_preset.cpp" />
+    <ClCompile Include="src\test_preset_golden.cpp" />
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_replaygain.cpp" />
     <ClCompile Include="src\test_spsc_ring.cpp" />
@@ -102,6 +104,7 @@
   <ItemGroup>
     <ClInclude Include="src\source_root.h" />
     <ClInclude Include="src\offline_engine.h" />
+    <ClInclude Include="src\png_io.h" />
     <ClInclude Include="src\wav_fixture.h" />
   </ItemGroup>
   <ItemGroup>

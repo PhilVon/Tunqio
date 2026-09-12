@@ -62,6 +62,13 @@ public:
     // Copies one pixel out of the next frame the render thread produces, as B, G, R, A. False on timeout or
     // when the renderer is stopped. Used to assert *what* is on screen, not merely that frames are counted.
     bool capture_pixel(uint32_t x, uint32_t y, uint8_t out_bgra[4], int timeout_ms = 3000) noexcept;
+    // The whole of the next frame, B, G, R, A per pixel, row-major and tightly packed. Same handshake and the
+    // same rule: one capture in flight at a time. This is the readback half of the golden-image test (E4-S4).
+    bool capture_frame(std::vector<uint8_t>& out_bgra, uint32_t& out_width, uint32_t& out_height,
+                       int timeout_ms = 5000) noexcept;
+    // Feeds the render thread one fixed mp_analysis_frame in place of whatever the engine has, and nullptr puts
+    // it back. A golden image has to be a function of data the test chose, not of what was playing when it ran.
+    void set_analysis_override(const mp_analysis_frame* frame);
 
 private:
     renderer() = default;
@@ -76,6 +83,7 @@ private:
     void update_frame_resources(double seconds, double delta);
     void render_frame(double seconds, double delta);
     void serve_capture();
+    void serve_full_capture(ID3D11Texture2D* source);
     void record_frame_time(int64_t now_qpc);
     void collect_dxgi_statistics();
     void run();
@@ -94,7 +102,10 @@ private:
     com_ptr<ID3D11ShaderResourceView> spectrum_srv_;
     com_ptr<ID3D11Buffer> waveform_;
     com_ptr<ID3D11ShaderResourceView> waveform_srv_;
-    com_ptr<ID3D11Texture2D> capture_staging_; // 1x1, created on first capture_pixel
+    com_ptr<ID3D11Texture2D> capture_staging_;       // 1x1, created on first capture_pixel
+    com_ptr<ID3D11Texture2D> capture_frame_staging_; // target-sized, created on first capture_frame
+    uint32_t capture_frame_staging_width_ = 0;
+    uint32_t capture_frame_staging_height_ = 0;
 
     mp_engine* engine_ = nullptr; // may be NULL: the renderer then draws with no analysis frame
     bool headless_ = false;
@@ -134,11 +145,24 @@ private:
     std::atomic<uint32_t> capture_y_{0};
     std::atomic<uint32_t> capture_value_{0};
     std::atomic<bool> capture_done_{false};
+    // Full-frame variant of the same handshake. capture_done_ is the release/acquire edge that publishes these.
+    std::atomic<bool> capture_full_{false};
+    std::vector<uint8_t> capture_pixels_;
+    uint32_t capture_pixels_width_ = 0;
+    uint32_t capture_pixels_height_ = 0;
 
     // Analysis frame the render thread reads each frame; a member because it is 6 KB and this is per-frame code.
     std::unique_ptr<mp_analysis_frame> analysis_;
     uint32_t analysis_sequence_ = 0;
     bool have_analysis_ = false;
+
+    // The fixed frame set_analysis_override installs, if any. Atomics are what a steady frame reads; the mutex
+    // is taken only when the generation has moved, so a renderer with no override pays one relaxed load a frame.
+    std::mutex analysis_override_mutex_;
+    std::unique_ptr<mp_analysis_frame> analysis_override_;
+    std::atomic<bool> analysis_override_active_{false};
+    std::atomic<uint32_t> analysis_override_generation_{0};
+    uint32_t analysis_override_seen_ = 0; // render thread only
 
     // Statistics (render thread writes, control plane reads).
     std::atomic<uint64_t> frames_{0};

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "spectrum-bars",
+  "name": "Spectrum Bars",
+  "shader": "spectrum-bars.hlsl",
+  "topology": "trianglelist",
+  "vertex_count": 6,
+  "instance_count": 128,
+  "clear": [0.02, 0.022, 0.035, 1.0],
+  "parameters": [
+    { "name": "bars", "default": 64.0, "min": 8.0, "max": 128.0 },
+    { "name": "smoothing", "default": 0.35, "min": 0.0, "max": 1.0 },
+    { "name": "colour", "default": 0.0, "min": 0.0, "max": 2.0 },
+    { "name": "gain", "default": 1.0, "min": 0.25, "max": 4.0 }
+  ]
+}

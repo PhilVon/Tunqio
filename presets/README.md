@@ -10,10 +10,18 @@ contract and the rules `preset.json` is validated against are in
 [docs/visualization-engine.md](../docs/visualization-engine.md) ("Preset format and constant-buffer contract").
 Anything here that is not a directory containing a `preset.json` — this file, for one — is ignored by the scan.
 
-**There are no presets here yet.** E4-S3 built the loader and carries one preset compiled into the core
-(`builtin-bars`), which is why a missing preset root costs a user choices rather than a picture. The four
-built-ins of ADR-009 are files, and E4-S4 (Spectrum Bars, Waveform) and E4-S5 (Radial Spectrum, Ambient Glow)
-write them — into this directory, with no build change needed to pick them up.
+Two of the four built-ins of ADR-009 are here, written by E4-S4: `spectrum-bars` and `waveform`. E4-S5 adds
+`radial-spectrum` and `ambient-glow` beside them, with no build change needed to pick them up. The core also
+carries `builtin-bars` compiled into itself (E4-S3), which is why a missing preset root costs a user choices
+rather than a picture; it is not one of the four.
+
+What the two here are, what their parameters mean, and why `smoothing` is spatial rather than temporal are in
+[docs/visualization-engine.md](../docs/visualization-engine.md) ("The presets that ship").
+
+**Editing a shader here changes a checked-in golden image.** `native/mpcore.tests/fixtures/golden/<id>.png` is
+what `mpcore.tests [golden]` compares a fresh render against; re-record with `MPCORE_GOLDEN_UPDATE=1` and look
+at the diff before committing it. The same suite holds the accessibility contract's luminance-flash limit, so a
+preset made much brighter has to be measured, not argued about.
 
 The test fixtures under `native/mpcore.tests/fixtures/presets` are not these: two of them are deliberately
 broken, and they are found through `MPCORE_SOURCE_ROOT` from the source tree, never from a build output.

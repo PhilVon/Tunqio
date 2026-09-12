@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "waveform",
+  "name": "Waveform",
+  "shader": "waveform.hlsl",
+  "topology": "trianglelist",
+  "vertex_count": 6,
+  "instance_count": 256,
+  "clear": [0.02, 0.022, 0.035, 1.0],
+  "parameters": [
+    { "name": "points", "default": 192.0, "min": 16.0, "max": 256.0 },
+    { "name": "smoothing", "default": 0.2, "min": 0.0, "max": 1.0 },
+    { "name": "colour", "default": 0.0, "min": 0.0, "max": 2.0 },
+    { "name": "gain", "default": 1.0, "min": 0.25, "max": 4.0 },
+    { "name": "thickness", "default": 2.5, "min": 1.0, "max": 8.0 }
+  ]
+}

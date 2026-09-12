@@ -45,6 +45,33 @@ inline std::optional<std::filesystem::path> find_native_root() {
     return std::nullopt;
 }
 
+// The preset root the repository ships (presets/ at the top level), or nullopt when the tree is unavailable.
+// This is the real thing the app loads, not a fixture: the golden-image tests are of the presets that ship.
+inline std::optional<std::filesystem::path> find_shipped_presets() {
+    const auto native = find_native_root();
+    if (!native) {
+        return std::nullopt;
+    }
+    auto path = native->parent_path() / "presets";
+    if (!std::filesystem::exists(path)) {
+        return std::nullopt;
+    }
+    return path;
+}
+
+// Where the checked-in golden images live (native/mpcore.tests/fixtures/golden).
+inline std::optional<std::filesystem::path> find_golden_images() {
+    const auto native = find_native_root();
+    if (!native) {
+        return std::nullopt;
+    }
+    auto path = *native / "mpcore.tests" / "fixtures" / "golden";
+    if (!std::filesystem::exists(path)) {
+        return std::nullopt;
+    }
+    return path;
+}
+
 // The preset fixture directory (native/mpcore.tests/fixtures/presets), or nullopt when the tree is unavailable.
 inline std::optional<std::filesystem::path> find_preset_fixtures() {
     const auto native = find_native_root();
