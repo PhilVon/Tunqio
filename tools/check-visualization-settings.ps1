@@ -29,7 +29,9 @@
 param(
     [string]$Exe,
     [int]$Seconds = 10,
-    [switch]$KeepScratch
+    [switch]$KeepScratch,
+    [switch]$DumpGeometry,
+    [int[]]$Widths = @(1600, 1200, 1000)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -123,6 +125,7 @@ using System.Runtime.InteropServices;
 public static class TunqioForeground {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
     public static int ForegroundProcess() {
         int pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid); return pid;
     }
@@ -182,6 +185,153 @@ function Get-SelectedRow([string]$listName) {
     $selected = $list.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection()
     if ($selected.Length -eq 0) { return $null }
     return $selected[0].Current.Name
+}
+
+# ---- geometry ---------------------------------------------------------------------------------------------
+#
+# Everything above this line asks whether a control EXISTS, is named, carries its unit, moves and reaches
+# settings.json. All of that was true of the build Phil rejected: the sliders were in the tree, correct in
+# every property, and hanging off the right of the panel and under the music controls. A tree-walking harness
+# cannot see that unless it reads the rectangles, and UIA has been offering them all along
+# (AutomationElement.Current.BoundingRectangle).
+#
+# The same class has now cost this project four stories - T-137 (a verdict column that existed and could not be
+# seen), T-138 (a list that scrolled its parent before itself), T-139 (a row overflowing a dialog) and this one
+# - each found by a person rather than by a check.
+#
+# THE INVARIANT, stated so it can be argued with: no interactive control on the page may extend horizontally
+# beyond the CONTENT COLUMN that lays the page out. Horizontally and not vertically, because the surface is a
+# ScrollViewer and content below the fold is meant to be outside it; the horizontal axis has no scrollbar and
+# nothing there is meant to be off the edge.
+#
+# The column and NOT the ScrollViewer, which is the first thing tried and does not work. UIA clips a control's
+# BoundingRectangle to what is visible, so a control hanging off the right reports a rectangle that stops
+# neatly at the panel edge and is trivially "contained"; ScrollPattern is no help either, because the viewer's
+# horizontal scrolling is disabled so it reports HorizontalViewSize = 100 whatever the content does. Measured,
+# not assumed: with the bug in place, containment-in-the-ScrollViewer passed at 2400, 1600, 1200, 1000 and
+# 900 px. What DID show it is the column - at a 1000 px window the ComboBox spanned 789..1029 while the column
+# ran 789..908, so it stood 121 px outside the thing laying it out and reached the panel's outer edge exactly.
+#
+# Checked at several widths and at several scroll positions. Widths because a fixed width is invisible at a
+# wide one; scroll positions because a control below the fold is IsOffscreen with an infinite rectangle, and
+# the first version of this check silently examined six of the page's fourteen controls - the reactive-theming
+# slider, which had the same fixed width, was never looked at.
+
+function Set-WindowSize([int]$width, [int]$height) {
+    $handle = (Get-Process -Id $script:processId).MainWindowHandle
+    if ($handle -eq [IntPtr]::Zero) { throw 'the shell has no main window handle' }
+    [TunqioForeground]::MoveWindow($handle, 60, 40, $width, $height, $true) | Out-Null
+    Start-Sleep -Milliseconds 900
+}
+
+function Get-Rect($element) {
+    $r = $element.Current.BoundingRectangle
+    return [pscustomobject]@{
+        Left = [math]::Round($r.Left); Top = [math]::Round($r.Top)
+        Right = [math]::Round($r.Right); Bottom = [math]::Round($r.Bottom)
+        Width = [math]::Round($r.Width); Height = [math]::Round($r.Height)
+        Empty = ($r.Width -le 0 -or $r.Height -le 0)
+    }
+}
+
+# Every control a person can point at or type into, on the page. Buttons of the shell outside the settings
+# surface (the transport, the queue) are excluded by taking only what is inside the surface's own subtree.
+function Get-PageControls($surface) {
+    $wanted = 'Slider', 'ComboBox', 'Button', 'CheckBox', 'List', 'Edit'
+    $found = @()
+    foreach ($e in $surface.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+        $type = $e.Current.ControlType.ProgrammaticName -replace 'ControlType\.', ''
+        if ($wanted -notcontains $type) { continue }
+        if ($e.Current.IsOffscreen) { continue } # scrolled out of view is not overflowing
+        $found += [pscustomobject]@{ Name = $e.Current.Name; Type = $type; Rect = Get-Rect $e }
+    }
+    return $found
+}
+
+function Set-ScrollTo($surface, [double]$percent) {
+    try {
+        $surface.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1, $percent)
+        Start-Sleep -Milliseconds 500
+    }
+    catch { }
+}
+
+# The one case behind the geometry criterion. Returns a problem string, or $null.
+function Test-Geometry([int]$width) {
+    Set-WindowSize $width 900
+    $surface = Get-ElementNamed 'Visualization settings surface'
+    if (-not $surface) { return "no settings surface in the tree at ${width}px" }
+    $column = Get-ElementNamed 'Visualization settings content'
+    if (-not $column) { return "no settings content column in the tree at ${width}px" }
+    $panel = Get-Rect $column
+    if ($DumpGeometry) {
+        try {
+            $sp = $surface.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).Current
+            Write-Host ("        ScrollPattern: HorizontallyScrollable={0} HorizontalViewSize={1} HorizontalScrollPercent={2} VerticalViewSize={3}" -f `
+                $sp.HorizontallyScrollable, $sp.HorizontalViewSize, $sp.HorizontalScrollPercent, $sp.VerticalViewSize)
+        }
+        catch { Write-Host "        ScrollPattern: not supported ($($_.Exception.Message))" }
+        Write-Host "        --- everything under the surface at ${width}px (surface $($panel.Left)..$($panel.Right)) ---"
+        foreach ($e in $surface.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+            $r = Get-Rect $e
+            $t = $e.Current.ControlType.ProgrammaticName -replace 'ControlType\.', ''
+            Write-Host ("        {0,-12} off={1,-5} L={2,6} R={3,6} W={4,5} '{5}'" -f $t, $e.Current.IsOffscreen, $r.Left, $r.Right, $r.Width, $e.Current.Name)
+        }
+    }
+
+    # Every scroll position, because a control below the fold has an infinite rectangle and would be skipped.
+    $seen = @{}
+    $over = @()
+    $invisible = @()
+    foreach ($percent in 0, 50, 100) {
+        Set-ScrollTo $surface $percent
+        $column = Get-ElementNamed 'Visualization settings content'
+        if (-not $column) { continue }
+        $panel = Get-Rect $column
+        foreach ($c in (Get-PageControls $column)) {
+            $seen[$c.Name] = $true
+            # 1 px of slack for the rounding between a DIP layout and an integer screen rectangle.
+            if ($c.Rect.Right -gt ($panel.Right + 1) -or $c.Rect.Left -lt ($panel.Left - 1)) {
+                $over += "$($c.Type) '$($c.Name)' spans $($c.Rect.Left)..$($c.Rect.Right) against a column of $($panel.Left)..$($panel.Right), $([math]::Round($c.Rect.Right - $panel.Right)) px past its right edge"
+            }
+            # T-137's shape: present in the tree, on screen, and nothing to see.
+            if ($c.Rect.Empty) { $invisible += "$($c.Type) '$($c.Name)' has an empty rectangle" }
+        }
+    }
+
+    Set-ScrollTo $surface 0
+    $outer = Get-Rect $surface
+    $controlsPanel = Get-ElementNamed 'Playback controls panel'
+    $neighbour = if ($controlsPanel) { Get-Rect $controlsPanel } else { $null }
+    Write-Host ("        ${width}px window: surface $($outer.Left)..$($outer.Right) ($($outer.Width) px), column $($panel.Left)..$($panel.Right) ($($panel.Width) px), controls panel starts at $(if ($neighbour) { $neighbour.Left } else { '?' }), $($seen.Count) controls measured across three scroll positions")
+
+    # THE ONE PHIL FOUND, and the only assertion here that fails on the build he rejected. Over-wide content
+    # does not merely overflow: it pushes the ScrollViewer itself past the column the shell gave the sidebar,
+    # so the whole settings surface grows and runs under the panel next door. Measured on the rejected markup
+    # at a 1200 px window: the surface reached 1162 while the controls panel starts at 1080 - 82 px underneath
+    # it, which is exactly what Phil described. With the fix the surface stops at 1057.
+    #
+    # This is why containment inside the surface could never catch it: the surface is the thing that moved.
+    if (-not $neighbour) { return "the playback controls panel is not in the tree at ${width}px, so the boundary cannot be checked" }
+    if ($outer.Right -gt ($neighbour.Left + 1)) {
+        return "at ${width}px the settings surface reaches $($outer.Right) and the playback controls panel starts at $($neighbour.Left): the page runs $([math]::Round($outer.Right - $neighbour.Left)) px underneath it"
+    }
+    # The column must also USE the panel it is in, or the page is correct and half empty - which is how the
+    # fixed widths hid: everything was laid out against a column narrower than the room available.
+    if ($panel.Width -lt ($outer.Width - 40)) {
+        return "at ${width}px the content column is $($panel.Width) px inside a $($outer.Width) px panel, so the page is using less than the room it has"
+    }
+    # A check that measured nothing passes for the wrong reason. Fourteen is what this page has; eight is a
+    # floor low enough to survive a preset with few parameters and high enough to catch a broken walk.
+    if ($seen.Count -lt 8) { return "only $($seen.Count) control(s) measured at ${width}px: " + (($seen.Keys | Sort-Object) -join ', ') }
+    if ($over.Count -gt 0) {
+        $unique = $over | Sort-Object -Unique
+        return "at ${width}px, $($unique.Count) control(s) overflow the settings column: " + ($unique -join '; ')
+    }
+    if ($invisible.Count -gt 0) { return "at ${width}px: " + (($invisible | Sort-Object -Unique) -join '; ') }
+    return $null
 }
 
 $failures = @()
@@ -448,7 +598,42 @@ try {
         }
     }
 
+    # ---- geometry: where the controls ARE, not only that they exist ----------------------------------------
+
+    Test-Case "the page stays inside its panel and off the controls panel at $($Widths -join 'px, ')px" {
+        Select-ListRow 'Presets' 'Spectrum Bars'
+        foreach ($w in $Widths) {
+            $problem = Test-Geometry $w
+            if ($problem) { return $problem }
+        }
+    }
+
+    Test-Case 'nor with the preset that declares the most controls' {
+        Select-ListRow 'Presets' 'Ambient Glow'
+        Test-Geometry ($Widths | Measure-Object -Minimum).Minimum
+    }
+
+    # The same invariant pointed the other way, at the panel this page was running under. Here because the
+    # boundary is only meaningful if both sides hold it, and because the controls panel has a fixed-width
+    # control of its own (TransportControls' 90 px volume slider) inside a panel whose floor is 120 px.
+    Test-Case 'and the controls panel keeps its own controls inside itself' {
+        Set-WindowSize ($Widths | Measure-Object -Minimum).Minimum 900
+        $controlsPanel = Get-ElementNamed 'Playback controls panel'
+        if (-not $controlsPanel) { return 'the playback controls panel is not in the tree' }
+        $box = Get-Rect $controlsPanel
+        $over = @()
+        foreach ($c in (Get-PageControls $controlsPanel)) {
+            if ($c.Rect.Right -gt ($box.Right + 1) -or $c.Rect.Left -lt ($box.Left - 1)) {
+                $over += "$($c.Type) '$($c.Name)' spans $($c.Rect.Left)..$($c.Rect.Right) against a panel of $($box.Left)..$($box.Right)"
+            }
+        }
+
+        Write-Host "        controls panel $($box.Left)..$($box.Right) ($($box.Width) px)"
+        if ($over.Count -gt 0) { "the controls panel's own controls overflow it: " + ($over -join '; ') }
+    }
+
     Test-Case 'and back to Settings > Library, so the two halves are one destination' {
+        Set-WindowSize 1600 900
         Invoke-Named 'Library settings'
         if (-not (Get-ElementNamed 'Rescan all' 'Button')) { 'the library settings page did not come back' }
     }
