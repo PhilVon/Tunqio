@@ -134,8 +134,12 @@ float colour_coord(float u, float y) {
         return saturate(level.y);
     }
     if (mode == 2u) {
-        // Spectral centroid, log-mapped over 50 Hz - 12 kHz, so the colour follows the brightness of the sound.
-        return saturate(log2(max(level.z, 50.0) / 50.0) / log2(12000.0 / 50.0));
+        // Spectral centroid, log-mapped over 300 Hz - 8.5 kHz, so the colour follows the brightness of the sound.
+        // These two numbers are shared with the reactive theme (ReactiveTheme.cs CentroidLowHz/HighHz) so a
+        // preset and the window agree about what "bright" means; T-175/D-28 measured a real library's whole
+        // p5..p95 centroid union at 312.7 Hz - 8509.7 Hz, and the old 50 Hz - 12 kHz spent most of the ramp
+        // outside it.
+        return saturate(log2(max(level.z, 300.0) / 300.0) / log2(8500.0 / 300.0));
     }
     // Excursion: the ribbon is coolest where it is near zero and warmest at its peaks.
     return saturate(abs(y));

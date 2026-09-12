@@ -39,8 +39,15 @@ public class LibraryExcursionTests(ITestOutputHelper output)
     /// <summary>The mapping's hue target for one centroid, with no album art in the way (ReactiveTheme.cs).</summary>
     private static double MappedHue(double centroidHz)
     {
-        double c = Math.Clamp(centroidHz, 50.0, 12000.0);
-        return 265.0 + (Math.Log(c / 50.0) / Math.Log(12000.0 / 50.0) * 120.0);
+        double c = Math.Clamp(centroidHz, 300.0, 8500.0);
+        return 265.0 + (Math.Log(c / 300.0) / Math.Log(8500.0 / 300.0) * 180.0);
+    }
+
+    /// <summary>The mapping's saturation target for one harmonic ratio (ReactiveTheme.cs, T-176).</summary>
+    private static double MappedSaturation(double harmonicRatio)
+    {
+        double p = Math.Clamp((harmonicRatio - 0.88) / (0.99 - 0.88), 0.0, 1.0);
+        return Math.Clamp(0.20 + (p * 0.55), 0.0, 1.0);
     }
 
     /// <summary>The mapping's lightness target for one RMS in the dark theme (rest 0.09, span 0.16).</summary>
@@ -82,24 +89,27 @@ public class LibraryExcursionTests(ITestOutputHelper output)
     [Fact]
     public void MappingRestatementMatchesTheEngine()
     {
-        const float harmonic = 0.8f;
-        double saturation = Math.Clamp(0.20 + (0.55 * harmonic), 0.0, 1.0);
-
-        foreach (float centroid in new[] { 60f, 200f, 800f, 2000f, 5000f, 11000f })
+        // The harmonic ratio is swept as well as the centroid and the RMS, because since T-176 it is a range
+        // and not a straight multiply, and the restatement has to be held against the clamp at both ends.
+        foreach (float harmonic in new[] { 0.0f, 0.8f, 0.88f, 0.93f, 0.99f, 1.0f })
         {
-            foreach (float rms in new[] { 0.002f, 0.01f, 0.05f, 0.2f, 0.5f })
+            foreach (float centroid in new[] { 60f, 200f, 800f, 2000f, 5000f, 11000f })
             {
-                ReactiveThemeEngine engine = new(true, new ReactiveThemeOptions(true, 0.15f));
-                ReactiveThemePalette palette =
-                    engine.Advance(new AnalysisFrame(1, 0, 0, NoSpectrum, NoSpectrum, rms, rms, centroid,
-                                                     harmonic, NoSpectrum, false, 0),
-                                   TimeSpan.FromSeconds(1.0 / ThemeHz));
+                foreach (float rms in new[] { 0.002f, 0.01f, 0.05f, 0.2f, 0.5f })
+                {
+                    ReactiveThemeEngine engine = new(true, new ReactiveThemeOptions(true, 0.15f));
+                    ReactiveThemePalette palette =
+                        engine.Advance(new AnalysisFrame(1, 0, 0, NoSpectrum, NoSpectrum, rms, rms, centroid,
+                                                         harmonic, NoSpectrum, false, 0),
+                                       TimeSpan.FromSeconds(1.0 / ThemeHz));
 
-                Srgb expected = ReactiveContrast.Constrain(
-                    ReactiveTheming.FromHsl(MappedHue(centroid), saturation, MappedLightness(rms)),
-                    ReactiveTheming.DarkForegrounds);
+                    Srgb expected = ReactiveContrast.Constrain(
+                        ReactiveTheming.FromHsl(MappedHue(centroid), MappedSaturation(harmonic),
+                                                MappedLightness(rms)),
+                        ReactiveTheming.DarkForegrounds);
 
-                Assert.Equal(expected, palette.Primary);
+                    Assert.Equal(expected, palette.Primary);
+                }
             }
         }
     }
@@ -342,13 +352,16 @@ public class LibraryExcursionTests(ITestOutputHelper output)
 
         (string Label, double Low, double High, double Sweep, float Smoothing)[] variants =
         [
-            ("shipped   50Hz-12kHz  120deg  s=0.15", 50.0, 12000.0, 120.0, 0.15f),
+            ("WAS       50Hz-12kHz  120deg  s=0.15", 50.0, 12000.0, 120.0, 0.15f),
+            ("NOW      300Hz-8.5k   180deg  s=0.15", 300.0, 8500.0, 180.0, 0.15f),
             ("sweep 180 50Hz-12kHz  180deg  s=0.15", 50.0, 12000.0, 180.0, 0.15f),
             ("sweep 240 50Hz-12kHz  240deg  s=0.15", 50.0, 12000.0, 240.0, 0.15f),
             ("range     200Hz-8kHz  120deg  s=0.15", 200.0, 8000.0, 120.0, 0.15f),
+            ("range    300Hz-8.5k   120deg  s=0.15", 300.0, 8500.0, 120.0, 0.15f),
             ("range     500Hz-6kHz  120deg  s=0.15", 500.0, 6000.0, 120.0, 0.15f),
             ("both      500Hz-6kHz  200deg  s=0.15", 500.0, 6000.0, 200.0, 0.15f),
-            ("shipped   50Hz-12kHz  120deg  s=0.00", 50.0, 12000.0, 120.0, 0.00f),
+            ("WAS       50Hz-12kHz  120deg  s=0.00", 50.0, 12000.0, 120.0, 0.00f),
+            ("NOW      300Hz-8.5k   180deg  s=0.00", 300.0, 8500.0, 180.0, 0.00f),
             ("both      500Hz-6kHz  200deg  s=0.00", 500.0, 6000.0, 200.0, 0.00f),
         ];
 
@@ -409,6 +422,100 @@ public class LibraryExcursionTests(ITestOutputHelper output)
             spans.Sort();
             output.WriteLine($"  {label}  median {Percentile(spans, 50),6:F1}  p10 {Percentile(spans, 10),6:F1}" +
                              $"  p90 {Percentile(spans, 90),6:F1}");
+        }
+    }
+
+    /// <summary>
+    /// What each theme actually paints over the library, through the shipped <see cref="ReactiveThemeEngine"/>
+    /// and read off the sRGB it produces - the closing measurement for T-162 and T-176 rather than the opening
+    /// one for T-175.
+    /// </summary>
+    /// <remarks>
+    /// The light theme is here because T-175 measured only the dark one and so missed that the light theme was
+    /// the worse of the two. Its dominant axis is saturation (see the engine's constructor), so the number to
+    /// read for it is the chroma span and not the hue span.
+    /// </remarks>
+    [Fact]
+    public void WhatEachThemePaints()
+    {
+        string? dir = TraceDirectory;
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+        {
+            output.WriteLine("TUNQIO_EXCURSION_OUT unset: nothing to measure.");
+            return;
+        }
+
+        string[] bins = Directory.GetFiles(dir!, "trace-*.bin");
+        Array.Sort(bins, StringComparer.Ordinal);
+        TimeSpan step = TimeSpan.FromSeconds(1.0 / ThemeHz);
+
+        foreach (bool dark in new[] { true, false })
+        {
+            List<double> hueSpans = [];
+            List<double> chromaSpans = [];
+            List<double> lightSpans = [];
+            List<double> chromaMedians = [];
+
+            foreach (string bin in bins)
+            {
+                byte[] raw = File.ReadAllBytes(bin);
+                int count = raw.Length / 12;
+                ReactiveThemeEngine engine = new(dark, new ReactiveThemeOptions(true, 0.15f));
+                List<double> hues = [];
+                List<double> chroma = [];
+                List<double> lights = [];
+                double next = 0.0;
+                double perTheme = HopHz / ThemeHz;
+
+                for (int h = 0; h < count; h++)
+                {
+                    if (h < next)
+                    {
+                        continue;
+                    }
+
+                    next += perTheme;
+                    float rms = BitConverter.ToSingle(raw, (h * 12) + 0);
+                    float centroid = BitConverter.ToSingle(raw, (h * 12) + 4);
+                    float harmonic = BitConverter.ToSingle(raw, (h * 12) + 8);
+                    ReactiveThemePalette palette =
+                        engine.Advance(new AnalysisFrame((uint)h, 0, 0, NoSpectrum, NoSpectrum, rms, rms, centroid,
+                                                         harmonic, NoSpectrum, false, 0),
+                                       step);
+                    (double hue, double sat, double light) = ReactiveTheming.ToHsl(palette.Primary);
+                    hues.Add(Unwrap(hue));
+                    chroma.Add(sat);
+                    lights.Add(light);
+                }
+
+                if (hues.Count == 0)
+                {
+                    continue;
+                }
+
+                hues.Sort();
+                chroma.Sort();
+                lights.Sort();
+                hueSpans.Add(Percentile(hues, 95) - Percentile(hues, 5));
+                chromaSpans.Add(Percentile(chroma, 95) - Percentile(chroma, 5));
+                lightSpans.Add(Percentile(lights, 95) - Percentile(lights, 5));
+                chromaMedians.Add(Percentile(chroma, 50));
+            }
+
+            hueSpans.Sort();
+            chromaSpans.Sort();
+            lightSpans.Sort();
+            chromaMedians.Sort();
+
+            output.WriteLine($"{(dark ? "dark" : "light")} theme over {hueSpans.Count} tracks, within-track "
+                             + "p5..p95 as painted:");
+            output.WriteLine($"    hue     median {Percentile(hueSpans, 50),7:F1} deg  p10 {Percentile(hueSpans, 10),6:F1}"
+                             + $"  p90 {Percentile(hueSpans, 90),6:F1}");
+            output.WriteLine($"    chroma  median {Percentile(chromaSpans, 50),7:F4}      p10 "
+                             + $"{Percentile(chromaSpans, 10),6:F4}  p90 {Percentile(chromaSpans, 90),6:F4}"
+                             + $"   (typical chroma {Percentile(chromaMedians, 50):F4})");
+            output.WriteLine($"    light   median {Percentile(lightSpans, 50),7:F4}      p10 "
+                             + $"{Percentile(lightSpans, 10),6:F4}  p90 {Percentile(lightSpans, 90),6:F4}");
         }
     }
 

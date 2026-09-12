@@ -256,6 +256,85 @@ public class ReactiveThemeEngineTests(ITestOutputHelper output)
         }
     }
 
+    // The grid the flash search below walks: both ends and the interior of each of the mapping's three inputs,
+    // including the two harmonic-ratio band edges T-176 introduced (0.88 and 0.99) and both sides of them.
+    private static readonly float[] FlashCentroids = [0f, 20f, 300f, 1000f, 3000f, 8500f, 20000f];
+    private static readonly float[] FlashRms = [0f, 0.001f, 0.01f, 0.1f, 1.0f];
+    private static readonly float[] FlashHarmonics = [0f, 0.5f, 0.88f, 0.93f, 0.99f, 1.0f];
+
+    [Fact]
+    public void No_pair_of_states_the_mapping_can_reach_is_a_flash()
+    {
+        // The test above picks the worst case by hand, and it picked it when there was only one axis worth
+        // picking on: it holds the harmonic ratio at 0.8 for both of its endpoints, so it exercises no
+        // saturation step at all. That was defensible while saturation could only ever move 0.03 (T-175
+        // measured it at 0.023 painted). Since T-176 remapped the harmonic ratio through the band real music
+        // occupies, saturation is the light theme's DOMINANT axis and moves an order of magnitude more - so a
+        // hand-picked pair that never varies it would keep passing while the real worst case grew underneath
+        // it. This searches instead of guessing: every ordered pair of reachable states, both themes, at the
+        // 0.5 s floor, and it reports the worst pair it found rather than only that it found none.
+        //
+        // A single Advance on a fresh engine is a settled state by construction - alpha is 1 until seeded - so
+        // "settle at A then jump to B" is two calls and the whole grid is cheap enough to be exhaustive over it.
+        AnalysisFrame?[] states =
+        [
+            null, // paused: saturation and energy drain to zero, which is itself a step
+            ..from centroid in FlashCentroids
+              from rms in FlashRms
+              from harmonic in FlashHarmonics
+              select (AnalysisFrame?)Frame(centroid, rms, harmonic),
+        ];
+
+        TimeSpan third = TimeSpan.FromSeconds(1.0 / 3.0);
+        foreach (bool dark in new[] { true, false })
+        {
+            double[] worstPerSurface = new double[4];
+            string[] worstPairPerSurface = ["none", "none", "none", "none"];
+
+            foreach (AnalysisFrame? from in states)
+            {
+                foreach (AnalysisFrame? to in states)
+                {
+                    var engine = new ReactiveThemeEngine(dark, new ReactiveThemeOptions(true, 0.0f));
+                    ReactiveThemePalette before = engine.Advance(from, third);
+                    ReactiveThemePalette after = engine.Advance(to, third);
+
+                    for (int i = 0; i < worstPerSurface.Length; i++)
+                    {
+                        double change = Math.Abs(after.All[i].Luminance - before.All[i].Luminance);
+                        if (change > worstPerSurface[i])
+                        {
+                            worstPerSurface[i] = change;
+                            worstPairPerSurface[i] = $"{Describe(from)} -> {Describe(to)}";
+                        }
+                    }
+                }
+            }
+
+            string[] names = ["primary", "secondary", "accent", "background"];
+            _output.WriteLine($"{(dark ? "dark" : "light")}: {states.Length * states.Length} ordered pairs, worst "
+                              + "third-of-a-second luminance change per surface against the 0.10 threshold:");
+            for (int i = 0; i < worstPerSurface.Length; i++)
+            {
+                _output.WriteLine($"    {names[i],-11} {worstPerSurface[i]:F4}  {worstPairPerSurface[i]}");
+            }
+
+            // Every surface, not only the primary the hand-picked case measured. The contract is about the
+            // field, and the field is painted from the whole palette rather than from one of its four colours.
+            for (int i = 0; i < worstPerSurface.Length; i++)
+            {
+                worstPerSurface[i].Should().BeLessThan(0.10,
+                    $"no pair of states the mapping can reach may move the {names[i]} surface's luminance by "
+                    + "0.10 in a third of a second");
+            }
+        }
+    }
+
+    private static string Describe(AnalysisFrame? frame) =>
+        frame is { } f
+            ? $"(c {f.SpectralCentroidHz:F0} Hz, rms {f.Rms:F3}, hr {f.HarmonicRatio:F2})"
+            : "(no frame)";
+
     [Fact]
     public void The_art_palette_pulls_the_hue_without_taking_it_over()
     {
