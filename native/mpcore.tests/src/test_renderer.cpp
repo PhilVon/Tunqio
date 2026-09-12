@@ -875,8 +875,13 @@ TEST_CASE("every shipped preset describes its own parameters", "[render][preset]
         }
     }
     CHECK(hidden_seen == 3); // ambient-glow's art_primary / art_secondary / art_accent, and nothing else
-    // builtin-bars gain, spectrum-bars 4, waveform 5, radial-spectrum 5, ambient-glow 5 of its 8.
-    CHECK(offered == 20);
+    // builtin-bars gain, spectrum-bars 5, waveform 6, radial-spectrum 6, ambient-glow 6 of its 9.
+    //
+    // 20 until T-162, which added a visible theme_mix ("Follow app theme") to each of the four presets on
+    // disk. It is deliberately NOT hidden: art_* are hidden because they are packed sRGB integers set by code
+    // from the album art, which is a number nobody should be offered, whereas theme_mix is a 0..1 a person
+    // chooses - the escape hatch for somebody who wants a preset's own palette back while the app is themed.
+    CHECK(offered == 24);
 }
 
 // ---- T-126 / AC-133: a second root, and a refresh -----------------------------------------------------------

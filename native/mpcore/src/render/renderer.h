@@ -85,6 +85,11 @@ public:
     // Feeds the render thread one fixed mp_analysis_frame in place of whatever the engine has, and nullptr puts
     // it back. A golden image has to be a function of data the test chose, not of what was playing when it ran.
     void set_analysis_override(const mp_analysis_frame* frame);
+    // The sixteen floats set_theme last wrote, as b0 will carry them. Since T-162 every shipped preset DRAWS
+    // with these, so they are an input to every golden image in test_preset_golden.cpp - and that file asserts
+    // a freshly created renderer reads all zero (mpcore.h's "alpha 0 means the shell has not told me a theme")
+    // rather than assuming it, because that zero is what pins the four unthemed goldens.
+    std::array<float, k_theme_slots> theme_now() const;
     // The controller's numbers, so a test can set a budget this machine provably cannot meet at High and
     // provably can meet after it changes - which is what lets AC-128 be an end-to-end measurement on the real
     // rasteriser without asserting an absolute frame rate on a machine somebody else is also using (T-150).

@@ -545,6 +545,11 @@ mp_result renderer::set_theme(const mp_theme_colors& colors) {
     return MP_OK;
 }
 
+std::array<float, k_theme_slots> renderer::theme_now() const {
+    std::lock_guard lock{theme_mutex_};
+    return theme_;
+}
+
 mp_result renderer::set_quality(mp_quality_policy policy) {
     switch (policy) {
     case MP_QUALITY_AUTO:

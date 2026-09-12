@@ -66,7 +66,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
         presets.Should().Contain(p => p.Id == "spectrum-bars");
 
         IReadOnlyList<PresetParameter> bars = renderer.EnumerateParameters("spectrum-bars");
-        bars.Should().HaveCount(4);
+        bars.Should().HaveCount(5); // bars, smoothing, colour, gain, and T-162's theme_mix
         PresetParameter count = bars.Single(p => p.Name == "bars");
         count.Label.Should().Be("Bars");
         count.Minimum.Should().Be(8f);
@@ -80,6 +80,28 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
         PresetParameter colour = bars.Single(p => p.Name == "colour");
         colour.IsChoice.Should().BeTrue();
         colour.Choices.Should().Equal("Position", "Loudness", "Spectral centroid");
+    }
+
+    // T-162. Every preset on disk now draws with the renderer-wide theme, and theme_mix is how somebody who
+    // wants a preset's own palette back gets it. That only means anything if a settings page can find it, so
+    // what is asserted here is the metadata E4-S9 binds to - visible, labelled, and a plain 0..1.
+    [Fact]
+    public void Every_shipped_preset_offers_the_theme_opt_out()
+    {
+        using var scope = new PresetRootScope(RepoPaths.File("presets"));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+
+        foreach (PresetInfo preset in renderer.EnumeratePresets().Where(p => p.Id != "builtin-bars"))
+        {
+            PresetParameter mix = renderer.EnumerateParameters(preset.Id).Single(p => p.Name == "theme_mix");
+            mix.Label.Should().Be("Follow app theme", preset.Id);
+            mix.Minimum.Should().Be(0f, preset.Id);
+            mix.Maximum.Should().Be(1f, preset.Id);
+            // Default 1: the theme applies without anybody opting in, which is the whole point of T-162.
+            mix.Default.Should().Be(1f, preset.Id);
+            mix.Hidden.Should().BeFalse(preset.Id);
+            mix.IsChoice.Should().BeFalse(preset.Id);
+        }
     }
 
     [Fact]
