@@ -957,8 +957,7 @@ TEST_CASE("Spectrum Bars draws with the theme", "[render][preset][golden][theme]
 TEST_CASE("Ambient Glow draws with the theme when there is no album art", "[render][preset][golden][theme]") {
     const preset_root_override root{shipped_presets()};
     const mp_theme_colors theme = theme_of(k_test_theme);
-    check_against_golden("ambient-glow-themed",
-                         render_preset("ambient-glow", k_golden_width, k_golden_height, &theme),
+    check_against_golden("ambient-glow-themed", render_preset("ambient-glow", k_golden_width, k_golden_height, &theme),
                          k_max_mean_delta_ambient_glow);
 }
 
@@ -1017,8 +1016,9 @@ TEST_CASE("every shipped preset draws with the theme, and theme_mix takes it bac
             const mean_rgb m = mean_lit_channels(themed);
 
             char note[288];
-            std::snprintf(note, sizeof note, "%s under an all-%s theme: mean lit B %.2f G %.2f R %.2f (%zu of %zu "
-                                             "pixels differ from the unthemed picture)",
+            std::snprintf(note, sizeof note,
+                          "%s under an all-%s theme: mean lit B %.2f G %.2f R %.2f (%zu of %zu "
+                          "pixels differ from the unthemed picture)",
                           id, p.name, m.b, m.g, m.r, compare(unthemed, themed).pixels_differing,
                           unthemed.bgra.size() / 4);
             WARN(note);
@@ -1083,7 +1083,10 @@ TEST_CASE("the theme survives every colour mode", "[render][preset][theme]") {
     // channel theme lets "the field took the theme's hue" be asserted without knowing which of the two
     // palettes happened to be redder. Green, because radial-spectrum's own ramp has the least of it.
     constexpr float k_all_green[4][4] = {
-        {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f, 1.0f},
     };
     const mp_theme_colors theme = theme_of(k_all_green);
     const headless_renderer fx{k_golden_width, k_golden_height};
@@ -1141,8 +1144,8 @@ TEST_CASE("in Ambient Glow the album art outranks the theme", "[render][preset][
         const mean_rgb m = mean_channels(with_art);
         char note[224];
         std::snprintf(note, sizeof note,
-                      "ambient-glow, themed orange but with a (30,200,40) sleeve: mean field B %.2f G %.2f R %.2f",
-                      m.b, m.g, m.r);
+                      "ambient-glow, themed orange but with a (30,200,40) sleeve: mean field B %.2f G %.2f R %.2f", m.b,
+                      m.g, m.r);
         WARN(note);
         CHECK(m.g > m.r); // the sleeve's hue, not the theme's
         CHECK(compare(themed, with_art).pixels_differing > 0);
@@ -1172,7 +1175,9 @@ TEST_CASE("in Ambient Glow the album art outranks the theme", "[render][preset][
 TEST_CASE("a theme too dark to draw with leaves the preset its own palette", "[render][preset][theme]") {
     const preset_root_override root{shipped_presets()};
     constexpr float k_near_black[4][4] = {
-        {0.02f, 0.02f, 0.03f, 1.0f}, {0.03f, 0.02f, 0.02f, 1.0f}, {0.01f, 0.03f, 0.02f, 1.0f},
+        {0.02f, 0.02f, 0.03f, 1.0f},
+        {0.03f, 0.02f, 0.02f, 1.0f},
+        {0.01f, 0.03f, 0.02f, 1.0f},
         {0.00f, 0.00f, 0.00f, 1.0f},
     };
     const mp_theme_colors dark = theme_of(k_near_black);
