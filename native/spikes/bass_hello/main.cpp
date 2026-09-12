@@ -169,6 +169,9 @@ int main(int argc, char* argv[]) {
     uint32_t count = 0;
     mp_engine_enum_devices(engine, nullptr, &count);
     std::vector<mp_device_info> devices(count);
+    if (count > 0) {
+        devices[0].struct_size = sizeof(mp_device_info); // the element size, and so the stride (ABI 0.12)
+    }
     mp_engine_enum_devices(engine, devices.data(), &count);
     std::printf("output devices (%u):\n", count);
     for (const auto& d : devices) {

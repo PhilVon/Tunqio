@@ -102,6 +102,9 @@ public sealed unsafe class NativeEngine : IDisposable
         var buffer = new MpDeviceInfo[count];
         fixed (MpDeviceInfo* p = buffer)
         {
+            // buffer[0].StructSize is the size of every element and so the stride the core writes at: it is how
+            // the core serves a caller built against an older mpcore.h the fields that caller knows (T-140).
+            p->StructSize = (uint)sizeof(MpDeviceInfo);
             NativeException.ThrowIfFailed(NativeMethods.EngineEnumDevices(engine, p, &count), "mp_engine_enum_devices");
         }
 

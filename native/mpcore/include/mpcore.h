@@ -8,11 +8,17 @@
  * Rules:
  *  - Handles are opaque pointers. A handle is invalid after its destroy/close call returns, and every
  *    track handle is invalid after its engine is destroyed.
- *  - Structs are POD with uint32_t struct_size first; the callee rejects a size it does not know with
- *    MP_E_INVALID_ARG, so fields can be appended in an ABI-minor bump. As implemented that check is an exact
- *    `struct_size == sizeof`, which refuses a caller built against the shorter struct as well as a longer one:
- *    until it accepts a smaller size and fills only the fields that size covers, the way to append a field
- *    without breaking a caller is to spend one of a struct's `reserved` bytes, as ABI 0.11 does.
+ *  - Structs are POD with uint32_t struct_size first, and that size says which header the caller was built
+ *    against. A size this build knows is served as such. A SMALLER size is a caller built against an older
+ *    header: it is served the prefix that size covers - only those fields are read from an in struct, only
+ *    those fields are written to an out struct, and the bytes beyond it are never touched - and the fields its
+ *    header did not have take their documented zero default. A LARGER size, or one too small to hold the
+ *    struct's first meaningful field, is MP_E_INVALID_ARG: the first asks for fields this build has never
+ *    heard of, and the second names no header that ever existed. So fields can be appended in an ABI-minor
+ *    bump, and a binary built against the shorter struct keeps working (ABI 0.12; before it the check was an
+ *    exact `struct_size == sizeof` and appending broke every existing caller).
+ *  - An array of out structs (mp_engine_enum_devices, mp_renderer_enum_presets) takes out[0].struct_size as
+ *    the size of every element, because that size is also the stride the core writes at.
  *  - Strings are UTF-8, NUL-terminated. Out-strings are fixed-size fields inside structs.
  *  - Callbacks run on native threads (WASAPI mix thread, event threads). Do nothing but enqueue.
  *  - Appending exports or struct fields is ABI-minor; changing or removing anything is ABI-major.
@@ -65,7 +71,15 @@
  * a measurement, which is new function, and new function is a minor. Note that appending a field would NOT have
  * been: the header's rule says a size the callee does not know is refused, but the check is `struct_size ==
  * sizeof(T)`, so a longer struct would refuse every existing caller rather than serve them the old fields. The
- * reserved bytes are there so that a new field costs nothing, and this is what they are for.
+ * reserved bytes are there so that a new field costs nothing, and this is what they are for. 0.12 the
+ * struct_size rule becomes the one the rule at the top always claimed (T-140): a caller whose struct_size
+ * is smaller than this build's is served the prefix that size covers instead of being refused, so appending a
+ * field is at last the minor this header said it was. Nothing moved and no signature changed - what changed is
+ * that calls which returned MP_E_INVALID_ARG now do their work, which is new function by the same reading as
+ * 0.8 to 0.11, and for a rule rather than an export. A larger struct_size is still refused (the caller is
+ * asking for fields this build cannot fill), and so is one too small to hold the struct's first meaningful
+ * field. One protocol was tightened to pay for it: mp_engine_enum_devices now requires out[0].struct_size, the
+ * way mp_renderer_enum_presets always has, because with a variable element size that number is the stride.
  */
 #pragma once
 
@@ -88,7 +102,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 11u
+#define MP_ABI_MINOR 12u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -251,7 +265,8 @@ MP_API mp_result MP_CALL mp_engine_destroy(mp_engine* engine);
  * the reason, and mp_engine_stats.exclusive reads 0. A shared-mode failure is the caller's to handle and raises no
  * event. */
 MP_API mp_result MP_CALL mp_engine_set_output(mp_engine* engine, const mp_output_config* config);
-/* Output devices. Call with out = NULL to get the count; otherwise *count is in/out (capacity/written). */
+/* Output devices. Call with out = NULL to get the count; otherwise *count is in/out (capacity/written) and
+ * out[0].struct_size is the size of every element (ABI 0.12). */
 MP_API mp_result MP_CALL mp_engine_enum_devices(mp_engine* engine, mp_device_info* out, uint32_t* count);
 MP_API mp_result MP_CALL mp_engine_set_event_callback(mp_engine* engine, mp_event_cb callback, void* user);
 
@@ -451,8 +466,8 @@ MP_API mp_result MP_CALL mp_renderer_resize(mp_renderer* renderer, uint32_t widt
 MP_API mp_result MP_CALL mp_renderer_set_visible(mp_renderer* renderer, uint8_t visible);
 MP_API mp_result MP_CALL mp_renderer_get_stats(mp_renderer* renderer, mp_render_stats* out_stats);
 /* Two calls, as mp_engine_enum_devices: out == NULL puts the total in *count; otherwise at most *count entries
- * are written (each out[i].struct_size set by the caller) and *count becomes how many were. The catalogue is
- * scanned when the renderer is created and does not change under the caller. */
+ * are written (out[0].struct_size set by the caller names the size of every element) and *count becomes how
+ * many were. The catalogue is scanned when the renderer is created and does not change under the caller. */
 MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* renderer, mp_preset_info* out, uint32_t* count);
 /* Switches preset. The HLSL is compiled on the calling thread and only swapped in if the device accepted it, so
  * MP_E_D3D means nothing changed - the preset that was drawing is still drawing - and mp_last_error carries the

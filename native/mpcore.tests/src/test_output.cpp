@@ -52,6 +52,7 @@ std::vector<mp_device_info> devices(mp_engine* engine) {
         return {};
     }
     std::vector<mp_device_info> list(count);
+    list[0].struct_size = sizeof(mp_device_info); // the element size, and so the stride (ABI 0.12)
     uint32_t written = count;
     if (mp_engine_enum_devices(engine, list.data(), &written) != MP_OK) {
         return {};

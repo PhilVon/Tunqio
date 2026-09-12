@@ -38,13 +38,34 @@ std::string last_error() {
 
 } // namespace
 
-TEST_CASE("engine rejects a bad config struct_size", "[engine][abi]") {
+// Was "rejects a bad config struct_size" and used sizeof - 4, which since ABI 0.12 is an older header being
+// served rather than an error (test_abi.cpp asserts that direction). What is left an error is a size no header
+// ever had: longer than this build's, or too short to hold the first field.
+TEST_CASE("engine rejects a config struct_size no header ever had", "[engine][abi]") {
     mp_engine_config cfg{};
-    cfg.struct_size = sizeof cfg - 4;
+    cfg.struct_size = sizeof cfg + 4; // built against a newer mpcore.h than this one
     mp_engine* e = nullptr;
     CHECK(mp_engine_create(&cfg, &e) == MP_E_INVALID_ARG);
     CHECK(e == nullptr);
+    cfg.struct_size = sizeof cfg.struct_size; // the size field and nothing else
+    CHECK(mp_engine_create(&cfg, &e) == MP_E_INVALID_ARG);
+    CHECK(e == nullptr);
     CHECK(mp_engine_create(nullptr, &e) == MP_E_INVALID_ARG);
+}
+
+TEST_CASE("an engine is created from an older header's config", "[engine][abi]") {
+    // struct_size and sample_rate, and nothing else: channels and plugin_dir take the zero each documents as
+    // its default, which is two channels and the directory mpcore.dll sits in.
+    mp_engine_config cfg{};
+    cfg.struct_size = static_cast<uint32_t>(offsetof(mp_engine_config, sample_rate) + sizeof cfg.sample_rate);
+    cfg.sample_rate = 44100;
+    mp_engine* e = nullptr;
+    REQUIRE(mp_engine_create(&cfg, &e) == MP_OK);
+    REQUIRE(e != nullptr);
+    mp_engine_stats stats{};
+    stats.struct_size = sizeof stats;
+    CHECK(mp_engine_get_stats(e, &stats) == MP_OK);
+    CHECK(mp_engine_destroy(e) == MP_OK);
 }
 
 TEST_CASE("only one engine per process", "[engine]") {
@@ -126,7 +147,7 @@ TEST_CASE("clock and stats read cleanly on an idle engine", "[engine]") {
     CHECK(stats.output_started == 0);
 
     mp_clock bad{};
-    bad.struct_size = 1;
+    bad.struct_size = 1; // shorter than mp_clock's first field, so no header this ever was
     CHECK(mp_engine_get_clock(fx.engine, &bad) == MP_E_INVALID_ARG);
 }
 
@@ -137,6 +158,7 @@ TEST_CASE("device enumeration honours the count protocol", "[engine][device]") {
     // A CI runner may have no output device at all; the protocol must still hold.
     if (count > 0) {
         std::vector<mp_device_info> devices(count);
+        devices[0].struct_size = sizeof(mp_device_info); // the element size, and so the stride (ABI 0.12)
         uint32_t written = count;
         REQUIRE(mp_engine_enum_devices(fx.engine, devices.data(), &written) == MP_OK);
         CHECK(written == count);

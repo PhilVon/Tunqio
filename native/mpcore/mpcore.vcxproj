@@ -57,6 +57,7 @@
     <ClInclude Include="src\analysis\tap.h" />
     <ClInclude Include="src\abi\guard.h" />
     <ClInclude Include="src\abi\last_error.h" />
+    <ClInclude Include="src\abi\struct_size.h" />
     <ClInclude Include="src\audio\bass_engine.h" />
     <ClInclude Include="src\audio\mp4_gapless.h" />
     <ClInclude Include="src\common\log.h" />

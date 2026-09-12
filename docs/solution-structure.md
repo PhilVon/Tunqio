@@ -72,7 +72,7 @@ tunqio/
 ```
 
 **ABI rules** (`native/mpcore/include/mpcore.h`):
-- Every export is `extern "C" MP_API mp_result mp_xxx(...)`, `__cdecl`. Handles are opaque pointers (`mp_engine`, `mp_track`, `mp_renderer`). Structs are POD with `uint32_t struct_size` first; the callee rejects unknown sizes so fields can be appended later.
+- Every export is `extern "C" MP_API mp_result mp_xxx(...)`, `__cdecl`. Handles are opaque pointers (`mp_engine`, `mp_track`, `mp_renderer`). Structs are POD with `uint32_t struct_size` first; a caller whose size is smaller than the callee's is served the prefix that size covers and a larger one is refused, so fields can be appended later (ABI 0.12; the rule lives in `src/abi/struct_size.h` and every export goes through it).
 - Strings are UTF-8 `const char*` in, and out via caller-supplied buffers with length. Paths are converted to UTF-16 inside the core for Win32 and BASS (`BASS_UNICODE`).
 - Errors: `mp_result` enum (`MP_OK`, `MP_E_INVALID_ARG`, `MP_E_BASS`, `MP_E_DEVICE`, `MP_E_D3D`, `MP_E_STATE`, `MP_E_INTERNAL`) and `mp_last_error(char* buf, size_t len)` per thread. No exceptions cross; every export is wrapped in `__try/__except` plus `catch(...)` that converts to `MP_E_INTERNAL` and logs.
 - Callbacks: `typedef void (MP_CALL *mp_event_cb)(const mp_event* ev, void* user)`. Invoked on native threads; the managed trampoline must only enqueue. Callbacks are never invoked after `mp_engine_destroy` returns (the core drains and joins first).

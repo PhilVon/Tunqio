@@ -296,6 +296,9 @@ TEST_CASE("the pull stage allocates nothing (RT_ASSERT_NO_ALLOC)", "[transport][
 }
 #endif
 
+// "Unknown" here means a struct_size no header ever had: larger than this build's, or too short to hold the
+// struct's first field. A size between those is an older header and is served (ABI 0.12, asserted in
+// test_abi.cpp), which is why the sizes below are all above or well under, and not sizeof minus a few.
 TEST_CASE("every engine export rejects NULL handles and unknown struct sizes", "[transport][abi]") {
     offline_engine fx;
     mp_track* t = fx.open(mp::tests::write_sine_wav({}, "transport-contract"));
@@ -312,7 +315,7 @@ TEST_CASE("every engine export rejects NULL handles and unknown struct sizes", "
     mp_clock clock{};
     clock.struct_size = sizeof clock;
     mp_clock bad_clock = clock;
-    bad_clock.struct_size = sizeof clock - 1;
+    bad_clock.struct_size = sizeof clock + 1;
     mp_engine_stats stats{};
     stats.struct_size = sizeof stats;
     mp_engine_stats bad_stats = stats;

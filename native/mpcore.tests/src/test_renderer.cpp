@@ -157,7 +157,9 @@ bool frames_advance_within(const renderer_fixture& fx, uint64_t from, int timeou
 TEST_CASE("renderer rejects bad arguments", "[render][abi]") {
     mp_renderer* r = nullptr;
     mp_renderer_config cfg{};
-    cfg.struct_size = sizeof cfg - 1;
+    // Since ABI 0.12 a smaller struct_size is an older header, served to its own size; what is refused is a
+    // size no header had - longer than this build's, here, and test_abi.cpp has the too-short end.
+    cfg.struct_size = sizeof cfg + 1;
     CHECK(mp_renderer_create(nullptr, nullptr, &cfg, &r) == MP_E_INVALID_ARG);
     cfg.struct_size = sizeof cfg;
     cfg.headless = 0;
@@ -299,6 +301,30 @@ TEST_CASE("presets on disk are enumerated beside the built-in", "[render][preset
         two[1].struct_size = sizeof(mp_preset_info);
         REQUIRE(mp_renderer_enum_presets(fx.renderer, two.data(), &room) == MP_OK);
         CHECK(room == 2);
+    }
+
+    SECTION("a caller whose mp_preset_info stops after the id is served at its own element size") {
+        // An older header's element, so the caller's array is shorter than one of this build's: out[0] names
+        // the element size and so the stride, and nothing past the last element may be written (T-140).
+        constexpr auto k_element =
+            static_cast<uint32_t>(offsetof(mp_preset_info, id) + sizeof(mp_preset_info::id)); // no `name`
+        std::vector<unsigned char> storage(static_cast<size_t>(count) * k_element + 16, 0xCD);
+        auto* out = reinterpret_cast<mp_preset_info*>(storage.data());
+        out->struct_size = k_element;
+        uint32_t room = count;
+        REQUIRE(mp_renderer_enum_presets(fx.renderer, out, &room) == MP_OK);
+        CHECK(room == count);
+        for (uint32_t i = 0; i < room; ++i) {
+            const auto* element =
+                reinterpret_cast<const mp_preset_info*>(storage.data() + static_cast<size_t>(i) * k_element);
+            INFO("element " << i);
+            CHECK(element->struct_size == k_element);
+            CHECK(std::string{element->id} == ids[i]);
+        }
+        for (size_t i = static_cast<size_t>(room) * k_element; i < storage.size(); ++i) {
+            INFO("byte " << i << ", past the last element");
+            REQUIRE(storage[i] == 0xCD);
+        }
     }
 
     SECTION("an unknown id is refused by name and changes nothing") {

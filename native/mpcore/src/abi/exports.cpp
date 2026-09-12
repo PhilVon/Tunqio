@@ -3,6 +3,7 @@
 
 #include "abi/guard.h"
 #include "abi/last_error.h"
+#include "abi/struct_size.h"
 #include "audio/bass_engine.h"
 #include "common/log.h"
 #include "common/version.h"
@@ -36,9 +37,9 @@ track* as_track(mp_track* t) {
     return reinterpret_cast<track*>(t);
 }
 
-template <typename T> bool size_ok(const T* s) {
-    return s != nullptr && s->struct_size == sizeof(T);
-}
+using mp::abi::in_struct;
+using mp::abi::out_array;
+using mp::abi::out_struct;
 
 mp_result invalid(const char* what) {
     mp::abi::set_last_error(what);
@@ -91,16 +92,18 @@ MP_API mp_result MP_CALL mp_log_set_sink(mp_log_cb sink, void* user, mp_log_leve
 
 MP_API mp_result MP_CALL mp_engine_create(const mp_engine_config* config, mp_engine** out_engine) {
     return mp::abi::guard([&]() -> mp_result {
-        if (!size_ok(config) || out_engine == nullptr) {
-            return invalid("mp_engine_create: bad config struct_size or NULL out_engine");
+        if (out_engine == nullptr) {
+            return invalid("mp_engine_create: NULL out_engine");
         }
         *out_engine = nullptr;
-        std::unique_ptr<engine> e;
-        const mp_result r = engine::create(*config, e);
-        if (r == MP_OK) {
-            *out_engine = reinterpret_cast<mp_engine*>(e.release());
-        }
-        return r;
+        return in_struct(config, "mp_engine_create", [&](const mp_engine_config& cfg) {
+            std::unique_ptr<engine> e;
+            const mp_result r = engine::create(cfg, e);
+            if (r == MP_OK) {
+                *out_engine = reinterpret_cast<mp_engine*>(e.release());
+            }
+            return r;
+        });
     });
 }
 
@@ -116,10 +119,11 @@ MP_API mp_result MP_CALL mp_engine_destroy(mp_engine* e) {
 
 MP_API mp_result MP_CALL mp_engine_set_output(mp_engine* e, const mp_output_config* config) {
     return mp::abi::guard([&]() -> mp_result {
-        if (e == nullptr || !size_ok(config)) {
-            return invalid("mp_engine_set_output: NULL engine or bad config struct_size");
+        if (e == nullptr) {
+            return invalid("mp_engine_set_output: NULL engine");
         }
-        return as_engine(e)->set_output(*config);
+        return in_struct(config, "mp_engine_set_output",
+                         [&](const mp_output_config& cfg) { return as_engine(e)->set_output(cfg); });
     });
 }
 
@@ -128,7 +132,8 @@ MP_API mp_result MP_CALL mp_engine_enum_devices(mp_engine* e, mp_device_info* ou
         if (e == nullptr || count == nullptr) {
             return invalid("mp_engine_enum_devices: NULL engine or count");
         }
-        return as_engine(e)->enum_devices(out, count);
+        return out_array(out, count, "mp_engine_enum_devices",
+                         [&](mp_device_info* buffer, uint32_t* n) { return as_engine(e)->enum_devices(buffer, n); });
     });
 }
 
@@ -170,11 +175,13 @@ MP_API mp_result MP_CALL mp_track_close(mp_track* t) {
 
 MP_API mp_result MP_CALL mp_track_get_info(mp_track* t, mp_track_info* out_info) {
     return mp::abi::guard([&]() -> mp_result {
-        if (t == nullptr || !size_ok(out_info)) {
-            return invalid("mp_track_get_info: NULL track or bad struct_size");
+        if (t == nullptr) {
+            return invalid("mp_track_get_info: NULL track");
         }
-        *out_info = as_track(t)->info;
-        return MP_OK;
+        return out_struct(out_info, "mp_track_get_info", [&](mp_track_info& info) {
+            info = as_track(t)->info;
+            return MP_OK;
+        });
     });
 }
 
@@ -295,18 +302,20 @@ MP_API mp_result MP_CALL mp_engine_set_crossfade(mp_engine* e, uint32_t ms) {
 
 MP_API mp_result MP_CALL mp_engine_get_clock(mp_engine* e, mp_clock* out_clock) {
     // Not guarded with SEH on purpose: this is polled at UI rate and must stay cheap. It only reads.
-    if (e == nullptr || !size_ok(out_clock)) {
-        return invalid("mp_engine_get_clock: NULL engine or bad struct_size");
+    if (e == nullptr) {
+        return invalid("mp_engine_get_clock: NULL engine");
     }
-    return as_engine(e)->get_clock(*out_clock);
+    return out_struct(out_clock, "mp_engine_get_clock",
+                      [&](mp_clock& clock) { return as_engine(e)->get_clock(clock); });
 }
 
 MP_API mp_result MP_CALL mp_engine_get_stats(mp_engine* e, mp_engine_stats* out_stats) {
     return mp::abi::guard([&]() -> mp_result {
-        if (e == nullptr || !size_ok(out_stats)) {
-            return invalid("mp_engine_get_stats: NULL engine or bad struct_size");
+        if (e == nullptr) {
+            return invalid("mp_engine_get_stats: NULL engine");
         }
-        return as_engine(e)->get_stats(*out_stats);
+        return out_struct(out_stats, "mp_engine_get_stats",
+                          [&](mp_engine_stats& stats) { return as_engine(e)->get_stats(stats); });
     });
 }
 
@@ -342,10 +351,13 @@ MP_API mp_result MP_CALL mp_preview_stop(mp_engine* e) {
 MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* e, mp_analysis_frame* out_frame) {
     // Unguarded for the same reason as mp_engine_get_clock: the theming poll runs at 30 Hz and the renderer will
     // ask per presented frame, and this only copies out of a published buffer.
-    if (e == nullptr || !size_ok(out_frame)) {
-        return invalid("mp_analysis_try_get_latest: NULL engine or bad struct_size");
+    if (e == nullptr) {
+        return invalid("mp_analysis_try_get_latest: NULL engine");
     }
-    return as_engine(e)->get_analysis_frame(*out_frame);
+    // A caller at the current size is filled in place, as it always was: the cost this rule adds to the path the
+    // renderer polls per presented frame is one comparison, and the frame is never copied twice.
+    return out_struct(out_frame, "mp_analysis_try_get_latest",
+                      [&](mp_analysis_frame& frame) { return as_engine(e)->get_analysis_frame(frame); });
 }
 
 } // extern "C"

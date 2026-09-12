@@ -5,6 +5,7 @@
 
 #include "abi/guard.h"
 #include "abi/last_error.h"
+#include "abi/struct_size.h"
 #include "render/renderer.h"
 
 #include <cstdio>
@@ -18,9 +19,9 @@ renderer* as_renderer(mp_renderer* r) {
     return reinterpret_cast<renderer*>(r);
 }
 
-template <typename T> bool size_ok(const T* s) {
-    return s != nullptr && s->struct_size == sizeof(T);
-}
+using mp::abi::in_struct;
+using mp::abi::out_array;
+using mp::abi::out_struct;
 
 mp_result invalid(const char* what) {
     mp::abi::set_last_error(what);
@@ -41,16 +42,18 @@ extern "C" {
 MP_API mp_result MP_CALL mp_renderer_create(mp_engine* engine, void* swap_chain_panel_native,
                                             const mp_renderer_config* config, mp_renderer** out_renderer) {
     return mp::abi::guard([&]() -> mp_result {
-        if (!size_ok(config) || out_renderer == nullptr) {
-            return invalid("mp_renderer_create: bad config struct_size or NULL out_renderer");
+        if (out_renderer == nullptr) {
+            return invalid("mp_renderer_create: NULL out_renderer");
         }
         *out_renderer = nullptr;
-        std::unique_ptr<renderer> r;
-        const mp_result result = renderer::create(engine, swap_chain_panel_native, *config, r);
-        if (result == MP_OK) {
-            *out_renderer = reinterpret_cast<mp_renderer*>(r.release());
-        }
-        return result;
+        return in_struct(config, "mp_renderer_create", [&](const mp_renderer_config& cfg) {
+            std::unique_ptr<renderer> r;
+            const mp_result result = renderer::create(engine, swap_chain_panel_native, cfg, r);
+            if (result == MP_OK) {
+                *out_renderer = reinterpret_cast<mp_renderer*>(r.release());
+            }
+            return result;
+        });
     });
 }
 
@@ -82,11 +85,13 @@ MP_API mp_result MP_CALL mp_renderer_set_visible(mp_renderer* r, uint8_t visible
 }
 
 MP_API mp_result MP_CALL mp_renderer_get_stats(mp_renderer* r, mp_render_stats* out_stats) {
-    if (r == nullptr || !size_ok(out_stats)) {
-        return invalid("mp_renderer_get_stats: NULL renderer or bad struct_size");
+    if (r == nullptr) {
+        return invalid("mp_renderer_get_stats: NULL renderer");
     }
-    as_renderer(r)->get_stats(*out_stats);
-    return MP_OK;
+    return out_struct(out_stats, "mp_renderer_get_stats", [&](mp_render_stats& stats) {
+        as_renderer(r)->get_stats(stats);
+        return MP_OK;
+    });
 }
 
 MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* r, mp_preset_info* out, uint32_t* count) {
@@ -94,10 +99,8 @@ MP_API mp_result MP_CALL mp_renderer_enum_presets(mp_renderer* r, mp_preset_info
         if (r == nullptr || count == nullptr) {
             return invalid("mp_renderer_enum_presets: NULL renderer or count");
         }
-        if (out != nullptr && *count > 0 && out->struct_size != sizeof(mp_preset_info)) {
-            return invalid("mp_renderer_enum_presets: out[0].struct_size does not match mp_preset_info");
-        }
-        return as_renderer(r)->enum_presets(out, count);
+        return out_array(out, count, "mp_renderer_enum_presets",
+                         [&](mp_preset_info* buffer, uint32_t* n) { return as_renderer(r)->enum_presets(buffer, n); });
     });
 }
 
@@ -122,10 +125,11 @@ MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* r, const char* utf8_
 }
 
 MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* r, const mp_theme_colors* colors) {
-    if (r == nullptr || !size_ok(colors)) {
-        return invalid("mp_renderer_set_theme: NULL renderer or bad struct_size");
+    if (r == nullptr) {
+        return invalid("mp_renderer_set_theme: NULL renderer");
     }
-    return not_implemented("mp_renderer_set_theme", "E4-S6");
+    return in_struct(colors, "mp_renderer_set_theme",
+                     [](const mp_theme_colors&) { return not_implemented("mp_renderer_set_theme", "E4-S6"); });
 }
 
 MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* r, mp_quality_policy /*policy*/) {
