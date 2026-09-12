@@ -20,6 +20,9 @@
   </ItemGroup>
 
   <PropertyGroup>
+    <!-- T-161: opts this project into Directory.Build.targets' TunqioRefuseStaleNativeCore guard, which
+         fails the build when mpcore.dll is older than a file under native/mpcore. -->
+    <TunqioNeedsNativeCore>true</TunqioNeedsNativeCore>
     <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
     <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
   </PropertyGroup>

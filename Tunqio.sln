@@ -53,6 +53,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tunqio.SoakRunner", "tools\
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tunqio.App.Tests", "tests\Tunqio.App.Tests\Tunqio.App.Tests.csproj", "{B784ADA3-FE63-4905-B301-53176EFE146A}"
+	ProjectSection(ProjectDependencies) = postProject
+		{6D0B0F2E-3B7A-4E2C-9C1D-5A1F0C2B7E01} = {6D0B0F2E-3B7A-4E2C-9C1D-5A1F0C2B7E01}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

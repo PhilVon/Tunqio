@@ -1,5 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    T-165: a tree that has never run tools/fetch-native.ps1 says so, before the compiler does.
+
+    native/bass is gitignored (ADR-003: the SDK is fetched, not committed), so a FRESH CLONE OR WORKTREE has no
+    bass.h. Without this, the first thing anyone sees is the compiler failing to find a header in a file they
+    have not touched, which reads as a broken tree rather than as a missing setup step - five agents in a row
+    spent a confused build cycle on it, this one included. The warning below fires only AFTER Build, which is
+    far too late: the compile has already failed.
+
+    Deliberately not a download. Fetching from the network as a side effect of a build is a decision this
+    project has already made the other way (fetch-native.ps1 verifies a pinned SHA-256 for every package and a
+    mismatch is a hard failure), so this says what to run and stops.
+  -->
+  <Target Name="TunqioRequireBassSdk" BeforeTargets="PrepareForBuild;ClCompile"
+          Condition="!Exists('$(TunqioNativeRoot)bass\include\bass.h')">
+    <Error Text="The BASS SDK is not in this tree, so $(MSBuildProjectName) cannot compile: $(TunqioNativeRoot)bass\include\bass.h does not exist.%0Anative/bass is gitignored and fetched rather than committed, so a fresh clone or git worktree never has it. Run this once, from the repository root:%0A  powershell -ExecutionPolicy Bypass -File tools\fetch-native.ps1%0AIt downloads the pinned BASS packages, verifies each against its SHA-256, and writes native\bass\manifest.lock.txt. (T-165)" />
+  </Target>
+
   <!-- Imported after Microsoft.Cpp.targets by every native project that links BASS: puts the BASS runtime DLLs
        (fetched by tools/fetch-native.ps1) next to the binary so it runs without a PATH change. -->
   <Target Name="TunqioCopyBassRuntime" AfterTargets="Build">

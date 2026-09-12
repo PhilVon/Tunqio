@@ -18,4 +18,48 @@
     <Error Condition="'@(_TunqioForbidden)' != ''"
            Text="Layering violation: $(MSBuildProjectName) must not reference @(_TunqioForbidden->'%(Filename)'). See docs/solution-structure.md (Dependency rules)." />
   </Target>
+
+  <!--
+    T-161: a stale native core is refused rather than silently copied.
+
+    THE DEFECT. Building the SOLUTION builds native/mpcore first, because Tunqio.sln makes it a dependency of
+    every project that consumes it. Building a managed PROJECT does not, and says nothing: the copy targets
+    below happily pick up whatever mpcore.dll was last left in artifacts/native/<cfg>/x64/. Measured 2026-09-12:
+    after a project-scoped Debug build, the mpcore.dll beside the shell was sixteen hours old and predated the
+    story implementing the exports it was being asked for by thirty-five minutes. The app did not fail. It
+    degraded into a shape that reads as a product bug - Settings > Visualization opened with an empty preset
+    list and no Refresh button, and twelve harness cases reported missing CONTROLS - and cost two false review
+    rejections in one day. Nothing anywhere said the core was old.
+
+    HOW THIS CATCHES IT. Inputs/Outputs, which is MSBuild's own up-to-date check, so the target is SKIPPED
+    entirely - no timestamps read, no cost - while mpcore.dll is newer than every native source, and runs only
+    when at least one source is newer than it. Inside, the list is narrowed again to the files actually ahead of
+    the binary (MSBuild only filters @(Inputs) itself when inputs and outputs pair up one to one, and here they
+    do not), so a developer who edited one file is told about that one file. Timestamps rather than the ABI on
+    purpose: an ABI check only sees staleness that happened to change an export, and the second of the two false
+    rejections was a bug fix that changed none.
+
+    Opt in with TunqioNeedsNativeCore, so the guard lives once here instead of in each of the five projects that
+    copy the core out of artifacts/native/.
+  -->
+  <PropertyGroup Condition="'$(TunqioNeedsNativeCore)' == 'true'">
+    <TunqioNativeOut Condition="'$(TunqioNativeOut)' == ''">$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TunqioNeedsNativeCore)' == 'true'">
+    <_TunqioNativeSource Include="$(TunqioRepoRoot)native\mpcore\**\*.cpp;$(TunqioRepoRoot)native\mpcore\**\*.h;$(TunqioRepoRoot)native\mpcore\mpcore.vcxproj" />
+  </ItemGroup>
+  <!-- CoreBuild and not AssignTargetPaths: AssignTargetPaths is reached during another project's reference
+       resolution too (Tunqio.App.Tests asking Tunqio.App for its outputs), which happens before the solution
+       has built native/mpcore, and the guard then fired on a solution build that was about to be correct.
+       CoreBuild runs only when this project is really building, and only after its dependencies are done. -->
+  <Target Name="TunqioRefuseStaleNativeCore"
+          BeforeTargets="CoreBuild"
+          Condition="'$(TunqioNeedsNativeCore)' == 'true' and Exists('$(TunqioNativeOut)mpcore.dll')"
+          Inputs="@(_TunqioNativeSource)"
+          Outputs="@(_TunqioNativeSource->'$(TunqioNativeOut)mpcore.dll')">
+    <PropertyGroup>
+      <_TunqioStaleCount>@(_TunqioNativeSource->Count())</_TunqioStaleCount>
+    </PropertyGroup>
+    <Error Text="Stale native core: $(_TunqioStaleCount) file(s) under native\mpcore are newer than the mpcore.dll this build would use, so it would run against a core that predates its own source (T-161).%0A  core:  $(TunqioNativeOut)mpcore.dll%0A  newer: @(_TunqioNativeSource->'%(RecursiveDir)%(Filename)%(Extension)', ', ')%0ABuilding a managed project on its own does NOT build native/mpcore; it copies whatever core was last left there. Build the solution, which does build it:%0A  msbuild Tunqio.sln -restore -p:Configuration=$(Configuration) -p:Platform=x64%0AOr just the core: msbuild native\mpcore\mpcore.vcxproj -p:Configuration=$(Configuration) -p:Platform=x64" />
+  </Target>
 </Project>

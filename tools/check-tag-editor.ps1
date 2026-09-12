@@ -36,6 +36,8 @@
 #>
 [CmdletBinding()]
 param(
+    # T-161: drive a build that is older than the source on purpose (comparing against an old shell).
+    [switch]$SkipFreshnessCheck,
     [string]$Exe = "$PSScriptRoot\..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe",
     [int]$Seconds = 14,
     [switch]$KeepScratch,
@@ -46,7 +48,12 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, Microsoft.VisualBasic
 
 $Exe = (Resolve-Path $Exe -ErrorAction SilentlyContinue).Path
-if (-not $Exe) { throw 'The shell is not built; run dotnet build src/Tunqio.App -c Debug -p:Platform=x64 first.' }
+if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
+
+# T-161: a harness driving a build that predates its own source reports the OLD binary's behaviour, and every
+# symptom of that reads as a product bug. Refuse up front and say which binary is behind.
+. (Join-Path $PSScriptRoot 'assert-fresh-build.ps1')
+if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 $fixtures = Join-Path $repo 'tests\fixtures\library'
 if (-not (Test-Path $fixtures)) { throw "$fixtures not found." }

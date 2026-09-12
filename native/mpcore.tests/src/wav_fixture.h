@@ -1,11 +1,27 @@
-// Writes small PCM WAVs to the temp directory for engine tests and spikes: a continuous sine, and a
-// "position" file whose sample values encode the frame index so a test can see exactly where the engine is.
+// Writes small PCM WAVs for engine tests and spikes: a continuous sine, and a "position" file whose sample
+// values encode the frame index so a test can see exactly where the engine is.
+//
+// T-164: every fixture lives under a PER-PROCESS directory, %TEMP%\tunqio-tests-<pid>\, and not directly in
+// the machine-wide %TEMP% under a literal stem. Two mpcore.tests.exe -- which is what parallel agents in
+// separate worktrees produce, and what the local gate sweep produces against a peer's -- otherwise write, read
+// and delete the same files. Measured before the change: three copies run twice, four of the six red, the
+// failing assertion moving between test_analysis_frame.cpp:348 and test_crossfade.cpp:193 and reported at
+// offline_engine.h:57 as REQUIRE_FALSE(path.empty()) -- an assertion that names no fixture and points a reader
+// at the audio engine. The directory is removed when the process exits, so fixtures also stop accumulating.
+//
+// And a failure to write now THROWS, naming the fixture and the OS reason, rather than returning a bare empty
+// string. The empty string is what converted a disk problem into an assertion about something else: every
+// caller passed it straight into mp_track_open or into REQUIRE_FALSE(path.empty()), so the report described
+// the consequence and never the cause.
 #pragma once
 
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <functional>
+#include <mutex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -21,17 +37,106 @@ struct wav_spec {
     double amplitude = 0.1; // -20 dBFS
 };
 
-// Writes a 16-bit PCM WAV whose samples come from `sample(frame, channel)`. Returns the UTF-8 path, or
-// an empty string on failure.
-inline std::string write_wav(uint32_t sample_rate, uint16_t channels, uint32_t frames, const char* stem,
-                             const std::function<int16_t(uint32_t, uint16_t)>& sample) {
-    wchar_t temp[MAX_PATH];
-    const DWORD n = GetTempPathW(MAX_PATH, temp);
-    if (n == 0 || n >= MAX_PATH) {
+namespace detail {
+
+inline std::string narrow(const std::wstring& w) {
+    if (w.empty()) {
         return {};
     }
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 0) {
+        return {};
+    }
+    std::string out(static_cast<size_t>(n) - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, out.data(), n, nullptr, nullptr);
+    return out;
+}
+
+// "error 5 (Access is denied)" -- the OS's own words, so a fixture failure reads as the disk problem it is.
+inline std::string win32_reason(DWORD err) {
+    char* text = nullptr;
+    const DWORD n =
+        FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                       nullptr, err, 0, reinterpret_cast<char*>(&text), 0, nullptr);
+    std::string message = n != 0 && text != nullptr ? std::string(text, n) : std::string{"no description"};
+    if (text != nullptr) {
+        LocalFree(text);
+    }
+    while (!message.empty() && (message.back() == '\n' || message.back() == '\r' || message.back() == '.')) {
+        message.pop_back();
+    }
+    return "error " + std::to_string(err) + " (" + message + ")";
+}
+
+inline std::string crt_reason(errno_t e) {
+    char buf[128]{};
+    if (strerror_s(buf, sizeof buf, e) != 0) {
+        buf[0] = '\0';
+    }
+    return "errno " + std::to_string(e) + " (" + (buf[0] != '\0' ? buf : "no description") + ")";
+}
+
+// Removes the per-process fixture directory and everything in it when the process exits. Best effort: a file
+// BASS still holds open must not turn a green run red on the way out.
+struct fixture_dir_cleanup {
+    std::wstring dir;
+    ~fixture_dir_cleanup() {
+        if (dir.empty()) {
+            return;
+        }
+        WIN32_FIND_DATAW found{};
+        const HANDLE h = FindFirstFileW((dir + L"*").c_str(), &found);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    DeleteFileW((dir + found.cFileName).c_str());
+                }
+            } while (FindNextFileW(h, &found) != 0);
+            FindClose(h);
+        }
+        RemoveDirectoryW(dir.c_str());
+    }
+};
+
+// %TEMP%\tunqio-tests-<pid>\, created once per process. Throws if it cannot be made, because every fixture in
+// the run depends on it and "could not create the fixture directory" is the only useful thing to say then.
+inline const std::wstring& fixture_dir() {
+    static fixture_dir_cleanup cleanup = [] {
+        wchar_t temp[MAX_PATH];
+        const DWORD n = GetTempPathW(MAX_PATH, temp);
+        if (n == 0 || n >= MAX_PATH) {
+            throw std::runtime_error("test fixtures: GetTempPathW failed, " + win32_reason(GetLastError()));
+        }
+        std::wstring dir = std::wstring{temp} + L"tunqio-tests-" + std::to_wstring(GetCurrentProcessId()) + L"\\";
+        if (CreateDirectoryW(dir.c_str(), nullptr) == 0) {
+            const DWORD err = GetLastError();
+            if (err != ERROR_ALREADY_EXISTS) {
+                throw std::runtime_error("test fixtures: could not create the fixture directory " + narrow(dir) + ", " +
+                                         win32_reason(err));
+            }
+        }
+        return fixture_dir_cleanup{std::move(dir)};
+    }();
+    return cleanup.dir;
+}
+
+} // namespace detail
+
+// The directory this process's fixtures live in, for a test or a report that wants to name it.
+inline std::string fixture_root() {
+    return detail::narrow(detail::fixture_dir());
+}
+
+// Writes a 16-bit PCM WAV whose samples come from `sample(frame, channel)` into this process's own fixture
+// directory, and returns the UTF-8 path. Throws std::runtime_error naming the fixture and the OS reason if it
+// cannot: Catch2 renders that as the failing test's message, so a disk problem reads as a disk problem.
+inline std::string write_wav(uint32_t sample_rate, uint16_t channels, uint32_t frames, const char* stem,
+                             const std::function<int16_t(uint32_t, uint16_t)>& sample) {
+    static std::mutex write_gate; // Catch2 is single-threaded, but a fixture written from a worker must not tear.
+    const std::lock_guard<std::mutex> hold{write_gate};
+
     std::wstring wide_stem(stem, stem + std::char_traits<char>::length(stem));
-    const std::wstring path = std::wstring{temp} + L"tunqio-" + wide_stem + L".wav";
+    const std::wstring path = detail::fixture_dir() + wide_stem + L".wav";
 
     const uint16_t block_align = static_cast<uint16_t>(channels * 2);
     const uint32_t data_bytes = frames * block_align;
@@ -68,19 +173,25 @@ inline std::string write_wav(uint32_t sample_rate, uint16_t channels, uint32_t f
         }
     }
 
+    const std::string shown = detail::narrow(path);
     FILE* f = nullptr;
-    if (_wfopen_s(&f, path.c_str(), L"wb") != 0 || f == nullptr) {
-        return {};
+    if (const errno_t e = _wfopen_s(&f, path.c_str(), L"wb"); e != 0 || f == nullptr) {
+        throw std::runtime_error("test fixture \"" + std::string{stem} + "\": could not open " + shown +
+                                 " for writing, " + detail::crt_reason(e != 0 ? e : EIO));
     }
     const size_t written = std::fwrite(file.data(), 1, file.size(), f);
-    std::fclose(f);
+    const errno_t write_errno = written != file.size() ? errno : 0;
+    const bool closed = std::fclose(f) == 0;
     if (written != file.size()) {
-        return {};
+        throw std::runtime_error("test fixture \"" + std::string{stem} + "\": wrote " + std::to_string(written) +
+                                 " of " + std::to_string(file.size()) + " bytes to " + shown + ", " +
+                                 detail::crt_reason(write_errno != 0 ? write_errno : EIO));
     }
-
-    char utf8[MAX_PATH * 3];
-    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8, sizeof utf8, nullptr, nullptr);
-    return utf8;
+    if (!closed) {
+        throw std::runtime_error("test fixture \"" + std::string{stem} + "\": could not flush " + shown + ", " +
+                                 detail::crt_reason(errno));
+    }
+    return shown;
 }
 
 // A continuous sine on every channel.

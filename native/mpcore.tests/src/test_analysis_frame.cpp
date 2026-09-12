@@ -410,22 +410,53 @@ TEST_CASE("frames arrive at the hop rate while playing and stop soon after a pau
     // Pause: the pull stage stops reading the mixer once the guard fade has run, so the tap stops being fed and
     // the analysis thread runs out of work. What is measured is when the last frame appeared, not when the call
     // returned - a frame produced after the audio stopped is a frame the visualizer would draw late.
+    //
+    // T-143: measured in AUDIO, not in wall clock. The claim is "frames stop within 100 ms of pause", and the
+    // engine's part of that is how much more audio it mixes into the tap after the pause - the guard fade, and
+    // the hop that fade lands in. Wall clock adds this loop's own scheduling to that number, so on a machine
+    // that is also building, the pull stage misses its deadlines and the bound moves for a reason that has
+    // nothing to do with the engine: 112.21 ms was read once in four runs on a busy box, against 54.9 ms
+    // measured for AC-111. Counting the audio delivered instead is the same claim with the machine taken out of
+    // it - the number is a property of the engine on any machine at any load. The wall clock is still reported,
+    // because when the two disagree the difference IS this loop falling behind and a reader should see it.
+    //
+    // WHAT WAS AND WAS NOT MEASURED FOR THIS CHANGE, because the difference matters. The audio number is exact
+    // and load-independent: 60 ms every run - the 50 ms guard fade plus the one hop it lands in - idle and with
+    // 24 spinning threads on 8 cores alike, with the pull loop holding 0.999x to 1.003x of real time throughout.
+    // The 112.21 ms that T-143 recorded was NOT reproduced here: on this machine the old wall-clock bound stayed
+    // green under every load that could be applied to it. So this is not a fix for a failure seen today; it is
+    // the removal of a term the engine does not control from an assertion about the engine, and the reason the
+    // old number could move at all.
+    const double ms_per_pull = 1000.0 * mp::tests::k_buffer_frames / mp::tests::k_rate;
     REQUIRE(mp_engine_pause(fx.engine) == MP_OK);
     const auto paused_at = clock::now();
     uint64_t last_count = a.frames();
     auto last_change = paused_at;
+    uint32_t pulls = 0;
+    uint32_t pulls_at_last_change = 0;
     while (clock::now() - paused_at < std::chrono::milliseconds{400}) {
         pull();
+        ++pulls;
         if (a.frames() != last_count) {
             last_count = a.frames();
             last_change = clock::now();
+            pulls_at_last_change = pulls;
         }
     }
-    const double stopped_ms = std::chrono::duration<double, std::milli>(last_change - paused_at).count();
+    const double stopped_audio_ms = pulls_at_last_change * ms_per_pull;
+    const double stopped_wall_ms = std::chrono::duration<double, std::milli>(last_change - paused_at).count();
+    const double wall_ms = std::chrono::duration<double, std::milli>(clock::now() - paused_at).count();
+    const double lateness = wall_ms / (pulls * ms_per_pull);
 
-    INFO("last frame " << stopped_ms << " ms after pause (the " << mp::audio::engine::k_guard_fade_ms
-                       << " ms guard fade is still real audio, and is part of it)");
-    CHECK(stopped_ms < 100.0);
+    INFO("the last frame arrived " << stopped_audio_ms << " ms of AUDIO after the pause (" << pulls_at_last_change
+                                   << " pulls of " << ms_per_pull << " ms), at " << stopped_wall_ms
+                                   << " ms of wall clock; the " << mp::audio::engine::k_guard_fade_ms
+                                   << " ms guard fade is still real audio and is part of it. This loop delivered "
+                                   << pulls * ms_per_pull << " ms of audio in " << wall_ms << " ms of wall clock ("
+                                   << lateness
+                                   << "x real time), which is the whole of the difference between the "
+                                      "two numbers and is a fact about the machine, not the engine.");
+    CHECK(stopped_audio_ms < 100.0);
 
     mp_engine_stop(fx.engine, MP_FADE_NONE);
     mp_track_close(track);

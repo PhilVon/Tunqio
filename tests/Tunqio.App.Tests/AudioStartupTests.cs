@@ -99,7 +99,8 @@ public sealed class AudioStartupTests
     {
         var audio = new AudioStartup(
             _tracks, _history, _queues, _settings, NullLogger<AudioStartup>.Instance, null,
-            () => throw new NativeAbiMismatchException(1, 2, 0, @"C:\Tunqio\mpcore.dll"));
+            () => throw new NativeAbiMismatchException(
+                expectedMajor: 1, expectedMinor: 0, actualMajor: 2, actualMinor: 0, path: @"C:\Tunqio\mpcore.dll"));
 
         StartupNotice? notice = await audio.StartAsync();
 
