@@ -48,6 +48,7 @@ Coverage target: 80% line coverage on `mpcore` (via `OpenCppCoverage`), Core, In
 | No allocation on audio/analysis path | Debug `RT_ASSERT_NO_ALLOC` hook in Catch2 tests; Release `mp_engine_stats.callback_max_us` | PR gate |
 | Feature extraction < 4 ms per hop | Catch2 benchmark (`BENCHMARK`) with threshold | PR gate (20% slack on CI hardware) |
 | Interop call overhead < 5 µs for clock and frame reads | BenchmarkDotNet | PR gate |
+| Preset switch < 200 ms (E4-S9 AC-132) | BenchmarkDotNet `PresetSwitchBenchmarks`, headless WARP over the shipped presets | PR gate |
 | Search < 50 ms p95 on 100k | BenchmarkDotNet against `library-100k.db` | PR gate |
 | Library open < 100 ms | BenchmarkDotNet against `library-100k.db` | PR gate |
 | Scan 10k files < 90 s | `FixtureGen` + timed scan | Nightly |

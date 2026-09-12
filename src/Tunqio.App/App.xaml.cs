@@ -11,6 +11,7 @@ using Tunqio.App.Shell;
 using Tunqio.Core;
 using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
+using Tunqio.Core.Visualization;
 using Tunqio.Library;
 using Tunqio.Library.Database;
 
@@ -110,7 +111,11 @@ public partial class App : Application
             _host.Services.GetRequiredService<Library.LibraryScanCoordinator>(),
             // The container's notices, not a second set: the tag editor dialog resolves this same object to leave
             // the Undo bar behind (E3-S10, flow 8), and the panel this window shows is bound to what it is given.
-            _host.Services.GetRequiredService<ShellNotices>());
+            _host.Services.GetRequiredService<ShellNotices>(),
+            // The container's visualizer surface: the window attaches it to the panel and Settings >
+            // Visualization (E4-S9) drives the same object, so a second one would switch a preset on a
+            // renderer nobody is looking at.
+            _host.Services.GetRequiredService<IVisualizationHost>());
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());

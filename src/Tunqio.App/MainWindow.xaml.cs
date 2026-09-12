@@ -4,6 +4,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Tunqio.App.Controls;
 using Tunqio.App.Playback;
 using Tunqio.App.Shell;
 using Tunqio.Core;
@@ -41,7 +42,8 @@ public sealed partial class MainWindow : Window
     private SystemAccessibilitySignals? _accessibility;
     private ReactiveThemeController? _reactiveTheme;
     private volatile bool _isDark;
-    private NativeRenderer? _renderer;
+    private readonly IVisualizationHost? _visualization;
+    private bool _rendererAttached;
 
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
     /// <param name="settings">Read for <c>ui.theme</c>; the system theme is used when it is not supplied.</param>
@@ -50,6 +52,12 @@ public sealed partial class MainWindow : Window
     /// <param name="open">Files and folders opened or dropped (E2-S4); null leaves the window inert to drops.</param>
     /// <param name="tracks">Resolves the queue panel's rows (E2-S5); null leaves the panel showing its empty state.</param>
     /// <param name="scans">The library's scans, for the scan report bar (E2-S7); null leaves scans unreported.</param>
+    /// <param name="visualization">
+    /// The visualizer surface (E4-S9). The window attaches it to the SwapChainPanel once the panel has loaded and
+    /// detaches it on close; Settings › Visualization drives the same object out of the container, which is the
+    /// whole reason it is passed in rather than built here. Null leaves the panel blank, which is what the tests
+    /// that construct the window directly get.
+    /// </param>
     /// <param name="notices">
     /// The shell's notice bars. Supplied by the host so that the window's panel and the tag editor's Undo bar
     /// (E3-S10, flow 8) are the same object — the dialog resolves it from the container, and a window holding a
@@ -64,11 +72,13 @@ public sealed partial class MainWindow : Window
         OpenCoordinator? open = null,
         Core.Library.ITrackRepository? tracks = null,
         Library.LibraryScanCoordinator? scans = null,
-        ShellNotices? notices = null)
+        ShellNotices? notices = null,
+        IVisualizationHost? visualization = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
         _open = open;
+        _visualization = visualization;
         InitializeComponent();
         Title = Identity.WindowTitle(null, null);
 
@@ -170,8 +180,8 @@ public sealed partial class MainWindow : Window
     /// <summary>The reactive theming, for the diagnostics overlay and the tests that drive the window.</summary>
     internal ReactiveThemeController? ReactiveTheming => _reactiveTheme;
 
-    /// <summary>The native renderer bound to the panel, once the panel has loaded.</summary>
-    public NativeRenderer? Renderer => _renderer;
+    /// <summary>The visualizer surface bound to the panel, once the panel has loaded and if there is one.</summary>
+    public IVisualizationHost? Renderer => _rendererAttached ? _visualization : null;
 
     /// <summary>The shape the shell is in, for the tests that drive the window and for the diagnostics overlay.</summary>
     public ShellLayoutMode? LayoutMode => _chrome.Mode;
@@ -542,7 +552,20 @@ public sealed partial class MainWindow : Window
 
     private void OnPanelLoaded(object sender, RoutedEventArgs e)
     {
-        if (_renderer is not null)
+        if (_visualization is null || _rendererAttached)
+        {
+            return;
+        }
+
+        // Fire-and-forget by the repository's no-async-void rule (docs/solution-structure.md), and synchronous
+        // in fact: AttachAsync builds the device, the swap chain and the render thread before it returns, so the
+        // renderer exists by the time this handler does.
+        AttachVisualizerAsync().Forget("Attach the visualizer");
+    }
+
+    private async Task AttachVisualizerAsync()
+    {
+        if (_visualization is null)
         {
             return;
         }
@@ -552,8 +575,11 @@ public sealed partial class MainWindow : Window
             // The panel's IUnknown; the core queries ISwapChainPanelNative and calls SetSwapChain on this (UI) thread.
             nint panelNative = ((IWinRTObject)VisualizerPanel).NativeObject.ThisPtr;
             (int width, int height) = PanelPixelSize();
-            _renderer = NativeRenderer.Create(panelNative, new RendererConfig(
-                width, height, VisualizerPanel.CompositionScaleX, VisualizerPanel.CompositionScaleY, _forceWarp, VSync: true));
+            await _visualization.AttachAsync(panelNative, new RendererConfig(
+                width, height, VisualizerPanel.CompositionScaleX, VisualizerPanel.CompositionScaleY, _forceWarp, VSync: true))
+                .ConfigureAwait(true);
+            _rendererAttached = true;
+            await RestoreVisualizationSettingsAsync().ConfigureAwait(true);
         }
         catch (Exception ex) when (ex is NativeException or DllNotFoundException)
         {
@@ -564,10 +590,50 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// The user preset root and the preset <c>viz.preset</c> remembers (E4-S9), applied as soon as the renderer
+    /// exists. Both are best-effort: a preset directory that has gone, or a preset whose shader no longer
+    /// compiles, costs the user the preset they chose and not the visualizer.
+    /// </summary>
+    private async Task RestoreVisualizationSettingsAsync()
+    {
+        if (_visualization is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (App.Services.GetService(typeof(IAppPaths)) is IAppPaths paths)
+            {
+                _visualization.SetUserPresetRoot(paths.PresetsDirectory);
+            }
+        }
+        catch (Exception ex) when (ex is NativeException or InvalidOperationException)
+        {
+            Serilog.Log.Warning(ex, "The user preset directory could not be given to the renderer");
+        }
+
+        string? wanted = _settings?.GetValue(SettingsKeys.VizPreset, SettingsKeys.Defaults.VizPreset);
+        if (string.IsNullOrEmpty(wanted) || !_visualization.Presets.Any(p => p.Id == wanted))
+        {
+            return;
+        }
+
+        try
+        {
+            await _visualization.SetPresetAsync(wanted).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is PresetCompilationException or NativeException)
+        {
+            Serilog.Log.Warning(ex, "The remembered preset {Preset} could not be loaded", wanted);
+        }
+    }
+
+    /// <summary>
     /// The renderer's statistics for the overlay, or null when there is no renderer. Called on the UI thread by
     /// the overlay's own refresh, so nothing here has to marshal.
     /// </summary>
-    private RenderStats? RendererStats() => _renderer?.GetStats();
+    private RenderStats? RendererStats() => _rendererAttached ? _visualization?.TryGetStats() : null;
 
     private (int Width, int Height) PanelPixelSize()
     {
@@ -578,19 +644,25 @@ public sealed partial class MainWindow : Window
 
     private void ForwardPanelSize()
     {
-        if (_renderer is null)
+        if (!_rendererAttached || _visualization is null)
         {
             return;
         }
 
         (int width, int height) = PanelPixelSize();
-        _renderer.Resize(width, height, VisualizerPanel.CompositionScaleX, VisualizerPanel.CompositionScaleY);
+        _visualization.Resize(width, height, VisualizerPanel.CompositionScaleX, VisualizerPanel.CompositionScaleY);
     }
 
     private void TearDownRenderer()
     {
-        _renderer?.Dispose();
-        _renderer = null;
+        if (!_rendererAttached)
+        {
+            return;
+        }
+
+        // Detached and not disposed: the host is the container's, and the container outlives this window.
+        _visualization?.Detach();
+        _rendererAttached = false;
     }
 
     private static string DescribeEngine()

@@ -1,0 +1,471 @@
+<#
+.SYNOPSIS
+  E4-S9 (T-60, T-142, T-151): Settings > Visualization is reachable, lists every preset with a readable name,
+  switches what the visualizer draws, offers exactly the controls the chosen preset declares and no others,
+  picks up a preset dropped into the user preset directory after a Refresh, and carries the two audio-reactive
+  theming settings E4-S6 shipped with no UI.
+
+  Read off the running window's UIA tree, the way Narrator reads it, rather than asked of the app. The view model
+  is already asserted headless in Tunqio.App.Tests; what cannot be asserted there is every wiring question -
+  whether the page is reachable at all, whether the controls the view model computes ever become controls, what
+  their automation names say, and whether a folder appearing on disk turns into a row. A wiring question is only
+  answered from outside the process. T-116 exists because the tag editor tried to settle its on-screen criteria
+  without a harness like this one, and a WinUI window captures BLACK in a screenshot, so a screenshot is not an
+  alternative.
+
+  WHAT IT TOUCHES. Nothing of the user's music and nothing in the library database: this page reads neither. It
+  does write one directory - a scratch preset named below, inside the real user preset root
+  (%LocalAppData%\Tunqio\presets), because that literal path is what AC-133 is about - and deletes it in the
+  finally. Nothing else in the data root is touched; the launch count and the log grow, as they would for any
+  launch. If the script is killed between those points, delete the named folder by hand.
+.PARAMETER Exe
+  The built shell. Defaults to the Debug x64 output.
+.PARAMETER Seconds
+  How long to give the window before reading the tree. The renderer is created when the SwapChainPanel loads.
+.PARAMETER KeepScratch
+  Leave the scratch preset behind, for looking at what the page did with it.
+#>
+[CmdletBinding()]
+param(
+    [string]$Exe,
+    [int]$Seconds = 10,
+    [switch]$KeepScratch
+)
+
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, Microsoft.VisualBasic
+
+# Resolved in the body rather than in the param default: $PSScriptRoot is not reliably bound there under
+# powershell.exe -File with a relative script path.
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
+$Exe = (Resolve-Path $Exe -ErrorAction SilentlyContinue).Path
+if (-not $Exe) { throw 'The shell is not built; run dotnet build src/Tunqio.App -c Debug -p:Platform=x64 first.' }
+
+# The scratch preset AC-133 is about. A name nothing else could be, so a folder left behind by a killed run is
+# unmistakable and safe to delete.
+$scratchId = 'tunqio-check-e4s9'
+$userPresets = Join-Path $env:LOCALAPPDATA 'Tunqio\presets'
+$scratchDir = Join-Path $userPresets $scratchId
+
+$scratchShader = @'
+struct VSOut { float4 pos : SV_Position; };
+VSOut VSMain(uint vid : SV_VertexID) {
+    float2 corners[3] = { float2(-1.0, -3.0), float2(-1.0, 1.0), float2(3.0, 1.0) };
+    VSOut o;
+    o.pos = float4(corners[vid], 0.0, 1.0);
+    return o;
+}
+float4 PSMain(VSOut i) : SV_Target { return float4(0.0, 0.0, 1.0, 1.0); }
+'@
+
+# Declares one of every kind of metadata mp_preset_param_info carries, including a hidden one, so what the page
+# does with a preset it has never seen is a statement with a list behind it.
+$scratchManifest = @"
+{
+  "schema": 1,
+  "id": "$scratchId",
+  "name": "Check Harness Preset",
+  "shader": "solid.hlsl",
+  "vertex_count": 3,
+  "instance_count": 1,
+  "parameters": [
+    { "name": "count", "label": "Harness count", "default": 20.0, "min": 4.0, "max": 40.0, "step": 1.0 },
+    { "name": "width", "label": "Harness width", "unit": "px", "default": 2.5, "min": 1.0, "max": 8.0 },
+    { "name": "mode", "label": "Harness mode", "default": 0.0, "min": 0.0, "max": 2.0,
+      "choices": ["Alpha", "Beta", "Gamma"] },
+    { "name": "art_primary", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true }
+  ]
+}
+"@
+
+$script:window = $null
+$script:processId = 0
+
+function Get-Elements {
+    $script:window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+}
+
+function Get-ElementNamed([string]$name, [string]$type) {
+    foreach ($element in Get-Elements) {
+        if ($element.Current.Name -ne $name) { continue }
+        if (-not $type) { return $element }
+        if (($element.Current.ControlType.ProgrammaticName -replace 'ControlType\.', '') -eq $type) { return $element }
+    }
+    return $null
+}
+
+function Get-NamesOfType([string]$type) {
+    $names = @()
+    foreach ($element in Get-Elements) {
+        if (($element.Current.ControlType.ProgrammaticName -replace 'ControlType\.', '') -ne $type) { continue }
+        if ($element.Current.Name) { $names += $element.Current.Name }
+    }
+    return $names
+}
+
+# Every name under the named list, which is how "what does Narrator read for a preset row" is answered.
+function Get-ListRowNames([string]$listName) {
+    $list = Get-ElementNamed $listName 'List'
+    if (-not $list) { return @() }
+    $names = @()
+    foreach ($item in $list.FindAll(
+            [System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
+        if ($item.Current.Name) { $names += $item.Current.Name }
+    }
+    return $names
+}
+
+if (-not ('TunqioForeground' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class TunqioForeground {
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+    public static int ForegroundProcess() {
+        int pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid); return pid;
+    }
+}
+"@
+}
+
+# Activated and then CHECKED, rather than activated and hoped for. AppActivate can return having done nothing
+# while the window is still coming up, and a SendKeys after that goes to whichever window does have focus -
+# which is how a run of this script failed every case at once with the app perfectly healthy in the log.
+function Set-Foreground {
+    for ($i = 0; $i -lt 20; $i++) {
+        try { [Microsoft.VisualBasic.Interaction]::AppActivate($script:processId) } catch { }
+        Start-Sleep -Milliseconds 300
+        if ([TunqioForeground]::ForegroundProcess() -eq $script:processId) { return }
+    }
+
+    throw "the shell window never came to the foreground (it is process $script:processId)"
+}
+
+function Send-Keys([string]$keys) {
+    Set-Foreground
+    [System.Windows.Forms.SendKeys]::SendWait($keys)
+    Start-Sleep -Milliseconds 600
+}
+
+function Invoke-Named([string]$name) {
+    $button = Get-ElementNamed $name 'Button'
+    if (-not $button) { throw "no button named '$name' in the tree" }
+    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 800
+}
+
+function Select-ListRow([string]$listName, [string]$rowName) {
+    $list = Get-ElementNamed $listName 'List'
+    if (-not $list) { throw "no list named '$listName'" }
+    foreach ($item in $list.FindAll(
+            [System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
+        if ($item.Current.Name -ne $rowName) { continue }
+        # Scrolled into view first: the list has a MaxHeight, and a row past it is realised but not reachable.
+        try {
+            $item.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
+            Start-Sleep -Milliseconds 250
+        }
+        catch { }
+        $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Start-Sleep -Milliseconds 1200
+        return
+    }
+
+    throw "no row named '$rowName' in '$listName'"
+}
+
+function Get-SelectedRow([string]$listName) {
+    $list = Get-ElementNamed $listName 'List'
+    if (-not $list) { return $null }
+    $selected = $list.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection()
+    if ($selected.Length -eq 0) { return $null }
+    return $selected[0].Current.Name
+}
+
+$failures = @()
+
+function Test-Case([string]$what, [scriptblock]$check) {
+    # A throw inside a case is that case failing, not the run ending: one unreachable control must not hide
+    # every answer after it.
+    try { $problem = & $check }
+    catch { $problem = "threw: $($_.Exception.Message)" }
+    if ($problem) {
+        $script:failures += "$what - $problem"
+        Write-Output "  FAIL  $what"
+        Write-Output "        $problem"
+    }
+    else {
+        Write-Output "  ok    $what"
+    }
+}
+
+Write-Output "Settings > Visualization (E4-S9), read off the live automation tree"
+Write-Output "  exe             $Exe"
+Write-Output "  user presets    $userPresets"
+Write-Output "  scratch preset  $scratchDir  (written during the run, removed afterwards)"
+Write-Output ''
+
+# Removed before the run too: a folder left by a killed run would make "it appeared after Refresh" untrue.
+if (Test-Path $scratchDir) { Remove-Item $scratchDir -Recurse -Force }
+
+# The settings file is the user's, and this script writes to it: choosing a preset stores viz.preset and the two
+# theming keys are toggled below. So it is copied aside now and put back once the app has exited - after, so the
+# app's own shutdown flush cannot land on top of the restore.
+$settingsFile = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
+$settingsBackup = Join-Path $env:TEMP 'tunqio-check-e4s9-settings.json'
+$hadSettings = Test-Path $settingsFile
+if ($hadSettings) { Copy-Item $settingsFile $settingsBackup -Force }
+
+$process = Start-Process $Exe -PassThru
+try {
+    Start-Sleep -Seconds $Seconds
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $byPid = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)
+    $script:window = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid)
+    if (-not $script:window) { throw 'The shell window never appeared in the automation tree.' }
+    $script:processId = $process.Id
+    Set-Foreground
+
+    # ---- reachable at all ------------------------------------------------------------------------------------
+
+    Test-Case 'Ctrl+, then Visualization opens the page' {
+        # Retried, because the keystroke is the thing under test and a keystroke lost to a window that was not
+        # yet ready would be reported as a missing feature. Three presses is still "Ctrl+, opens Settings".
+        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+            Send-Keys '^{,}'
+            if (Get-ElementNamed 'Visualization settings' 'Button') { break }
+            Start-Sleep -Milliseconds 800
+        }
+
+        if (-not (Get-ElementNamed 'Visualization settings' 'Button')) {
+            return 'Settings > Library did not open, or it has no Visualization button'
+        }
+        Invoke-Named 'Visualization settings'
+        if (-not (Get-ElementNamed 'Presets' 'List')) { 'the visualization page has no preset list' }
+    }
+
+    Test-Case 'the page carries the sections it promises' {
+        foreach ($want in 'Refresh presets', 'Open preset folder', 'Reset to defaults') {
+            if (-not (Get-ElementNamed $want 'Button')) { return "no '$want' button" }
+        }
+        if (-not (Get-ElementNamed 'Let the theme follow the music')) { return 'no reactive theming switch' }
+        if (-not (Get-ElementNamed 'Reactive theming smoothing' 'Slider')) { 'no smoothing slider' }
+    }
+
+    # ---- the preset list -------------------------------------------------------------------------------------
+
+    Test-Case 'every shipped preset is in the list, by its display name' {
+        $rows = Get-ListRowNames 'Presets'
+        foreach ($want in 'Spectrum Bars', 'Waveform', 'Radial Spectrum', 'Ambient Glow') {
+            if ($rows -notcontains $want) { return "the list is [$($rows -join ', ')]; '$want' is missing" }
+        }
+    }
+
+    Test-Case 'a row reads as the preset name and not as a DTO (T-122)' {
+        # The id is on screen under the name and deliberately out of the automation tree: Narrator saying
+        # "Spectrum Bars spectrum-bars" is the Tracks-row mistake in a smaller frame.
+        $rows = Get-ListRowNames 'Presets'
+        foreach ($row in $rows) {
+            if ($row -match '[a-z]+-[a-z]+' -and $row -cmatch '^[a-z-]+$') {
+                return "a row reads '$row', which is an id rather than a name"
+            }
+        }
+    }
+
+    # ---- the controls come from the preset ---------------------------------------------------------------------
+
+    Test-Case 'Spectrum Bars offers exactly the four parameters it declares' {
+        Select-ListRow 'Presets' 'Spectrum Bars'
+        $sliders = Get-NamesOfType 'Slider'
+        $combos = Get-NamesOfType 'ComboBox'
+        foreach ($want in 'Bars, 64', 'Smoothing, 0.35', 'Gain, 1') {
+            if (-not ($sliders | Where-Object { $_ -eq $want })) {
+                return "no slider named '$want'; sliders are [$($sliders -join ' | ')]"
+            }
+        }
+        if (-not ($combos | Where-Object { $_ -eq 'Colour source, Position' })) {
+            return "the colour source is not a named list; combo boxes are [$($combos -join ' | ')]"
+        }
+    }
+
+    Test-Case 'Ambient Glow offers no art_ parameter (T-142''s hidden flag)' {
+        Select-ListRow 'Presets' 'Ambient Glow'
+        $controls = @(Get-NamesOfType 'Slider') + @(Get-NamesOfType 'ComboBox')
+        foreach ($control in $controls) {
+            if ($control -like '*art_*') {
+                return "'$control' is on the page; the album art palette is set by code and carries packed sRGB integers"
+            }
+        }
+        # And what it does offer is there, or the check above would pass on an empty page.
+        if (-not ($controls | Where-Object { $_ -like 'Glow,*' })) {
+            return "Ambient Glow's own parameters are missing too; controls are [$($controls -join ' | ')]"
+        }
+    }
+
+    Test-Case 'Waveform''s thickness carries its unit' {
+        Select-ListRow 'Presets' 'Waveform'
+        $sliders = Get-NamesOfType 'Slider'
+        if (-not ($sliders | Where-Object { $_ -eq 'Thickness, 2.5 px' })) {
+            return "no 'Thickness, 2.5 px' slider; sliders are [$($sliders -join ' | ')]"
+        }
+    }
+
+    Test-Case 'moving a slider changes what it says it is' {
+        Select-ListRow 'Presets' 'Spectrum Bars'
+        $slider = Get-ElementNamed 'Bars, 64' 'Slider'
+        if (-not $slider) { return 'the Bars slider is not at its default, so this case has nothing to move' }
+        $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).SetValue(96)
+        Start-Sleep -Milliseconds 500
+        if (-not (Get-ElementNamed 'Bars, 96' 'Slider')) {
+            return "the slider still reads [$((Get-NamesOfType 'Slider') -join ' | ')]"
+        }
+    }
+
+    Test-Case 'Reset puts it back to the default the manifest declares' {
+        Invoke-Named 'Reset to defaults'
+        if (-not (Get-ElementNamed 'Bars, 64' 'Slider')) {
+            return "after Reset the sliders read [$((Get-NamesOfType 'Slider') -join ' | ')]"
+        }
+    }
+
+    # ---- AC-133: a preset dropped in while the app is running ----------------------------------------------------
+
+    Test-Case 'a preset dropped into the user directory is not there until Refresh' {
+        New-Item -ItemType Directory -Path $scratchDir -Force | Out-Null
+        # WriteAllText, not Set-Content -Encoding utf8: Windows PowerShell writes a BOM, and a BOM at the head
+        # of the HLSL makes D3DCompile refuse the shader while the manifest still parses - so the preset would
+        # appear in the list and then fail to load, which is a confusing way for a harness to be wrong.
+        [System.IO.File]::WriteAllText((Join-Path $scratchDir 'solid.hlsl'), $scratchShader)
+        [System.IO.File]::WriteAllText((Join-Path $scratchDir 'preset.json'), $scratchManifest)
+        Start-Sleep -Milliseconds 500
+        $rows = Get-ListRowNames 'Presets'
+        if ($rows -contains 'Check Harness Preset, your preset') {
+            'it appeared without a refresh, so the catalogue is being watched rather than reread on request'
+        }
+    }
+
+    Test-Case 'Refresh finds it, and says it did' {
+        Invoke-Named 'Refresh presets'
+        $rows = Get-ListRowNames 'Presets'
+        if ($rows -notcontains 'Check Harness Preset, your preset') {
+            return "after Refresh the list is [$($rows -join ', ')]"
+        }
+        # The row says whose preset it is, which is the question a person with their own presets will ask.
+        if (-not (Get-ElementNamed 'Refresh presets' 'Button')) { 'the page went away' }
+    }
+
+    Test-Case 'the harness preset gets the controls its own manifest declares' {
+        Select-ListRow 'Presets' 'Check Harness Preset, your preset'
+        $selected = Get-SelectedRow 'Presets'
+        if ($selected -ne 'Check Harness Preset, your preset') {
+            # Almost always a shader that would not compile, in which case the page has put the selection back
+            # and the compiler's own words are in the notice bar - which is worth printing rather than guessing.
+            $notice = (Get-NamesOfType 'Text') | Where-Object { $_ -like '*error X*' }
+            return "the selection went back to '$selected'; notice: $($notice -join ' / ')"
+        }
+
+        $sliders = Get-NamesOfType 'Slider'
+        $combos = Get-NamesOfType 'ComboBox'
+        # Nothing about this preset exists anywhere in the app: the label, the range, the unit and the three
+        # mode names all came off a file written three seconds ago, through mp_renderer_enum_preset_params.
+        if (-not ($sliders | Where-Object { $_ -eq 'Harness count, 20' })) {
+            return "no 'Harness count, 20' slider; sliders are [$($sliders -join ' | ')]"
+        }
+        if (-not ($sliders | Where-Object { $_ -eq 'Harness width, 2.5 px' })) {
+            return "no 'Harness width, 2.5 px' slider; sliders are [$($sliders -join ' | ')]"
+        }
+        if (-not ($combos | Where-Object { $_ -eq 'Harness mode, Alpha' })) {
+            return "no 'Harness mode, Alpha' list; combo boxes are [$($combos -join ' | ')]"
+        }
+        foreach ($control in @($sliders) + @($combos)) {
+            if ($control -like '*art_*') { return "'$control' was offered; the manifest marks it hidden" }
+        }
+    }
+
+    Test-Case 'and the visualizer kept drawing through all of it' {
+        Send-Keys '^+d'
+        $panel = Get-ElementNamed 'Diagnostics' 'Group'
+        if (-not $panel) { return 'the diagnostics overlay did not open' }
+        $rows = @()
+        foreach ($e in $panel.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+            if ($e.Current.Name) { $rows += $e.Current.Name }
+        }
+        $renderer = $rows | Where-Object { $_ -like '*fps*' -or $_ -like '*unavailable*' }
+        # Write-Host, not Write-Output: a check block's pipeline output IS its verdict.
+        Write-Host "        renderer rows: $($renderer -join ' | ')"
+        if ($rows -join ' ' -like '*unavailable*') { 'the renderer is unavailable, so nothing above switched a picture' }
+        Send-Keys '^+d'
+    }
+
+    # ---- T-151: the two settings E4-S6 shipped with no UI --------------------------------------------------------
+
+    Test-Case 'the smoothing slider says what the person is choosing, in seconds' {
+        $slider = Get-ElementNamed 'Reactive theming smoothing' 'Slider'
+        if (-not $slider) { return 'no smoothing slider' }
+        $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
+        $range.SetValue(1.0)
+        Start-Sleep -Milliseconds 400
+        $texts = @()
+        foreach ($e in Get-Elements) { if ($e.Current.Name) { $texts += $e.Current.Name } }
+        if (-not ($texts | Where-Object { $_ -like '4.0 s to move 63*' })) {
+            return "at 1.0 the label does not name the 4 s time constant"
+        }
+        $range.SetValue(0.0)
+        Start-Sleep -Milliseconds 400
+        $texts = @()
+        foreach ($e in Get-Elements) { if ($e.Current.Name) { $texts += $e.Current.Name } }
+        if (-not ($texts | Where-Object { $_ -like '0.5 s to move 63*' })) {
+            return 'at 0 the label does not name the 0.5 s time constant'
+        }
+    }
+
+    Test-Case 'the theming switch and the smoothing reach settings.json' {
+        $toggle = Get-ElementNamed 'Let the theme follow the music'
+        if (-not $toggle) { return 'no reactive theming switch' }
+        $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+        Start-Sleep -Milliseconds 700
+        $settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
+        if (-not (Test-Path $settingsPath)) { return "no settings.json at $settingsPath" }
+        $json = Get-Content $settingsPath -Raw | ConvertFrom-Json
+        if ($null -eq $json.'ui.reactiveTheming') { return 'ui.reactiveTheming was not written' }
+        if ($null -eq $json.'ui.reactiveSmoothing') { return 'ui.reactiveSmoothing was not written' }
+        Write-Host "        ui.reactiveTheming=$($json.'ui.reactiveTheming') ui.reactiveSmoothing=$($json.'ui.reactiveSmoothing')"
+        # Put the switch back where it was found; this is the user's own settings file.
+        $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+        Start-Sleep -Milliseconds 500
+    }
+
+    Test-Case 'the chosen preset is written to viz.preset' {
+        Select-ListRow 'Presets' 'Radial Spectrum'
+        $settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
+        $json = Get-Content $settingsPath -Raw | ConvertFrom-Json
+        if ($json.'viz.preset' -ne 'radial-spectrum') {
+            return "viz.preset is '$($json.'viz.preset')' after choosing Radial Spectrum"
+        }
+    }
+
+    Test-Case 'and back to Settings > Library, so the two halves are one destination' {
+        Invoke-Named 'Library settings'
+        if (-not (Get-ElementNamed 'Rescan all' 'Button')) { 'the library settings page did not come back' }
+    }
+
+    Write-Output ''
+    if ($failures.Count -eq 0) {
+        Write-Output 'PASS: Settings > Visualization lists, switches, describes and refreshes'
+        exit 0
+    }
+
+    foreach ($failure in $failures) { Write-Output "FAIL: $failure" }
+    exit 1
+}
+finally {
+    if (-not $process.HasExited) { $process.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 3 }
+    if (-not $process.HasExited) { $process.Kill() }
+    if (-not $KeepScratch -and (Test-Path $scratchDir)) { Remove-Item $scratchDir -Recurse -Force }
+    if ($hadSettings) { Copy-Item $settingsBackup $settingsFile -Force; Remove-Item $settingsBackup -Force }
+    elseif (Test-Path $settingsFile) { Remove-Item $settingsFile -Force }
+}

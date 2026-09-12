@@ -97,7 +97,7 @@ public sealed partial class LibraryPane : UserControl
     /// <summary>Settings › Library in the frame (E3-S12); already there, it is shown (the search cleared).</summary>
     public void OpenSettings()
     {
-        if (PageFrame.Content is LibrarySettingsPage)
+        if (PageFrame.Content is LibrarySettingsPage or Shell.VisualizationSettingsPage)
         {
             ClearSearch();
             return;
@@ -131,7 +131,10 @@ public sealed partial class LibraryPane : UserControl
         ClearSearch(); // a result opened, a pane item chosen, back: the page is the destination now
 
         // A root page (or settings) selects its pane item; a detail page leaves the selection where it was.
+        // Either settings page keeps the pane's settings item selected: they are two halves of one
+        // destination until E6 builds the overlay (E4-S9 added Settings > Visualization).
         object? item = e.SourcePageType == typeof(LibrarySettingsPage)
+                       || e.SourcePageType == typeof(Shell.VisualizationSettingsPage)
             ? Nav.SettingsItem
             : Routes.FirstOrDefault(r => r.Value.Page == e.SourcePageType && Equals(r.Value.Parameter, e.Parameter)).Key is { } tag
                 ? Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => (string?)i.Tag == tag)

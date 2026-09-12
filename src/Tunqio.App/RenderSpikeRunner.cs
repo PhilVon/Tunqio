@@ -131,7 +131,9 @@ internal sealed class RenderSpikeRunner
     }
 
     private NativeRendererSnapshot? Snapshot() =>
-        _window.Renderer is null ? null : new NativeRendererSnapshot(_window.Renderer.GetStats(), TimeSpan.FromTicks(Environment.TickCount64 * TimeSpan.TicksPerMillisecond));
+        _window.Renderer?.TryGetStats() is { } stats
+            ? new NativeRendererSnapshot(stats, TimeSpan.FromTicks(Environment.TickCount64 * TimeSpan.TicksPerMillisecond))
+            : null;
 
     private static int IntArg(string[] args, string name, int fallback)
     {

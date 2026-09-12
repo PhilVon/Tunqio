@@ -23,6 +23,16 @@
     <ProjectReference Include="..\..\tools\FixtureGen\Tunqio.FixtureGen.csproj" />
   </ItemGroup>
 
+  <!-- The shipped presets, beside mpcore.dll, because that is where the core looks for them (T-125) and because
+       PresetSwitchBenchmarks times the compile of a real preset rather than of a fixture. Content, laid out the
+       way Tunqio.App lays them out, so the benchmark measures what the app runs. -->
+  <ItemGroup>
+    <Content Include="$(TunqioRepoRoot)presets\**\*">
+      <LinkBase>presets</LinkBase>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <PropertyGroup>
     <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
     <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>

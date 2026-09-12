@@ -1,6 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Tunqio.App.Library;
 using Tunqio.App.Playback;
+using Tunqio.Core;
+using Tunqio.Core.Visualization;
+using Tunqio.Interop;
 
 namespace Tunqio.App.Shell;
 
@@ -29,6 +32,14 @@ public static class ShellServices
             p.GetRequiredService<IPlaybackSessionSource>(),
             p.GetRequiredService<LibraryScanCoordinator>(),
             uiContext));
+        // One visualizer surface for the process (E4-S9). MainWindow attaches it to the SwapChainPanel;
+        // VisualizationSettingsViewModel switches its preset and moves its parameters. Two of these would be two
+        // D3D devices, one of them drawing into nothing.
+        services.AddSingleton<IVisualizationHost>(_ => new VisualizationHost());
+        services.AddSingleton(p => new VisualizationSettingsViewModel(
+            p.GetRequiredService<IVisualizationHost>(),
+            p.GetRequiredService<ISettingsStore>(),
+            p.GetRequiredService<IAppPaths>()));
         return services;
     }
 }

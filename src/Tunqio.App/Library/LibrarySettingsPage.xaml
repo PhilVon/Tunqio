@@ -22,10 +22,20 @@
     </Style>
   </Page.Resources>
 
-  <Grid RowDefinitions="Auto,*">
+  <Grid RowDefinitions="Auto,Auto,*">
     <TextBlock Text="Library settings" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,12,16,4" />
 
-    <ScrollViewer Grid.Row="1" Padding="16,0,16,16">
+    <!--
+      The two settings pages there are, until E6 builds the overlay (E4-S9 added the second). A pair of buttons
+      rather than a NavigationView section: the sidebar's pane is the library's, and Settings is one item in it.
+    -->
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="16,4,16,4">
+      <Button x:Name="LibraryTab" Content="Library" IsEnabled="False" AutomationProperties.Name="Library settings" />
+      <Button x:Name="VisualizationTab" Content="Visualization" Click="OnOpenVisualizationSettings"
+              AutomationProperties.Name="Visualization settings" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="2" Padding="16,0,16,16">
       <StackPanel MaxWidth="720" HorizontalAlignment="Left">
         <InfoBar IsOpen="{x:Bind ViewModel.HasNotice, Mode=OneWay}" Message="{x:Bind ViewModel.Notice, Mode=OneWay}" Severity="Informational" IsClosable="True" Margin="0,8,0,0" />
 
