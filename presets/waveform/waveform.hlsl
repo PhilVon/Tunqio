@@ -30,6 +30,7 @@ Buffer<float> Waveform : register(t1);
 #define P_COLOUR params[0].z
 #define P_GAIN params[0].w
 #define P_THICKNESS params[1].x
+#define P_THEME_MIX params[1].y
 
 static const uint MaxPoints = 256u; // must equal "instance_count" in preset.json
 static const uint MaxTaps = 48u;    // samples one point may average over, so the loop has a bound
@@ -44,10 +45,57 @@ struct VSOut {
     float2 shape : TEXCOORD0; // x = signed position across the ribbon in [-1, 1], y = |excursion| at this end
 };
 
+// ---- the renderer-wide theme (E4-S6's `theme`, wired to a picture by T-162) -----------------------
+//
+// theme[0], [1] and [2] are mp_theme_colors' primary, secondary and accent; theme[3] is the shell's own
+// background, which this preset does not draw with because it has its own `clear`. mpcore.h: "until a theme is
+// set every channel is zero, so alpha 0 is how a preset reads 'the shell has not told me one'" - that branch
+// is what keeps this preset's golden image byte-identical on a renderer nobody has themed.
+//
+// WHAT THE THEME REPLACES is the ramp's three STOPS, and nothing else, so it stays orthogonal to `colour`,
+// which chooses where ON the ramp to sample. Here that pairing is worth naming: this preset's mode 0 is
+// EXCURSION, so with a theme the ribbon is theme-primary where it is near zero and theme-accent at its peaks -
+// the shape of the meaning is unchanged and only the colours are the app's.
+//
+// BRIGHTNESS STAYS THIS PRESET'S: a theme colour is scaled so it is no more luminous than the stop it
+// replaces. See the fuller note in spectrum-bars.hlsl for why that is what keeps the flash measurement an
+// upper bound over every theme rather than a number that was true of one palette.
+//
+// Duplicated rather than shared, as ramp() and colour_coord() already are: D3DCompile is called with a null
+// include handler (native/mpcore/src/render/preset.cpp), so a preset cannot #include anything.
+
+// A theme colour dimmer than this is not a ramp stop at any scaling, so the preset's own stop is used. In
+// luma2's units.
+static const float ThemeFloor = 0.004;
+
+// WCAG relative luminance approximated at gamma 2 rather than 2.4 - three multiplies rather than three pow()s.
+// See spectrum-bars.hlsl for the measurement that chose it over weighting the gamma-encoded values directly.
+float luma2(float3 c) {
+    const float3 s = c * c;
+    return 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b;
+}
+
+// One ramp stop under the theme; the preset's own stop when there is no theme, when the theme colour is too
+// dark to be a stop, or when theme_mix is 0.
+float3 themed(float3 own, float4 t) {
+    if (t.a <= 0.0) {
+        return own; // the shell has not told this preset a theme
+    }
+    const float3 c = saturate(t.rgb);
+    const float lt = luma2(c);
+    if (lt < ThemeFloor) {
+        return own;
+    }
+    // Scale DOWN only: luma2 scales as the square so sqrt lands on the stop's luminance, and min(1.0, ...)
+    // makes it one-directional because a theme colour dimmer than the stop is always safe.
+    const float3 fitted = c * min(1.0, sqrt(luma2(own) / lt));
+    return lerp(own, fitted, saturate(P_THEME_MIX));
+}
+
 float3 ramp(float u) {
-    const float3 a = float3(0.16, 0.52, 0.95); // azure
-    const float3 b = float3(0.35, 0.90, 0.80); // aqua
-    const float3 c = float3(0.98, 0.62, 0.38); // amber
+    const float3 a = themed(float3(0.16, 0.52, 0.95), theme[0]); // azure
+    const float3 b = themed(float3(0.35, 0.90, 0.80), theme[1]); // aqua
+    const float3 c = themed(float3(0.98, 0.62, 0.38), theme[2]); // amber
     return u < 0.5 ? lerp(a, b, saturate(u * 2.0)) : lerp(b, c, saturate((u - 0.5) * 2.0));
 }
 

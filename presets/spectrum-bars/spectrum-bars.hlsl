@@ -30,6 +30,7 @@ Buffer<float> Waveform : register(t1);
 #define P_SMOOTHING params[0].y
 #define P_COLOUR params[0].z
 #define P_GAIN params[0].w
+#define P_THEME_MIX params[1].x
 
 static const uint MaxBars = 128u;  // must equal "instance_count" in preset.json
 static const uint MaxScan = 128u;  // bins one bar may average over, so the loop has a bound the compiler can see
@@ -42,12 +43,68 @@ struct VSOut {
     float2 shape : TEXCOORD0; // x = height up the screen (0 bottom, 1 top), y = this bar's own height
 };
 
+// ---- the renderer-wide theme (E4-S6's `theme`, wired to a picture by T-162) -----------------------
+//
+// theme[0], [1] and [2] are mp_theme_colors' primary, secondary and accent; theme[3] is the shell's own
+// background, which this preset does not draw with because it has its own `clear`. mpcore.h: "until a theme is
+// set every channel is zero, so alpha 0 is how a preset reads 'the shell has not told me one'" - that branch
+// is what keeps this preset's golden image byte-identical on a renderer nobody has themed.
+//
+// WHAT THE THEME REPLACES is the ramp's three STOPS, and nothing else. That keeps it orthogonal to `colour`,
+// which chooses where ON the ramp to sample: the theme says which colours, `colour` says what moves along
+// them, and somebody colouring by spectral centroid keeps doing so under a theme. Folding the theme in as a
+// fourth `colour` mode would instead have made the two exclusive, which is a loss and not a feature.
+//
+// BRIGHTNESS STAYS THIS PRESET'S. A theme colour is scaled so it is no more luminous than the stop it
+// replaces - the same bargain ambient-glow's ArtLevel strikes with album art, and for the same reason: a theme
+// may change this preset's hue and may not make it brighter. That is what keeps the flash figure measured in
+// test_preset_golden.cpp an upper bound over every theme rather than a number that was true of one palette,
+// and "no shipped preset can flash the field under a worst-case theme" measures it rather than trusting this.
+//
+// This block is duplicated in all four shipped presets rather than shared. D3DCompile is called with a null
+// include handler (native/mpcore/src/render/preset.cpp), so a preset CANNOT #include anything - and a user
+// preset dropped into %LocalAppData%\Tunqio\presets could not reach a repo header even if it could. The other
+// helpers here (ramp, colour_coord, bar_magnitude) are duplicated across presets for the same reason.
+
+// A theme colour whose luminance is below this is not a ramp stop at any scaling - scaling a near-black up is
+// amplified quantisation, not a colour - so the preset's own stop is used instead. In luma2's units.
+static const float ThemeFloor = 0.004;
+
+// An approximation of WCAG relative luminance using a gamma of 2 rather than 2.4: three multiplies instead of
+// three pow()s, which matters because ambient-glow evaluates its stops per PIXEL. It does not have to be exact,
+// only to order two colours the way the real thing does. Measured while choosing it, against a saturated green
+// standing in for the worst case: weighting the gamma-encoded values directly puts that green 38% over the
+// luminance of the stop it replaces, and squaring first puts it 12% over. The residual is not argued away here
+// - the worst-case-theme flash test measures what it costs on the actual picture.
+float luma2(float3 c) {
+    const float3 s = c * c;
+    return 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b;
+}
+
+// One ramp stop under the theme. Returns the preset's own stop unchanged when there is no theme, when the theme
+// colour is too dark to be a stop, or when theme_mix is 0 - so all three of those keep the golden image.
+float3 themed(float3 own, float4 t) {
+    if (t.a <= 0.0) {
+        return own; // the shell has not told this preset a theme
+    }
+    const float3 c = saturate(t.rgb);
+    const float lt = luma2(c);
+    if (lt < ThemeFloor) {
+        return own;
+    }
+    // Scale DOWN only. luma2 scales as the square, so sqrt is the factor that lands on the stop's luminance;
+    // min(1.0, ...) is what makes it one-directional, and a theme colour dimmer than the stop stays dimmer
+    // because dimmer is always safe for the flash contract.
+    const float3 fitted = c * min(1.0, sqrt(luma2(own) / lt));
+    return lerp(own, fitted, saturate(P_THEME_MIX));
+}
+
 // Three stops, low frequency to high. Kept off pure white on purpose: relative luminance is what the flash
 // contract is about, and an aqua at full brightness is already the brightest thing this preset draws.
 float3 ramp(float u) {
-    const float3 a = float3(0.10, 0.38, 0.95); // azure
-    const float3 b = float3(0.20, 0.78, 0.72); // aqua
-    const float3 c = float3(0.95, 0.42, 0.52); // rose
+    const float3 a = themed(float3(0.10, 0.38, 0.95), theme[0]); // azure
+    const float3 b = themed(float3(0.20, 0.78, 0.72), theme[1]); // aqua
+    const float3 c = themed(float3(0.95, 0.42, 0.52), theme[2]); // rose
     return u < 0.5 ? lerp(a, b, saturate(u * 2.0)) : lerp(b, c, saturate((u - 0.5) * 2.0));
 }
 

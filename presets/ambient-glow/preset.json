@@ -16,6 +16,7 @@
     { "name": "glow", "label": "Glow", "default": 1.0, "min": 0.25, "max": 1.0 },
     { "name": "art_primary", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true },
     { "name": "art_secondary", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true },
-    { "name": "art_accent", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true }
+    { "name": "art_accent", "default": -1.0, "min": -1.0, "max": 16777215.0, "hidden": true },
+    { "name": "theme_mix", "label": "Follow app theme", "default": 1.0, "min": 0.0, "max": 1.0 }
   ]
 }

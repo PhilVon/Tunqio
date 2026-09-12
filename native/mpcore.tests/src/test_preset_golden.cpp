@@ -250,13 +250,68 @@ struct headless_renderer {
     }
 };
 
-// Renders one preset once, with its declared defaults, against the fixed frame.
-capture render_preset(const std::string& id, uint32_t width = k_golden_width, uint32_t height = k_golden_height) {
+// ---- the theme, pinned ---------------------------------------------------------------------------
+//
+// T-162 made all four presets draw with b0's `theme`, which turns a renderer-wide palette into an input to
+// every picture in this file. A golden image of a themed preset is only a golden image if the theme is part of
+// the fixture, so it is pinned in both directions rather than left to whatever last ran:
+//
+//   - the four original goldens are pinned to NO THEME, which is what mp_renderer_set_theme has never been
+//     called meaning. That is the state a fresh mp_renderer is in, so it was already true - but it was true by
+//     accident of construction, and `assert_unthemed` below makes it an assertion. If a future renderer ever
+//     starts life with a default theme, these four goldens must move, and this is what will say so.
+//   - the themed goldens are pinned to k_test_theme, a constant in this file.
+//
+// The theme deliberately OUTLIVES a preset switch (mpcore.h), so it is not enough to set a preset and trust the
+// defaults the way a parameter allows: every renderer here is freshly created, which is the only state in which
+// "no theme" is guaranteed.
+
+// Four colours no preset's own ramp contains, so a pixel carrying one of these carries it from the theme and
+// nowhere else - the same reasoning k_theme in test_renderer.cpp uses. Orange, deep purple and lime against
+// ramps that are blue-teal-rose, blue-aqua-amber, violet-magenta-gold and blue-teal-ember.
+constexpr float k_test_theme[4][4] = {
+    {0.95f, 0.45f, 0.10f, 1.0f}, // primary: orange
+    {0.45f, 0.15f, 0.85f, 1.0f}, // secondary: deep purple
+    {0.55f, 0.90f, 0.20f, 1.0f}, // accent: lime
+    {0.05f, 0.04f, 0.08f, 1.0f}, // background: the shell's, which no preset draws with - it has its own clear
+};
+
+mp_theme_colors theme_of(const float rgba[4][4]) {
+    mp_theme_colors c{};
+    c.struct_size = sizeof c;
+    for (int i = 0; i < 4; ++i) {
+        c.primary[i] = rgba[0][i];
+        c.secondary[i] = rgba[1][i];
+        c.accent[i] = rgba[2][i];
+        c.background[i] = rgba[3][i];
+    }
+    return c;
+}
+
+// "Nothing has themed this renderer" as an assertion rather than an assumption. A preset reads alpha 0 as "the
+// shell has not told me a theme" (mpcore.h), so this is the exact condition the unthemed goldens depend on.
+void assert_unthemed(const headless_renderer& fx) {
+    const auto theme = core(fx.handle)->theme_now();
+    for (size_t i = 0; i < theme.size(); ++i) {
+        INFO("theme float " << i << " of a freshly created renderer");
+        REQUIRE(theme[i] == 0.0f);
+    }
+}
+
+// Renders one preset once, with its declared defaults, against the fixed frame. `theme` is applied before the
+// shot when given; when it is not, the renderer is asserted to be unthemed - see the note above.
+capture render_preset(const std::string& id, uint32_t width = k_golden_width, uint32_t height = k_golden_height,
+                      const mp_theme_colors* theme = nullptr) {
     const headless_renderer fx{width, height};
     if (mp_renderer_set_preset(fx.handle, id.c_str()) != MP_OK) {
         char err[512];
         mp_last_error(err, sizeof err);
         FAIL("mp_renderer_set_preset(\"" << id << "\") failed: " << err);
+    }
+    if (theme != nullptr) {
+        REQUIRE(mp_renderer_set_theme(fx.handle, theme) == MP_OK);
+    } else {
+        assert_unthemed(fx);
     }
     return fx.shoot(fixed_frame());
 }
@@ -309,6 +364,33 @@ mean_rgb mean_channels(const capture& c) {
         m.b /= static_cast<double>(pixels);
         m.g /= static_cast<double>(pixels);
         m.r /= static_cast<double>(pixels);
+    }
+    return m;
+}
+
+// The mean of only the pixels that are lit, by the same threshold lit_pixels uses.
+//
+// Necessary rather than tidier, and waveform is why. That preset draws a ribbon covering about 1.6% of the
+// field; the other 98.4% is Background, which is (0.02, 0.022, 0.035) - a near-black whose LARGEST channel is
+// blue. So the whole-field mean of a waveform capture is a measurement of its background, and under an
+// all-red theme it reads B 8.89 R 7.99: blue still leads a picture whose every lit pixel is pure red. Worse,
+// the same arithmetic makes an all-BLUE theme look like a pass for a reason that has nothing to do with the
+// theme. Averaging over the lit pixels is what makes the reading about what the preset drew.
+mean_rgb mean_lit_channels(const capture& c) {
+    mean_rgb m;
+    size_t n = 0;
+    for (size_t i = 0; i < c.bgra.size(); i += 4) {
+        if (c.bgra[i] > 12 || c.bgra[i + 1] > 12 || c.bgra[i + 2] > 12) {
+            m.b += c.bgra[i];
+            m.g += c.bgra[i + 1];
+            m.r += c.bgra[i + 2];
+            ++n;
+        }
+    }
+    if (n > 0) {
+        m.b /= static_cast<double>(n);
+        m.g /= static_cast<double>(n);
+        m.r /= static_cast<double>(n);
     }
     return m;
 }
@@ -847,6 +929,264 @@ TEST_CASE("Ambient Glow still draws when there is no usable palette", "[render][
     }
 }
 
+// ---- T-162: the theme reaches the screen --------------------------------------------------------
+//
+// E4-S6 built the theme and measured it exhaustively along a path that ended at b0: T-156's check reads the
+// palette arriving at 30.3 per second on the live shell. What was never written is the last step - no shipped
+// preset READ theme[], so sixteen floats arrived every frame and changed nothing. These tests are that step,
+// and they are deliberately pictures: the two goldens below are the first checked-in images in this repository
+// in which a theme colour is visible.
+//
+// The design they encode, per preset:
+//   spectrum-bars, waveform, radial-spectrum  the theme replaces the ramp's three STOPS. `colour` still
+//                                             chooses where on the ramp to sample, so the two are orthogonal
+//                                             and every combination is meaningful.
+//   ambient-glow                              the theme is the FALLBACK under the album art, replacing
+//                                             default_stop(). Art outranks it; see the shader's header.
+// and in all four, theme_mix (default 1) scales from the preset's own palette to the theme's.
+
+TEST_CASE("Spectrum Bars draws with the theme", "[render][preset][golden][theme]") {
+    const preset_root_override root{shipped_presets()};
+    const mp_theme_colors theme = theme_of(k_test_theme);
+    check_against_golden("spectrum-bars-themed",
+                         render_preset("spectrum-bars", k_golden_width, k_golden_height, &theme));
+}
+
+// Ambient Glow at its declared defaults, which are art_* = -1: no art, so this is the theme arm of art_or's
+// three-way branch and the picture is the theme's colours rather than the built-in blue-teal-ember.
+TEST_CASE("Ambient Glow draws with the theme when there is no album art", "[render][preset][golden][theme]") {
+    const preset_root_override root{shipped_presets()};
+    const mp_theme_colors theme = theme_of(k_test_theme);
+    check_against_golden("ambient-glow-themed",
+                         render_preset("ambient-glow", k_golden_width, k_golden_height, &theme),
+                         k_max_mean_delta_ambient_glow);
+}
+
+// The goldens above are two presets. This is the claim for all four, and it is the one T-162 exists to make.
+//
+// It is asserted with three SINGLE-HUE themes rather than with k_test_theme, and that is worth explaining
+// because the first version of this test used k_test_theme and was wrong in a way the pictures caught.
+//
+// The plausible-looking assertion is "an orange-purple-lime theme makes the field redder". It is false twice
+// over. That theme's purple carries a 0.85 blue channel, so mean blue stays ahead of mean red even when the
+// theme has completely taken over (spectrum-bars measured B 22.07 -> 16.88 while R 9.74 -> 14.42: both moved
+// toward the theme, and blue still led). And radial-spectrum's own ramp is violet-magenta-gold, which is
+// ALREADY warmer than the theme, so for that preset a correct wiring makes the field LESS red (R 13.26 ->
+// 10.48). An assertion about absolute channel order is therefore an assertion about which palette happens to
+// be redder, not about whether the theme arrived.
+//
+// A theme whose three stops are all the same saturated primary has no such ambiguity: whatever the preset's
+// own ramp was, the field must end up dominated by that channel. That is a claim about the theme arriving and
+// nothing else, and it holds for all four presets and all three channels.
+TEST_CASE("every shipped preset draws with the theme, and theme_mix takes it back", "[render][preset][theme]") {
+    const preset_root_override root{shipped_presets()};
+
+    struct probe {
+        const char* name;
+        float rgb[3];
+    };
+    constexpr std::array<probe, 3> k_probes{{
+        {"red", {1.0f, 0.0f, 0.0f}},
+        {"green", {0.0f, 1.0f, 0.0f}},
+        {"blue", {0.0f, 0.0f, 1.0f}},
+    }};
+
+    for (const char* id : k_shipped_presets) {
+        INFO("preset " << id);
+        const headless_renderer fx{k_golden_width, k_golden_height};
+        REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
+
+        assert_unthemed(fx);
+        const capture unthemed = fx.shoot(fixed_frame());
+
+        for (const auto& p : k_probes) {
+            INFO("an all-" << p.name << " theme");
+            float rgba[4][4]{};
+            for (size_t c = 0; c < 4; ++c) {
+                for (size_t ch = 0; ch < 3; ++ch) {
+                    rgba[c][ch] = p.rgb[ch];
+                }
+                rgba[c][3] = 1.0f;
+            }
+            const mp_theme_colors theme = theme_of(rgba);
+            REQUIRE(mp_renderer_set_theme(fx.handle, &theme) == MP_OK);
+            const capture themed = fx.shoot(fixed_frame());
+            // Over the LIT pixels, not the whole field - see the note on mean_lit_channels. A waveform ribbon
+            // is 1.6% of its picture and the background behind it is blue, so a whole-field mean would be
+            // measuring the clear colour.
+            const mean_rgb m = mean_lit_channels(themed);
+
+            char note[288];
+            std::snprintf(note, sizeof note, "%s under an all-%s theme: mean lit B %.2f G %.2f R %.2f (%zu of %zu "
+                                             "pixels differ from the unthemed picture)",
+                          id, p.name, m.b, m.g, m.r, compare(unthemed, themed).pixels_differing,
+                          unthemed.bgra.size() / 4);
+            WARN(note);
+
+            CHECK(compare(unthemed, themed).pixels_differing > 0);
+            // The field takes the theme's hue, whatever the preset's own ramp was.
+            const double own = p.rgb[0] > 0.0f ? m.r : (p.rgb[1] > 0.0f ? m.g : m.b);
+            const double other_a = p.rgb[0] > 0.0f ? m.g : m.r;
+            const double other_b = p.rgb[2] > 0.0f ? m.g : m.b;
+            CHECK(own > other_a);
+            CHECK(own > other_b);
+        }
+
+        // theme_mix 0 is the preset's own palette back, byte for byte, with a theme still set. This is what
+        // makes the parameter an escape hatch rather than an approximation of one.
+        REQUIRE(mp_renderer_set_param(fx.handle, "theme_mix", 0.0f) == MP_OK);
+        const capture opted_out = fx.shoot(fixed_frame());
+        CHECK(compare(unthemed, opted_out).max_channel == 0);
+    }
+}
+
+// k_test_theme is a realistic three-colour palette rather than a single-hue probe - it is what the two golden
+// images above are recorded under - so what it can assert is that the picture MOVES, and by how much. The
+// numbers it prints are the ones worth reading when a golden changes.
+TEST_CASE("a realistic theme moves every preset's picture", "[render][preset][theme]") {
+    const preset_root_override root{shipped_presets()};
+    const mp_theme_colors theme = theme_of(k_test_theme);
+
+    for (const char* id : k_shipped_presets) {
+        INFO("preset " << id);
+        const headless_renderer fx{k_golden_width, k_golden_height};
+        REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
+        const capture unthemed = fx.shoot(fixed_frame());
+        const mean_rgb before = mean_channels(unthemed);
+
+        REQUIRE(mp_renderer_set_theme(fx.handle, &theme) == MP_OK);
+        const capture themed = fx.shoot(fixed_frame());
+        const mean_rgb after = mean_channels(themed);
+        const difference d = compare(unthemed, themed);
+
+        char note[320];
+        std::snprintf(note, sizeof note,
+                      "%s unthemed -> themed: mean field B %.2f -> %.2f, G %.2f -> %.2f, R %.2f -> %.2f; %zu of "
+                      "%zu pixels differ, max channel delta %d",
+                      id, before.b, after.b, before.g, after.g, before.r, after.r, d.pixels_differing,
+                      unthemed.bgra.size() / 4, d.max_channel);
+        WARN(note);
+
+        // A visible change, not a rounding one. The smallest of the four is waveform, which draws a ribbon a
+        // couple of pixels thick over an unlit field, so the bound is expressed against its own lit area.
+        CHECK(d.pixels_differing > lit_pixels(unthemed) / 4);
+        CHECK(d.max_channel > 8);
+    }
+}
+
+// The reason the theme replaces the ramp's stops rather than becoming a fourth value of `colour`: the two
+// answer different questions, so all six combinations have to mean something. Radial Spectrum is the preset
+// whose colour mode is most visibly user-facing, so it is the one asserted on.
+TEST_CASE("the theme survives every colour mode", "[render][preset][theme]") {
+    const preset_root_override root{shipped_presets()};
+    // A single-hue probe rather than k_test_theme, for the reason given on the test above: only an all-one-
+    // channel theme lets "the field took the theme's hue" be asserted without knowing which of the two
+    // palettes happened to be redder. Green, because radial-spectrum's own ramp has the least of it.
+    constexpr float k_all_green[4][4] = {
+        {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f},
+    };
+    const mp_theme_colors theme = theme_of(k_all_green);
+    const headless_renderer fx{k_golden_width, k_golden_height};
+    REQUIRE(mp_renderer_set_preset(fx.handle, "radial-spectrum") == MP_OK);
+
+    std::array<capture, 3> unthemed;
+    for (int mode = 0; mode < 3; ++mode) {
+        REQUIRE(mp_renderer_set_param(fx.handle, "colour", static_cast<float>(mode)) == MP_OK);
+        unthemed[static_cast<size_t>(mode)] = fx.shoot(fixed_frame());
+    }
+
+    REQUIRE(mp_renderer_set_theme(fx.handle, &theme) == MP_OK);
+    std::array<capture, 3> themed;
+    for (int mode = 0; mode < 3; ++mode) {
+        REQUIRE(mp_renderer_set_param(fx.handle, "colour", static_cast<float>(mode)) == MP_OK);
+        themed[static_cast<size_t>(mode)] = fx.shoot(fixed_frame());
+    }
+
+    for (size_t mode = 0; mode < 3; ++mode) {
+        INFO("colour mode " << mode);
+        // The theme reaches this mode...
+        CHECK(compare(unthemed[mode], themed[mode]).pixels_differing > 0);
+        const mean_rgb m = mean_channels(themed[mode]);
+        CHECK(m.g > m.r);
+        CHECK(m.g > m.b);
+    }
+    // ...and the mode still does its own job under the theme. If the theme had been folded into `colour` as a
+    // fourth value, these three would be one picture instead of three.
+    CHECK(compare(themed[0], themed[1]).pixels_differing > 0);
+    CHECK(compare(themed[1], themed[2]).pixels_differing > 0);
+    CHECK(compare(themed[0], themed[2]).pixels_differing > 0);
+}
+
+// Ambient Glow's ordering decision, as three assertions. AC-124 is a shipped promise and T-147 made it true;
+// the theme must not quietly un-ship it.
+TEST_CASE("in Ambient Glow the album art outranks the theme", "[render][preset][theme][art]") {
+    const preset_root_override root{shipped_presets()};
+    const mp_theme_colors theme = theme_of(k_test_theme);
+    const headless_renderer fx{k_golden_width, k_golden_height};
+    REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
+
+    const capture built_in = fx.shoot(fixed_frame());
+    REQUIRE(mp_renderer_set_theme(fx.handle, &theme) == MP_OK);
+    const capture themed = fx.shoot(fixed_frame());
+
+    // The theme beats the built-in ramp, which is the whole point of wiring it in here.
+    CHECK(compare(built_in, themed).pixels_differing > 0);
+
+    SECTION("art beats the theme") {
+        // A green sleeve against an orange-purple-lime theme: if the theme won, the field would not be green.
+        for (const char* name : {"art_primary", "art_secondary", "art_accent"}) {
+            REQUIRE(mp_renderer_set_param(fx.handle, name, pack_srgb(30, 200, 40)) == MP_OK);
+        }
+        const capture with_art = fx.shoot(fixed_frame());
+        const mean_rgb m = mean_channels(with_art);
+        char note[224];
+        std::snprintf(note, sizeof note,
+                      "ambient-glow, themed orange but with a (30,200,40) sleeve: mean field B %.2f G %.2f R %.2f",
+                      m.b, m.g, m.r);
+        WARN(note);
+        CHECK(m.g > m.r); // the sleeve's hue, not the theme's
+        CHECK(compare(themed, with_art).pixels_differing > 0);
+
+        // And taking the art away hands the field back to the theme rather than to the built-in ramp.
+        for (const char* name : {"art_primary", "art_secondary", "art_accent"}) {
+            REQUIRE(mp_renderer_set_param(fx.handle, name, -1.0f) == MP_OK);
+        }
+        CHECK(compare(themed, fx.shoot(fixed_frame())).max_channel == 0);
+    }
+
+    SECTION("a sleeve too dark to glow falls through to the theme, not to the built-in ramp") {
+        // The ArtFloor branch. Before T-162 this drew the built-in blue-teal-ember; now it draws the theme,
+        // which is the case the theme was wired in for.
+        for (const char* name : {"art_primary", "art_secondary", "art_accent"}) {
+            REQUIRE(mp_renderer_set_param(fx.handle, name, pack_srgb(6, 4, 9)) == MP_OK);
+        }
+        const capture black_art = fx.shoot(fixed_frame());
+        CHECK(compare(themed, black_art).max_channel == 0);
+        CHECK(compare(built_in, black_art).pixels_differing > 0);
+    }
+}
+
+// A near-black theme is not a colour a preset can draw with, so it falls back rather than drawing black - the
+// same argument ambient-glow's ArtFloor makes about a black-and-white sleeve. Without this a shell that
+// published a very dark palette would put the visualizer out rather than tint it.
+TEST_CASE("a theme too dark to draw with leaves the preset its own palette", "[render][preset][theme]") {
+    const preset_root_override root{shipped_presets()};
+    constexpr float k_near_black[4][4] = {
+        {0.02f, 0.02f, 0.03f, 1.0f}, {0.03f, 0.02f, 0.02f, 1.0f}, {0.01f, 0.03f, 0.02f, 1.0f},
+        {0.00f, 0.00f, 0.00f, 1.0f},
+    };
+    const mp_theme_colors dark = theme_of(k_near_black);
+
+    for (const char* id : k_shipped_presets) {
+        INFO("preset " << id);
+        const headless_renderer fx{k_golden_width, k_golden_height};
+        REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
+        const capture unthemed = fx.shoot(fixed_frame());
+        REQUIRE(mp_renderer_set_theme(fx.handle, &dark) == MP_OK);
+        CHECK(compare(unthemed, fx.shoot(fixed_frame())).max_channel == 0);
+    }
+}
+
 // ---- the accessibility contract -----------------------------------------------------------------
 //
 // docs/ui-screens-and-flows.md: "never flashes above 3 Hz full-field luminance change". The analysis stream runs
@@ -872,6 +1212,68 @@ TEST_CASE("no shipped preset can flash the field", "[render][preset][a11y]") {
         WARN(note); // the peak is printed because ambient-glow's area is zero, and a zero needs a reading beside it
         CHECK(m.flashing_area < 0.25);
         CHECK(m.mean_delta < 0.10);
+    }
+}
+
+// T-162 made every preset's colours an input the SHELL controls at 30 Hz, so the measurement above - taken
+// against each preset's own hand-chosen ramp - is no longer the whole claim. The shaders answer this by
+// scaling a theme colour so it is never more luminous than the stop it replaces, which is meant to make every
+// figure above an upper bound over all themes. "Meant to" is the part that needs measuring: the scaling uses
+// luma2, an approximation of WCAG relative luminance at gamma 2 rather than 2.4, and the residual of that
+// approximation is exactly what could push a preset over.
+//
+// So this sweeps the corners of the sRGB cube - the most saturated themes there are, and the ones where the
+// approximation is furthest out - and measures the same two numbers. It is the test that would catch a theme
+// making a preset flash, and it is also the test that would catch someone replacing the luminance cap with a
+// plain assignment.
+TEST_CASE("no shipped preset can flash the field under a worst-case theme", "[render][preset][a11y][theme]") {
+    const preset_root_override root{shipped_presets()};
+    // White plus the six fully saturated hues, each used for all three of primary, secondary and accent so the
+    // whole ramp is that colour and nothing dilutes it.
+    constexpr float k_corners[7][3] = {
+        {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 1.0f}, {1.0f, 0.0f, 1.0f}, {1.0f, 1.0f, 0.0f},
+    };
+    static const char* const k_names[7] = {"white", "red", "green", "blue", "cyan", "magenta", "yellow"};
+
+    for (const char* id : k_shipped_presets) {
+        double worst_area = 0.0;
+        double worst_mean = 0.0;
+        const char* worst_name = "";
+
+        for (size_t k = 0; k < 7; ++k) {
+            float rgba[4][4]{};
+            for (size_t c = 0; c < 4; ++c) {
+                for (size_t ch = 0; ch < 3; ++ch) {
+                    rgba[c][ch] = k_corners[k][ch];
+                }
+                rgba[c][3] = 1.0f;
+            }
+            const mp_theme_colors theme = theme_of(rgba);
+
+            const headless_renderer fx{k_golden_width, k_golden_height};
+            REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
+            REQUIRE(mp_renderer_set_theme(fx.handle, &theme) == MP_OK);
+            const capture quiet = fx.shoot(silent_frame());
+            const capture loud = fx.shoot(full_scale_frame());
+
+            const flash_measurement m = measure_flash(quiet, loud);
+            if (m.flashing_area > worst_area) {
+                worst_area = m.flashing_area;
+                worst_name = k_names[k];
+            }
+            worst_mean = std::max(worst_mean, m.mean_delta);
+            INFO(id << " under an all-" << k_names[k] << " theme");
+            CHECK(m.flashing_area < 0.25);
+            CHECK(m.mean_delta < 0.10);
+        }
+
+        char note[288];
+        std::snprintf(note, sizeof note,
+                      "%s over the seven sRGB corner themes: worst flashing area %.2f%% (all-%s), worst mean "
+                      "full-field luminance change %.4f - against 25%% and 0.10",
+                      id, worst_area * 100.0, worst_name, worst_mean);
+        WARN(note);
     }
 }
 

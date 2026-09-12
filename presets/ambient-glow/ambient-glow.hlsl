@@ -24,11 +24,31 @@
 // independent relaxed atomics that the render thread reads once a frame, so three channel parameters set in
 // sequence can be read half-applied and show a wrong colour for one frame. A packed colour is one atomic store.
 //
-// This is deliberately NOT mp_renderer_set_theme, which E4-S6 has since implemented as b0's `theme` (the schema
-// bump to 2). That is a renderer-wide palette - four colours reaching every preset and the shell's own
-// Composition gradient, polled at 30 Hz with EMA smoothing and a contrast guarantee - and it outlives a preset
-// switch. What AC-124 asks for is one preset's colour SOURCE, which this contract already expresses, and the
-// two remain different things: this preset still reads art_* and does not read `theme`.
+// This is deliberately NOT mp_renderer_set_theme, which E4-S6 implemented as b0's `theme` (the schema bump to
+// 2). That is a renderer-wide palette - four colours reaching every preset and the shell's own Composition
+// gradient, polled at 30 Hz with EMA smoothing and a contrast guarantee - and it outlives a preset switch.
+// What AC-124 asks for is one preset's colour SOURCE, which this contract already expresses, and the two
+// remain different things: the art palette is about the RECORD, the theme is the app's own colour.
+//
+// ---- and how the two are ordered, which is T-162's decision ---------------------------------------
+//
+// This preset now reads BOTH, and the order is: album art, then the theme, then the built-in ramp. The theme
+// replaces default_stop() - the FALLBACK - and never displaces album art.
+//
+// The reason is that they are not interchangeable and art is the more specific signal. AC-124 is a shipped
+// promise ("uses palette colours from album art when available") and T-147 made it true; a theme that
+// overrode it would quietly un-ship a criterion somebody accepted. What the theme fixes is the case AC-124
+// never covered - a track with no art, or art whose palette is too dark to glow - where this preset used to
+// fall back to a hardcoded blue-teal-ember that matched nothing else on screen. Now it falls back to the
+// colour the rest of the window is already using, which is what a background wash should do.
+//
+// So the three-way branch in art_or() below is the whole design, and each arm is a test in
+// test_preset_golden.cpp: art beats theme, theme beats the built-in, and the built-in is still there when
+// neither has been set - which is what keeps this preset's golden image byte-identical.
+//
+// Note that the flash bound above is INDEPENDENT of all of this: `saturate(wash)` caps every channel at 1.0
+// before PeakGlow scales it, so no colour from any source - art, theme or built-in - can change the ceiling.
+// That is why this preset needs no luminance argument about the theme, where the other three do.
 //
 // ---- flash safety ---------------------------------------------------------------------------------
 //
@@ -64,6 +84,7 @@ Buffer<float> Waveform : register(t1);
 #define P_ART_PRIMARY params[1].y
 #define P_ART_SECONDARY params[1].z
 #define P_ART_ACCENT params[1].w
+#define P_THEME_MIX params[2].x
 
 // Must match "clear" in preset.json: there is no blending, so the wash is added to this rather than over it.
 static const float3 Background = float3(0.02, 0.022, 0.035);
@@ -130,15 +151,38 @@ float3 unpack_srgb(float packed) {
     return float3(r, g, b) / 255.0;
 }
 
-// One palette colour, or the built-in stop when there is no art or the art colour cannot be a glow.
+// A theme colour whose brightest channel is below ArtFloor is not a glow either, by exactly the argument the
+// constant was written for; the same floor is reused rather than a second one invented.
+//
+// The theme colour is renormalised to ArtLevel, like an art colour and for the same reason: a white theme must
+// not make this preset brighter than a navy one, only a different hue. Here that is belt and braces rather
+// than the load-bearing bound - PeakGlow already caps the picture whatever colour reaches it - but it keeps
+// the three sources mutually comparable, so switching between them changes hue and not brightness.
+float3 theme_or_default(uint fallback_index) {
+    const float4 t = theme[fallback_index];
+    const float3 own = default_stop(fallback_index);
+    if (t.a <= 0.0) {
+        return own; // the shell has not told this preset a theme: mpcore.h's alpha-0 sentinel
+    }
+    const float3 c = saturate(t.rgb);
+    const float m = max(c.r, max(c.g, c.b));
+    if (m < ArtFloor) {
+        return own;
+    }
+    return lerp(own, c * (ArtLevel / m), saturate(P_THEME_MIX));
+}
+
+// One palette colour: the album art's when there is one, else the theme's, else the built-in stop. The order
+// is T-162's decision and the header says why - art is about the record and outranks the app's own colour,
+// and the theme's job is the case art never covered.
 float3 art_or(float packed, uint fallback_index) {
     if (packed < 0.0) {
-        return default_stop(fallback_index); // no art: the default, and the default of every parameter
+        return theme_or_default(fallback_index); // no art: the default, and the default of every parameter
     }
     const float3 c = unpack_srgb(packed);
     const float m = max(c.r, max(c.g, c.b));
     if (m < ArtFloor) {
-        return default_stop(fallback_index); // art with no usable palette
+        return theme_or_default(fallback_index); // art with no usable palette
     }
     return c * (ArtLevel / m);
 }

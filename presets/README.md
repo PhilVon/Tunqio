@@ -28,15 +28,40 @@ missing preset root costs a user choices rather than a picture; it is not one of
 `ambient-glow` is the one with a colour source outside the analysis stream: its `art_primary`, `art_secondary`
 and `art_accent` parameters carry the album art palette (E3-S7), one sRGB colour packed into each float, with
 `-1` — the default — meaning "no art". `AmbientGlowPalette` in `Tunqio.Core` is the managed side of that. It is
-not `mp_renderer_set_theme`, which is E4-S6's and still a stub; see the head of `ambient-glow/ambient-glow.hlsl`
-for why the two are different jobs.
+not `mp_renderer_set_theme`; see the head of `ambient-glow/ambient-glow.hlsl` for why the two are different
+jobs, and for the order they resolve in (album art, then the theme, then the preset's built-in ramp).
+
+## The theme
+
+`b0` ends with `float4 theme[4]` — `mp_theme_colors`' primary, secondary, accent and background, in that order,
+RGBA. It is renderer-wide, it survives a preset switch (unlike a parameter, which returns to its default), and
+the shell drives it at 30 Hz from the music. That is the schema-2 field; a schema 1 preset simply declares a
+shorter block and reads exactly what it read before.
+
+**Alpha 0 means "the shell has not told me a theme."** Until `mp_renderer_set_theme` is called every channel is
+zero, so a preset must treat `theme[i].a <= 0` as "use my own colours". That branch is what lets a themed preset
+keep a byte-identical golden image on an unthemed renderer, and every shipped preset relies on it.
+
+All four shipped presets read it, and all four do the same thing with it (T-162): the theme replaces the three
+stops of the preset's own colour ramp, leaving the `colour` parameter to go on choosing *where* on that ramp to
+sample. The two are orthogonal — the theme says which colours, `colour` says what moves along them — and a
+`theme_mix` parameter (default 1) scales from the preset's own palette to the theme's, so a person who wants the
+shipped colours back can have them.
+
+If you write a preset that draws with the theme, note the one rule the shipped three follow: a theme colour is
+scaled so it is **no more luminous than the stop it replaces**, so a theme can change a preset's hue but cannot
+make it brighter. That is what keeps the flash-safety measurements below valid under a palette the preset author
+never saw. `mpcore.tests [theme]` measures it over the seven corners of the sRGB cube.
 
 What the four here are, what their parameters mean, and why `smoothing` is spatial rather than temporal are in
 [docs/visualization-engine.md](../docs/visualization-engine.md) ("The presets that ship").
 
 **Editing a shader here changes a checked-in golden image.** `native/mpcore.tests/fixtures/golden/<id>.png` is
 what `mpcore.tests [golden]` compares a fresh render against; re-record with `MPCORE_GOLDEN_UPDATE=1` and look
-at the diff before committing it. The same suite holds the accessibility contract's luminance-flash limit, so a
+at the diff before committing it. There are six: one per preset on a renderer nobody has themed, plus
+`spectrum-bars-themed.png` and `ambient-glow-themed.png`, which are recorded under a theme pinned in the test
+file. A preset that draws with the theme needs the theme pinned in its fixture, or its golden becomes a
+function of whatever the theming last set. The same suite holds the accessibility contract's luminance-flash limit, so a
 preset made much brighter has to be measured, not argued about.
 
 The test fixtures under `native/mpcore.tests/fixtures/presets` are not these: two of them are deliberately
