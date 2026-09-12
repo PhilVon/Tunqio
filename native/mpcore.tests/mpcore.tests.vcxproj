@@ -82,6 +82,7 @@
     <ClCompile Include="src\test_engine.cpp" />
     <ClCompile Include="src\test_gapless.cpp" />
     <ClCompile Include="src\test_latency.cpp" />
+    <ClCompile Include="src\test_library_excursion.cpp" />
     <ClCompile Include="src\test_mp4_gapless.cpp" />
     <ClCompile Include="src\test_output.cpp" />
     <ClCompile Include="src\test_transport.cpp" />
