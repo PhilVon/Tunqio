@@ -24,6 +24,42 @@ public sealed record ReactiveThemeOptions(bool Enabled, float Smoothing)
     /// </remarks>
     public static readonly TimeSpan MinimumTimeConstant = TimeSpan.FromSeconds(0.5);
 
+    /// <summary>The same floor for the light theme, which needs a higher one, and why it is a separate number.</summary>
+    /// <remarks>
+    /// <para>
+    /// The 0.5 s above was set against a single hand-picked worst case: silence at 20 Hz to full scale at
+    /// 20 kHz, holding the harmonic ratio at 0.8 for both ends. <c>ReactiveThemeEngineTests</c> now searches
+    /// every ordered pair of reachable states instead of picking one, and the pair it finds in the LIGHT theme
+    /// is worse than the pair that was picked - 0.1005 of relative luminance against the 0.10 threshold, on the
+    /// constants this shipped with, where the hand-picked pair reported 0.0559. So the light theme was over the
+    /// bound before T-162 widened anything; the search is what found it, not the widening.
+    /// </para>
+    /// <para>
+    /// Why the light theme and not the dark one, at 0.0562 for the same search: HSL lightness is not luminance.
+    /// Near the top of the range the same lightness at two different hues is two quite different luminances, so
+    /// a hue step at high chroma moves the field even when the lightness never changes - which is the same
+    /// asymmetry the engine's constructor already reins in with a smaller lightness span and a 0.35 saturation
+    /// scale. Widening the hue sweep from 120 to 180 degrees makes that step reachable over a longer arc and
+    /// takes the worst pair from 0.1005 to 0.1030, so it makes a pre-existing violation slightly worse rather
+    /// than causing it.
+    /// </para>
+    /// <para>
+    /// 0.8 s puts the light theme's worst surface at 0.0826, a 17% margin and about the dark theme's own
+    /// (0.0756). Measured rather than solved for, because the worst pair moves between surfaces as the floor
+    /// changes: 0.65 s leaves the secondary at 0.0976, 0.70 s at 0.0906, 0.75 s at 0.0838, 0.90 s at 0.0707.
+    /// The secondary is the binding surface and not the primary, because in a light theme it is the one
+    /// multiplied UP (lightness x 1.04), which puts it where chroma costs the most luminance.
+    /// </para>
+    /// <para>
+    /// It is a floor and not a default: the shipped smoothing of 0.15 is a 1.025 s time constant, well above
+    /// it, so this changes nothing at all unless a user drags <c>ui.reactiveSmoothing</c> below about 0.086.
+    /// That is deliberately the cheapest place to spend the fix - the alternative levers are the light theme's
+    /// chroma and its lightness span, and both would cost reaction at every setting rather than at one end,
+    /// and the chroma one would undo T-176.
+    /// </para>
+    /// </remarks>
+    public static readonly TimeSpan LightMinimumTimeConstant = TimeSpan.FromSeconds(0.8);
+
     /// <summary>Where <see cref="Smoothing"/> 1.0 lands: slow enough to be a wash rather than a follow.</summary>
     public static readonly TimeSpan MaximumTimeConstant = TimeSpan.FromSeconds(4.0);
 
@@ -108,13 +144,46 @@ public sealed class ReactiveThemeEngine
     // chorus still moves it.
     private const double ArtHueWeight = 0.45;
 
-    // The spectral centroid range the hue sweeps over, and the sweep itself. 50 Hz to 12 kHz is the range the
-    // presets' "colour = spectral centroid" mode already uses, so a preset and the window agree about what
-    // "bright" means. The sweep starts deep indigo and ends amber, going the short way through magenta and red.
-    private const double CentroidLowHz = 50.0;
-    private const double CentroidHighHz = 12000.0;
+    // The spectral centroid range the hue sweeps over, and the sweep itself. This is the range the presets'
+    // "colour = spectral centroid" mode uses too (the same two numbers appear in all four .hlsl), so a preset
+    // and the window agree about what "bright" means; changing one without the other breaks that agreement.
+    // The sweep starts deep indigo and ends amber, going the short way through magenta and red.
+    //
+    // 300 Hz to 8.5 kHz rather than the 50 Hz to 12 kHz this shipped with, and 180 degrees rather than 120,
+    // because the old numbers spent most of the sweep on centroids music does not produce. Measured over a
+    // 140-file library, 2.8M analysis hops (T-175, D-28): the union of every track's own p5..p95 centroid band
+    // is 312.7 Hz to 8509.7 Hz, so everything outside 300..8500 was sweep nobody could see. Under the old
+    // constants a typical track painted 16.0 of the 120 degrees; under these it paints 39.4 of 180. The
+    // eight-bit sRGB grid at the dark theme's lightness resolves about one colour per 2 degrees, so that is
+    // roughly twenty distinguishable colours over a track instead of eight - and for the middle half of a
+    // track, which is what "it does not react" is really about, the interquartile range goes 5.0 degrees to
+    // 12.4, or two colours to six. Clipping stays under 1% of hops at each end, which is what keeps the
+    // presets' ramp honest as well as this one's.
+    private const double CentroidLowHz = 300.0;
+    private const double CentroidHighHz = 8500.0;
     private const double HueStart = 265.0;
-    private const double HueSweep = 120.0;
+    private const double HueSweep = 180.0;
+
+    // The harmonic-ratio band the saturation is mapped over, and the saturation it maps to. Harmonic ratio is
+    // 1 minus spectral flatness, so its 0..1 input is theoretical: real music's spectrum is peaky and never
+    // visits the bottom of it. Over the same 2.8M hops the pooled p5..p95 is 0.879..0.994 (T-176, D-28), so
+    // mapping straight off the raw 0..1 - which is what this did - produced saturation 0.714..0.743 and nothing
+    // else, a thirtieth of the range it appears to have. In the dark theme, where saturationScale is 1.0, that
+    // barely showed. In the light theme, where the constructor below explains that saturation rather than
+    // lightness is what moves the field and scales it by 0.35, the entire within-track movement was 0.0058 of
+    // chroma: static to any eye. Normalising through the band the music actually occupies takes that to 0.0466,
+    // eight times as much, measured over the same library. Read off the sRGB the engine actually emits - which
+    // is the more honest number, because the contrast guarantee and the lightness axis both feed back into a
+    // saturation read out of a finished colour - the light theme's painted chroma span goes 0.0237 to 0.0517.
+    //
+    // The output range either side of the band is deliberately unchanged, so the fix is a range and not a new
+    // palette. It is not quite free: because the median track sits high in the band rather than at its centre,
+    // the TYPICAL chroma drops from 0.2556 to 0.2176, so the light theme is about 15% less saturated at rest
+    // than it was and considerably less static. That trade is the point rather than a side effect.
+    private const double HarmonicLow = 0.88;
+    private const double HarmonicHigh = 0.99;
+    private const double SaturationFloor = 0.20;
+    private const double SaturationSpan = 0.55;
 
     // RMS as a meter reads it. Below -45 dBFS is silence for this purpose and -6 dBFS is as loud as a master
     // gets, so that span is the whole of the energy axis.
@@ -122,6 +191,7 @@ public sealed class ReactiveThemeEngine
     private const double LoudDb = -6.0;
 
     private readonly bool _dark;
+    private readonly TimeSpan _minimumTimeConstant;
     private readonly IReadOnlyList<Srgb> _foregrounds;
     private readonly double _restLightness;
     private readonly double _lightnessSpan;
@@ -145,6 +215,9 @@ public sealed class ReactiveThemeEngine
         ArgumentNullException.ThrowIfNull(options);
         _dark = dark;
         Options = options;
+        _minimumTimeConstant = dark
+            ? ReactiveThemeOptions.MinimumTimeConstant
+            : ReactiveThemeOptions.LightMinimumTimeConstant;
         _foregrounds = dark ? ReactiveTheming.DarkForegrounds : ReactiveTheming.LightForegrounds;
         // How far the music may move the background, per theme, and it is not symmetric. Near the top of the
         // range sRGB luminance climbs steeply and chroma costs a great deal of it: a fully saturated colour at
@@ -237,7 +310,7 @@ public sealed class ReactiveThemeEngine
             _discontinuities = f.Discontinuities;
             FramesSeen++;
             targetHue = HueFor(f);
-            targetSaturation = Math.Clamp(0.20 + (0.55 * f.HarmonicRatio), 0.0, 1.0);
+            targetSaturation = SaturationFor(f.HarmonicRatio);
             targetEnergy = EnergyFor(f.Rms);
         }
         else
@@ -268,7 +341,12 @@ public sealed class ReactiveThemeEngine
         return Palette;
     }
 
-    /// <summary>The smoothing factor for one step of <paramref name="elapsed"/>: <c>1 - exp(-dt / tau)</c>.</summary>
+    /// <summary>
+    /// The smoothing factor for one step of <paramref name="elapsed"/>: <c>1 - exp(-dt / tau)</c>, where tau is
+    /// the setting's time constant held up to this theme's own floor
+    /// (<see cref="ReactiveThemeOptions.LightMinimumTimeConstant"/> explains why the light theme has a
+    /// different one). At the shipped smoothing the floor never binds.
+    /// </summary>
     public double Alpha(TimeSpan elapsed)
     {
         double dt = elapsed.TotalSeconds;
@@ -277,7 +355,7 @@ public sealed class ReactiveThemeEngine
             return 0.0;
         }
 
-        double tau = Options.TimeConstant.TotalSeconds;
+        double tau = Math.Max(Options.TimeConstant.TotalSeconds, _minimumTimeConstant.TotalSeconds);
         return tau <= 0.0 ? 1.0 : 1.0 - Math.Exp(-dt / tau);
     }
 
@@ -308,6 +386,16 @@ public sealed class ReactiveThemeEngine
         double y = ((1.0 - ArtHueWeight) * Math.Sin(hue * Math.PI / 180.0)) + (ArtHueWeight * Math.Sin(art * Math.PI / 180.0));
         double blended = Math.Atan2(y, x) * 180.0 / Math.PI;
         return blended < 0.0 ? blended + 360.0 : blended;
+    }
+
+    /// <summary>
+    /// Saturation for one harmonic ratio, normalised through <see cref="HarmonicLow"/>..<see cref="HarmonicHigh"/>
+    /// rather than through the raw 0..1 the feature is defined on. See the constants for why.
+    /// </summary>
+    private static double SaturationFor(float harmonicRatio)
+    {
+        double position = Math.Clamp((harmonicRatio - HarmonicLow) / (HarmonicHigh - HarmonicLow), 0.0, 1.0);
+        return Math.Clamp(SaturationFloor + (position * SaturationSpan), 0.0, 1.0);
     }
 
     private static double EnergyFor(float rms)
