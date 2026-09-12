@@ -246,6 +246,53 @@ internal enum MpQualityPolicy
     High = 3,
 }
 
+/// <summary><c>mp_av_sync_mode</c> (ABI 0.17): which analysis frame the renderer draws.</summary>
+internal enum MpAvSyncMode : uint
+{
+    /// <summary>The newest one published. What every build before 0.17 did, and still right where there is
+    /// no output buffer to compensate against.</summary>
+    Newest = 0,
+
+    /// <summary>The one whose hop the listener is hearing. The core's default.</summary>
+    Audible = 1,
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct MpAvSyncConfig
+{
+    public uint StructSize;
+    public uint Mode;
+    public float OffsetMs;
+    public uint ProbeCapacity;
+}
+
+/// <summary>
+/// <c>mp_latency_sample</c> (ABI 0.17): one presented frame's audio-to-picture accounting. Every position is
+/// on <c>mp_clock.mixer_byte_pos</c>' axis and every <c>Qpc</c> is on the same clock as
+/// <c>mp_clock.qpc_ticks</c>, so a record is convertible to milliseconds without anything from outside it.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct MpLatencySample
+{
+    public uint StructSize;
+    public uint AnalysisSequence;
+    public ulong FrameIndex;
+    public long DrawnMixerBytePos;
+    public long AudibleMixerBytePos;
+    public long MixerBytePos;
+    public long AnalysisQpc;
+    public long FirstSeenQpc;
+    public long PresentQpc;
+    public long QpcFrequency;
+    public double ByteRate;
+    public uint MixerSampleRate;
+    public uint Mode;
+    public byte Redrawn;
+    public byte Reserved0;
+    public byte Reserved1;
+    public byte Reserved2;
+}
+
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct MpAnalysisFrame
 {

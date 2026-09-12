@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- tools/LatencyRunner (E4-S8): measures how far the picture is from the sound, on a real output device,
+       for as long as it is asked to, and reports the distribution rather than one number.
+         dotnet run -c Release -p:Platform=x64 -project tools/LatencyRunner (then: -seconds 30)
+       Headless on purpose. The renderer draws into an offscreen texture and there is no shell, so the run needs
+       nobody's desktop and can happen while somebody is at the keyboard (T-166). What that costs is stated in
+       the report itself and in docs/spikes/e4-s8-latency-floor.md, rather than left for a reader to discover.
+       Needs mpcore.dll and the BASS runtime next to the exe (copied below, as the soak runner does it). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Tunqio.LatencyRunner</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tunqio.Interop\Tunqio.Interop.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- T-161: opts this project into Directory.Build.targets' TunqioRefuseStaleNativeCore guard, which
+         fails the build when mpcore.dll is older than a file under native/mpcore. A latency number measured
+         against yesterday's core is worse than no number. -->
+    <TunqioNeedsNativeCore>true</TunqioNeedsNativeCore>
+    <TunqioNativeOut>$(TunqioRepoRoot)artifacts\native\$(Configuration)\x64\</TunqioNativeOut>
+    <TunqioBassRoot>$(TunqioRepoRoot)native\bass\</TunqioBassRoot>
+  </PropertyGroup>
+  <Target Name="TunqioCopyNativeCore" AfterTargets="Build">
+    <Error Condition="!Exists('$(TunqioNativeOut)mpcore.dll')"
+           Text="mpcore.dll not found at $(TunqioNativeOut). Build the solution with msbuild (native first): msbuild Tunqio.sln -p:Configuration=$(Configuration) -p:Platform=x64" />
+    <Error Condition="!Exists('$(TunqioBassRoot)bin\x64\bass.dll')"
+           Text="native/bass is empty; run tools/fetch-native.ps1 first." />
+    <ItemGroup>
+      <_TunqioNativeFiles Include="$(TunqioNativeOut)mpcore.dll;$(TunqioNativeOut)mpcore.pdb" />
+      <_TunqioNativeFiles Include="$(TunqioBassRoot)bin\x64\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TunqioNativeFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

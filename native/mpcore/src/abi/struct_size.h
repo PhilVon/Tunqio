@@ -65,6 +65,8 @@ MP_ABI_STRUCT(mp_render_stats, frames);
 MP_ABI_STRUCT(mp_preset_info, id);
 MP_ABI_STRUCT(mp_preset_param_info, name);
 MP_ABI_STRUCT(mp_theme_colors, primary);
+MP_ABI_STRUCT(mp_av_sync_config, mode);
+MP_ABI_STRUCT(mp_latency_sample, analysis_sequence);
 
 // Whether a caller's struct_size names a prefix of T this build can serve.
 template <typename T> constexpr bool size_served(uint32_t size) noexcept {

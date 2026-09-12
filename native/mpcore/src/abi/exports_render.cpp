@@ -184,4 +184,31 @@ MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* r, mp_quality_poli
     return as_renderer(r)->set_quality(policy);
 }
 
+// Guarded: it takes the probe's lock and may size a vector, so it can throw. A caller built against 0.17's
+// mp_av_sync_config with a later field appended is served the prefix, and the fields its header did not have
+// arrive as the zeros in_struct gives them - which for probe_capacity means "off", the documented default.
+MP_API mp_result MP_CALL mp_renderer_set_av_sync(mp_renderer* r, const mp_av_sync_config* config) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr) {
+            return invalid("mp_renderer_set_av_sync: NULL renderer");
+        }
+        return in_struct(config, "mp_renderer_set_av_sync",
+                         [&](const mp_av_sync_config& whole) { return as_renderer(r)->set_av_sync(whole); });
+    });
+}
+
+// out_array, like the enumerations, because out[0].struct_size is the stride and a short caller has to be
+// repacked. The drain is destructive, which out_array's short-caller path is safe against: the extra call it
+// makes first is the (nullptr, &total) count query, and that takes nothing.
+MP_API mp_result MP_CALL mp_renderer_drain_latency(mp_renderer* r, mp_latency_sample* out, uint32_t* count) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr || count == nullptr) {
+            return invalid("mp_renderer_drain_latency: NULL renderer or count");
+        }
+        return out_array(out, count, "mp_renderer_drain_latency", [&](mp_latency_sample* buffer, uint32_t* n) {
+            return as_renderer(r)->drain_latency(buffer, n);
+        });
+    });
+}
+
 } // extern "C"

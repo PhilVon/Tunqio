@@ -66,6 +66,10 @@ public:
     // Adaptive quality (E4-S7). MP_QUALITY_AUTO hands the tier to the controller in render/quality.h; the
     // other three pin it. Takes effect on the render thread's next frame.
     mp_result set_quality(mp_quality_policy policy);
+    // Audio-to-picture sync (E4-S8): which of the analysis frames it has seen the render thread draws, and
+    // whether it keeps a record of what it drew. Both take effect on the next frame.
+    mp_result set_av_sync(const mp_av_sync_config& config);
+    mp_result drain_latency(mp_latency_sample* out, uint32_t* count);
     std::string active_preset_id() const;
 
     // ---- diagnostics, not on the ABI (mpcore.tests compiles these sources directly) ----
@@ -92,6 +96,14 @@ public:
     quality_tuning quality_tuning_now() const;
 
 private:
+    // One analysis frame the render thread has seen, and when it first saw it. The stamp is taken once, on the
+    // poll that first produced this sequence, so a frame drawn again because nothing newer arrived still
+    // reports the moment the picture's data reached this thread rather than the moment it was redrawn.
+    struct analysis_slot {
+        mp_analysis_frame frame{};
+        int64_t first_seen_qpc = 0;
+    };
+
     renderer() = default;
     mp_result init(mp_engine* engine, void* swap_chain_panel_native, const mp_renderer_config& config);
     mp_result create_device(bool force_warp);
@@ -102,12 +114,19 @@ private:
     void load_catalog_locked(); // preset_mutex_ already held
     void apply_pending_resize();
     void apply_pending_preset();
-    void update_frame_resources(double seconds, double delta);
-    void render_frame(double seconds, double delta);
+    void update_frame_resources(double seconds, double delta, int64_t now_qpc);
+    void render_frame(double seconds, double delta, int64_t now_qpc);
     void serve_capture();
     void serve_full_capture(ID3D11Texture2D* source);
     void record_frame_time(int64_t now_qpc);
     void collect_dxgi_statistics();
+    // Audio-to-picture sync, all three render-thread only. poll_analysis takes whatever the analysis has
+    // published into the history ring; choose_analysis_frame decides which of the ring the picture is drawn
+    // from; record_latency_sample writes what was drawn to the probe, after the present it is describing.
+    void poll_analysis(int64_t now_qpc);
+    const analysis_slot* choose_analysis_frame(int64_t now_qpc);
+    void record_latency_sample();
+    void refresh_mix_format();
     mp_result create_gpu_timing();
     void begin_gpu_timing();
     void end_gpu_timing();
@@ -249,6 +268,38 @@ private:
     std::atomic<bool> analysis_override_active_{false};
     std::atomic<uint32_t> analysis_override_generation_{0};
     uint32_t analysis_override_seen_ = 0; // render thread only
+
+    // ---- audio-to-picture sync (E4-S8) --------------------------------------------------------------
+    // The analysis frames this thread has seen, newest last, so it can draw one that is NOT the newest. The
+    // depth is what bounds how far behind the mixer the picture may be asked to sit: the analysis publishes at
+    // 93.75 Hz and this thread polls at the frame rate, so 32 entries is half a second at 60 Hz and a third of
+    // a second at 93.75, and the offset is clamped inside it rather than silently truncated. One slot more
+    // than that is allocated and never counted: it is where a poll lands before its sequence has been read,
+    // so a poll that turns out to hold the frame already at the head does not overwrite the OLDEST one.
+    static constexpr size_t k_analysis_history = 32;
+    // What mp_av_sync_config.probe_capacity is clamped to. 4096 samples is about a minute of 60 fps and 1 MB;
+    // a harness that wants longer than that drains as it goes, which is what the ring is for.
+    static constexpr uint32_t k_max_probe_samples = 4096;
+    std::unique_ptr<std::array<analysis_slot, k_analysis_history + 1>> analysis_history_;
+    size_t analysis_history_count_ = 0; // render thread only
+    size_t analysis_history_next_ = 0;  // render thread only; also the scratch slot
+    int64_t drawn_first_seen_qpc_ = 0;  // render thread only: provenance of what analysis_ now holds
+    bool drawn_repeat_ = false;         // render thread only: the picture drew the same frame again
+    // The mixer's format, cached because it is how three byte positions become milliseconds and it changes
+    // only when the output device does. Refreshed on the first frame and about once a second after it.
+    double byte_rate_ = 0.0;        // render thread only: mixer bytes per second
+    double bytes_per_frame_ = 0.0;  // render thread only: channels * 4
+    uint32_t mix_sample_rate_ = 0;  // render thread only: frames per second
+    uint64_t mix_format_frame_ = 0; // render thread only: the frame the cache was last refreshed on
+    std::atomic<uint32_t> av_sync_mode_{static_cast<uint32_t>(MP_AV_SYNC_AUDIBLE)};
+    std::atomic<float> av_sync_offset_ms_{0.0f};
+    // The probe. Capacity 0 - the default, and what ships - is the whole switch: the render thread reads one
+    // relaxed atomic per frame and does nothing else, taking neither the lock nor the two clock readings.
+    std::atomic<uint32_t> probe_capacity_{0};
+    mutable std::mutex probe_mutex_;
+    std::vector<mp_latency_sample> probe_;
+    size_t probe_head_ = 0;  // index of the oldest sample under probe_mutex_
+    size_t probe_count_ = 0; // how many are held under probe_mutex_
 
     // Statistics (render thread writes, control plane reads).
     std::atomic<uint64_t> frames_{0};
