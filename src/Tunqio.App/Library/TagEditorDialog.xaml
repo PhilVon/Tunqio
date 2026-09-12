@@ -21,8 +21,22 @@
     The preview list is below the fields rather than beside them because it is the answer to "what am I about
     to change", which is a question asked after filling the boxes, not while.
   -->
-  <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="520">
-    <StackPanel Spacing="12" Width="420">
+  <!--
+    One scrolling region, not two. This was a ScrollViewer around a StackPanel with the file list capped inside
+    it, which gives the dialog a scrollbar AND the list a scrollbar, and the outer one takes the wheel first: the
+    page moves when the reader meant the list to (T-138). A StackPanel measures its children with infinite height,
+    so the list could never be told "you have this much room, scroll inside it" while it sat in one.
+    A Grid can say that. The fields take the height they need and the list takes what is left over, so the only
+    thing that scrolls is the only thing with more content than room.
+  -->
+  <Grid MaxHeight="520" Width="420" RowSpacing="12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Spacing="12">
       <Grid ColumnSpacing="12" RowSpacing="8">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*" />
@@ -98,16 +112,24 @@
                  Visibility="{x:Bind ViewModel.HasProgressText, Mode=OneWay}"
                  Style="{ThemeResource CaptionTextBlockStyle}" />
 
-      <TextBlock Text="Files affected" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-      <!--
-        A ListView and not an ItemsRepeater: this list is short (a selection, not a library) and it wants the
-        scrolling and the row chrome it brings. ItemsRepeater templates in this app carry no DataContext, which
-        is a trap this list does not need to walk into.
-      -->
-      <ListView ItemsSource="{x:Bind ViewModel.Files, Mode=OneWay}"
-                SelectionMode="None"
-                MaxHeight="180"
-                IsTabStop="False">
+    </StackPanel>
+
+    <TextBlock Grid.Row="1" Text="Files affected" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+
+    <!--
+      A ListView and not an ItemsRepeater: this list is short (a selection, not a library) and it wants the
+      scrolling and the row chrome it brings. ItemsRepeater templates in this app carry no DataContext, which
+      is a trap this list does not need to walk into.
+
+      No MaxHeight: the row it sits in is the cap. A fixed 180 here was the other half of the nested-scroll
+      problem, because it made the list shorter than its content while the panel around it was still free to
+      grow, so both of them had something to scroll.
+    -->
+    <ListView Grid.Row="2"
+              ItemsSource="{x:Bind ViewModel.Files, Mode=OneWay}"
+              SelectionMode="None"
+              MinHeight="96"
+              IsTabStop="False">
         <ListView.ItemTemplate>
           <DataTemplate x:DataType="library:TagEditorFileRow">
             <Grid ColumnSpacing="8" Padding="0,2">
@@ -122,7 +144,6 @@
             </Grid>
           </DataTemplate>
         </ListView.ItemTemplate>
-      </ListView>
-    </StackPanel>
-  </ScrollViewer>
+    </ListView>
+  </Grid>
 </ContentDialog>

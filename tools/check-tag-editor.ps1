@@ -124,6 +124,20 @@ function Get-ElementNamed($scope, [string]$name, [string]$type) {
     return $null
 }
 
+# Every element under $scope that a user could scroll vertically, keyed by runtime id. UIA exposes this through
+# ScrollPattern, and a control that cannot scroll still advertises the pattern with VerticallyScrollable false -
+# which is the distinction the nested-scroll check below rests on.
+function Get-VerticallyScrollable($scope) {
+    $found = @{}
+    foreach ($element in @($scope) + @(Get-Descendants $scope)) {
+        $pattern = $null
+        if (-not $element.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pattern)) { continue }
+        if (-not $pattern.Current.VerticallyScrollable) { continue }
+        $found[($element.GetRuntimeId() -join '.')] = $element
+    }
+    return $found
+}
+
 function Get-ElementWithId($scope, [string]$id) {
     $scope.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition(
@@ -396,6 +410,35 @@ try {
     Test-Case 'the preview list is named and scrollable rather than a wall of text' {
         if (-not $dialog) { return 'no dialog' }
         if (-not (Get-ElementNamed $dialog 'Files affected' 'Text')) { return "the preview list has no 'Files affected' heading" }
+        return $null
+    }
+
+    # This case exists because its neighbour above used to claim "scrollable" in its name while asserting only
+    # that a heading existed, and the gap was real: the dialog shipped with a ScrollViewer wrapped around a
+    # StackPanel holding a height-capped list, so the page scrolled before the list did and a reader chasing the
+    # twelfth file moved the whole dialog instead (Phil, reviewing E3-S10; T-138). A list that holds more rows
+    # than it can show has to be the thing that scrolls, and it has to be the ONLY thing, or the wheel goes to
+    # whichever ancestor claims it first.
+    Test-Case 'the file list is what scrolls, and nothing around it scrolls with it' {
+        if (-not $dialog) { return 'no dialog' }
+        $list = $null
+        foreach ($element in Get-Descendants $dialog) {
+            if ((Get-TypeName $element) -eq 'List') { $list = $element; break }
+        }
+        if (-not $list) { return 'no list in the dialog' }
+
+        $scrollable = Get-VerticallyScrollable $dialog
+        $inList = Get-VerticallyScrollable $list
+        if ($inList.Count -eq 0) {
+            return "the file list does not scroll, with $batchSize files in it - either it is showing all of them, or it cannot be reached"
+        }
+
+        $outside = @($scrollable.Keys | Where-Object { -not $inList.ContainsKey($_) })
+        if ($outside.Count -gt 0) {
+            $names = @($outside | ForEach-Object { $t = Get-TypeName $scrollable[$_]; if ($scrollable[$_].Current.Name) { "$t '$($scrollable[$_].Current.Name)'" } else { $t } })
+            return "$($outside.Count) thing(s) outside the list scroll too, so the wheel moves the wrong one: $($names -join ', ')"
+        }
+
         return $null
     }
 
