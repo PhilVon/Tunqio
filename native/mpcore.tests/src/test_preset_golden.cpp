@@ -2,7 +2,7 @@
 //
 // What makes these tests rather than screenshots is that the input is fixed. renderer::set_analysis_override
 // hands the render thread one mp_analysis_frame this file builds out of nothing but +, *, / and floor, so the
-// same bytes reach the shader on every machine and every run, and neither shipped preset reads the clock while
+// same bytes reach the shader on every machine and every run, and no shipped preset reads the clock while
 // something is playing. renderer::capture_frame reads the whole target back. The picture is therefore a pure
 // function of (preset, parameters, analysis frame, size), and a checked-in PNG is a fair thing to compare it to.
 //
@@ -59,6 +59,29 @@ constexpr uint32_t k_golden_height = 360;
 // to a different picture that is everywhere-just-inside the per-channel bound.
 constexpr int k_max_channel_delta = 6;
 constexpr double k_max_mean_delta = 0.5;
+
+// ...and why one preset needs a tighter one. ambient-glow is a dark full-field wash: flash safety caps every
+// channel it can emit at 0.28 of full scale, so its whole picture lives in the bottom eighth of the byte range
+// and a change that would be glaring in any of the other three moves each byte by one step. Measured, by
+// perturbing one constant at a time and reading the comparison: a 1% change to its brightness ceiling (PeakGlow
+// 0.28 -> 0.277) moves 146 443 of 230 400 pixels but by a max channel delta of 1, and a 2% shift of one lobe's
+// centre moves 88 294 by 2. Both are inside the general bounds above and both PASSED them - which is the
+// "golden test that cannot fail" this file's header warns about, found the same way E4-S4 found the 320x180 one.
+// The per-channel bound cannot help here (the differences really are one byte); the mean is the bound that sees
+// "many tiny differences adding up to a different picture", and 0.06 catches the smaller of those two by 2.4x
+// while the real comparison reads 0.0000 in Debug, Release and ASan alike.
+constexpr double k_max_mean_delta_ambient_glow = 0.06;
+
+// The presets in presets/, in the order the four built-ins of ADR-009 are listed there. builtin-bars is not one
+// of them - it is compiled into the core and E4-S3's tests own it.
+constexpr std::array<const char*, 4> k_shipped_presets{"spectrum-bars", "waveform", "radial-spectrum", "ambient-glow"};
+
+// One sRGB colour as ambient-glow's art parameters carry it: r*65536 + g*256 + b. Every value is an integer
+// below 2^24 and so exactly representable in the float the ABI takes, which is the whole reason for the packing
+// (that, and one atomic store per colour instead of three). See the header of ambient-glow.hlsl.
+constexpr float pack_srgb(int r, int g, int b) {
+    return static_cast<float>(r * 65536 + g * 256 + b);
+}
 
 struct preset_root_override {
     explicit preset_root_override(const fs::path& root) {
@@ -262,6 +285,39 @@ difference compare(const capture& a, const capture& b) {
     return d;
 }
 
+// The mean blue, green and red of a whole capture. What the art-palette tests assert on: "the picture took the
+// album's colour" is a statement about the field's average hue, not about any one pixel.
+struct mean_rgb {
+    double b = 0.0;
+    double g = 0.0;
+    double r = 0.0;
+};
+
+mean_rgb mean_channels(const capture& c) {
+    mean_rgb m;
+    const size_t pixels = c.bgra.size() / 4;
+    for (size_t i = 0; i < c.bgra.size(); i += 4) {
+        m.b += c.bgra[i];
+        m.g += c.bgra[i + 1];
+        m.r += c.bgra[i + 2];
+    }
+    if (pixels > 0) {
+        m.b /= static_cast<double>(pixels);
+        m.g /= static_cast<double>(pixels);
+        m.r /= static_cast<double>(pixels);
+    }
+    return m;
+}
+
+// Pixels that are anything other than the near-black clear colour. "Still renders something sensible" is this.
+size_t lit_pixels(const capture& c) {
+    size_t n = 0;
+    for (size_t i = 0; i < c.bgra.size(); i += 4) {
+        n += (c.bgra[i] > 12 || c.bgra[i + 1] > 12 || c.bgra[i + 2] > 12) ? 1 : 0;
+    }
+    return n;
+}
+
 // WCAG relative luminance of one sRGB-encoded pixel. The render target is B8G8R8A8_UNORM, not _SRGB, so the
 // bytes in it are exactly what a display is handed; linearising them is what turns "how bright" into a number
 // the accessibility threshold is expressed in.
@@ -275,6 +331,7 @@ double relative_luminance(uint8_t b, uint8_t g, uint8_t r) {
 
 struct flash_measurement {
     double mean_delta = 0.0;    // the full field's mean relative-luminance change between the two frames
+    double peak_delta = 0.0;    // the largest change any single pixel makes
     double flashing_area = 0.0; // the fraction of the field whose change reaches the 0.10 flash threshold
 };
 
@@ -289,6 +346,7 @@ flash_measurement measure_flash(const capture& a, const capture& b) {
         const double lb = relative_luminance(b.bgra[i], b.bgra[i + 1], b.bgra[i + 2]);
         const double delta = std::abs(la - lb);
         total += delta;
+        m.peak_delta = std::max(m.peak_delta, delta);
         // WCAG 2.3.1: a flash is an opposing change of at least 10% of maximum relative luminance where the
         // darker of the two is below 0.80. Both clauses, so a change between two already-bright images is not
         // counted - it cannot be, these presets never get there.
@@ -307,7 +365,7 @@ bool golden_update_requested() {
 }
 
 // Compares one capture against its checked-in PNG, and says exactly what to look at when it does not match.
-void check_against_golden(const std::string& id, const capture& shot) {
+void check_against_golden(const std::string& id, const capture& shot, double max_mean_delta = k_max_mean_delta) {
     const fs::path golden = golden_dir() / (id + ".png");
 
     if (golden_update_requested()) {
@@ -337,11 +395,11 @@ void check_against_golden(const std::string& id, const capture& shot) {
     std::snprintf(note, sizeof note,
                   "%s vs golden: max channel delta %d (tolerance %d), mean %.4f (tolerance %.2f), %zu of %zu "
                   "pixels differ at all",
-                  id.c_str(), d.max_channel, k_max_channel_delta, d.mean_channel, k_max_mean_delta, d.pixels_differing,
+                  id.c_str(), d.max_channel, k_max_channel_delta, d.mean_channel, max_mean_delta, d.pixels_differing,
                   shot.bgra.size() / 4);
     WARN(note); // a comparison that does not print its numbers is not a measurement
 
-    if (d.max_channel > k_max_channel_delta || d.mean_channel > k_max_mean_delta) {
+    if (d.max_channel > k_max_channel_delta || d.mean_channel > max_mean_delta) {
         const fs::path actual = fs::temp_directory_path() / ("tunqio-golden-" + id + "-actual.png");
         std::string write_error;
         (void)mp::tests::write_png(actual, shot.bgra, shot.width, shot.height, write_error);
@@ -381,10 +439,12 @@ TEST_CASE("every preset the repository ships compiles", "[render][preset][golden
         CHECK(core(fx.handle)->active_preset_id() == ids.back());
     }
 
-    // The two this story owns are there by name, so a preset that stopped being found is a failure and not a
-    // loop over an empty catalogue quietly passing.
-    CHECK(std::find(ids.begin(), ids.end(), "spectrum-bars") != ids.end());
-    CHECK(std::find(ids.begin(), ids.end(), "waveform") != ids.end());
+    // All four are there by name, so a preset that stopped being found is a failure and not a loop over an empty
+    // catalogue quietly passing. E4-S4 wrote the first two and E4-S5 the last two; that is ADR-009's four.
+    for (const char* id : k_shipped_presets) {
+        INFO("the repository ships " << id);
+        CHECK(std::find(ids.begin(), ids.end(), id) != ids.end());
+    }
 }
 
 TEST_CASE("Spectrum Bars renders its golden image from a fixed analysis frame", "[render][preset][golden]") {
@@ -395,6 +455,18 @@ TEST_CASE("Spectrum Bars renders its golden image from a fixed analysis frame", 
 TEST_CASE("Waveform renders its golden image from a fixed analysis frame", "[render][preset][golden]") {
     const preset_root_override root{shipped_presets()};
     check_against_golden("waveform", render_preset("waveform"));
+}
+
+TEST_CASE("Radial Spectrum renders its golden image from a fixed analysis frame", "[render][preset][golden]") {
+    const preset_root_override root{shipped_presets()};
+    check_against_golden("radial-spectrum", render_preset("radial-spectrum"));
+}
+
+// At its declared defaults, which are art_primary/secondary/accent = -1: the golden is the no-art picture, so a
+// change to the built-in ramp is caught here and a change to the art path is caught by the tests below it.
+TEST_CASE("Ambient Glow renders its golden image from a fixed analysis frame", "[render][preset][golden]") {
+    const preset_root_override root{shipped_presets()};
+    check_against_golden("ambient-glow", render_preset("ambient-glow"), k_max_mean_delta_ambient_glow);
 }
 
 // The golden images are only worth having if the same input twice is the same picture twice. If this fails, a
@@ -511,6 +583,266 @@ TEST_CASE("the waveform's point count, smoothing and colour source each change w
     CHECK(compare(defaults, fx.shoot(fixed_frame())).pixels_differing > 0);
 }
 
+// ---- E4-S5's two, the same criterion ------------------------------------------------------------
+
+TEST_CASE("the radial spectrum's ray count, smoothing, colour source and hub each change what is drawn",
+          "[render][preset][golden]") {
+    const preset_root_override root{shipped_presets()};
+    const headless_renderer fx{k_golden_width, k_golden_height};
+    REQUIRE(mp_renderer_set_preset(fx.handle, "radial-spectrum") == MP_OK);
+    const capture defaults = fx.shoot(fixed_frame());
+
+    SECTION("ray count") {
+        REQUIRE(mp_renderer_set_param(fx.handle, "rays", 12.0f) == MP_OK);
+        const capture few = fx.shoot(fixed_frame());
+        CHECK(compare(defaults, few).pixels_differing > 0);
+
+        REQUIRE(mp_renderer_set_param(fx.handle, "rays", 128.0f) == MP_OK);
+        const capture many = fx.shoot(fixed_frame());
+        CHECK(compare(few, many).pixels_differing > 0);
+
+        // The count is honoured and not merely "something changed": the wedges keep a fixed duty cycle, so more
+        // of them at the same radius means more separate lit runs around a circle. Counted along the row through
+        // the hub, on the half of it to the right of centre.
+        const auto lit_runs = [](const capture& c) {
+            size_t runs = 0;
+            bool inside = false;
+            const uint32_t y = c.height / 2;
+            for (uint32_t x = c.width / 2; x < c.width; ++x) {
+                const size_t i = (static_cast<size_t>(y) * c.width + x) * 4;
+                const bool lit = c.bgra[i] > 12 || c.bgra[i + 1] > 12 || c.bgra[i + 2] > 12;
+                runs += (lit && !inside) ? 1 : 0;
+                inside = lit;
+            }
+            return runs;
+        };
+        CHECK(lit_runs(few) < lit_runs(many));
+    }
+
+    SECTION("smoothing") {
+        REQUIRE(mp_renderer_set_param(fx.handle, "smoothing", 0.0f) == MP_OK);
+        const capture sharp = fx.shoot(fixed_frame());
+        REQUIRE(mp_renderer_set_param(fx.handle, "smoothing", 1.0f) == MP_OK);
+        CHECK(compare(sharp, fx.shoot(fixed_frame())).pixels_differing > 0);
+    }
+
+    SECTION("colour source") {
+        REQUIRE(mp_renderer_set_param(fx.handle, "colour", 1.0f) == MP_OK);
+        const capture by_level = fx.shoot(fixed_frame());
+        REQUIRE(mp_renderer_set_param(fx.handle, "colour", 2.0f) == MP_OK);
+        const capture by_centroid = fx.shoot(fixed_frame());
+        CHECK(compare(defaults, by_level).pixels_differing > 0);
+        CHECK(compare(by_level, by_centroid).pixels_differing > 0);
+
+        // A colour source changes colour and not shape: the same pixels are lit either way.
+        CHECK(lit_pixels(defaults) == lit_pixels(by_level));
+    }
+
+    SECTION("hub radius") {
+        // The hub is the empty disc the rays start from, so what is asserted is its size in pixels: the distance
+        // from the centre of the field to the nearest lit pixel. Not the lit area - a bigger hub leaves less
+        // room outside it, so the rays are shorter and the lit area goes DOWN, which is what this test claimed
+        // first time round and what the picture disproved.
+        const auto inner_radius = [](const capture& c) {
+            const double cx = c.width * 0.5;
+            const double cy = c.height * 0.5;
+            double nearest = static_cast<double>(c.width + c.height);
+            for (uint32_t y = 0; y < c.height; ++y) {
+                for (uint32_t x = 0; x < c.width; ++x) {
+                    const size_t i = (static_cast<size_t>(y) * c.width + x) * 4;
+                    if (c.bgra[i] > 12 || c.bgra[i + 1] > 12 || c.bgra[i + 2] > 12) {
+                        const double dx = x + 0.5 - cx;
+                        const double dy = y + 0.5 - cy;
+                        nearest = std::min(nearest, std::sqrt(dx * dx + dy * dy));
+                    }
+                }
+            }
+            return nearest;
+        };
+
+        REQUIRE(mp_renderer_set_param(fx.handle, "hub", 0.05f) == MP_OK);
+        const capture tight = fx.shoot(fixed_frame());
+        REQUIRE(mp_renderer_set_param(fx.handle, "hub", 0.5f) == MP_OK);
+        const capture wide = fx.shoot(fixed_frame());
+        CHECK(compare(tight, wide).pixels_differing > 0);
+
+        const double tight_px = inner_radius(tight);
+        const double wide_px = inner_radius(wide);
+        char note[192];
+        std::snprintf(note, sizeof note,
+                      "radial-spectrum hub 0.05 -> 0.5 at 640x360: empty centre %.1f px -> %.1f px (the half-height "
+                      "is 180 px, so the parameter is a fraction of it)",
+                      tight_px, wide_px);
+        WARN(note);
+        CHECK(wide_px > tight_px * 3.0);
+    }
+
+    SECTION("it stays circular when the field is not square") {
+        // The wheel is fitted to the minor dimension, so on a 2:1 field its widest extent across is the same
+        // number of pixels as its tallest extent down. Measured as the bounding box of everything lit.
+        const headless_renderer wide{640, 320};
+        REQUIRE(mp_renderer_set_preset(wide.handle, "radial-spectrum") == MP_OK);
+        const capture c = wide.shoot(full_scale_frame());
+        uint32_t x0 = c.width;
+        uint32_t x1 = 0;
+        uint32_t y0 = c.height;
+        uint32_t y1 = 0;
+        for (uint32_t y = 0; y < c.height; ++y) {
+            for (uint32_t x = 0; x < c.width; ++x) {
+                const size_t i = (static_cast<size_t>(y) * c.width + x) * 4;
+                if (c.bgra[i] > 12 || c.bgra[i + 1] > 12 || c.bgra[i + 2] > 12) {
+                    x0 = std::min(x0, x);
+                    x1 = std::max(x1, x);
+                    y0 = std::min(y0, y);
+                    y1 = std::max(y1, y);
+                }
+            }
+        }
+        REQUIRE(x1 > x0);
+        const double across = static_cast<double>(x1 - x0);
+        const double down = static_cast<double>(y1 - y0);
+        char note[192];
+        std::snprintf(note, sizeof note, "radial-spectrum on a 640x320 field: %.0f px across, %.0f px down", across,
+                      down);
+        WARN(note);
+        // Two per cent, which is a wedge's chord rather than an aspect error; an unfitted circle would be 2:1.
+        CHECK(std::abs(across - down) / down < 0.02);
+    }
+}
+
+TEST_CASE("the ambient glow's spread, smoothing, colour source and glow each change what is drawn",
+          "[render][preset][golden]") {
+    const preset_root_override root{shipped_presets()};
+    const headless_renderer fx{k_golden_width, k_golden_height};
+    REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
+    const capture defaults = fx.shoot(fixed_frame());
+
+    REQUIRE(mp_renderer_set_param(fx.handle, "spread", 1.2f) == MP_OK);
+    const capture wide = fx.shoot(fixed_frame());
+    CHECK(compare(defaults, wide).pixels_differing > 0);
+    CHECK(lit_pixels(wide) > lit_pixels(defaults)); // wider lobes reach more of the field
+    REQUIRE(mp_renderer_set_param(fx.handle, "spread", 0.6f) == MP_OK);
+
+    REQUIRE(mp_renderer_set_param(fx.handle, "smoothing", 1.0f) == MP_OK);
+    CHECK(compare(defaults, fx.shoot(fixed_frame())).pixels_differing > 0);
+    REQUIRE(mp_renderer_set_param(fx.handle, "smoothing", 0.4f) == MP_OK);
+
+    REQUIRE(mp_renderer_set_param(fx.handle, "colour", 1.0f) == MP_OK);
+    CHECK(compare(defaults, fx.shoot(fixed_frame())).pixels_differing > 0);
+    REQUIRE(mp_renderer_set_param(fx.handle, "colour", 2.0f) == MP_OK);
+    CHECK(compare(defaults, fx.shoot(fixed_frame())).pixels_differing > 0);
+    REQUIRE(mp_renderer_set_param(fx.handle, "colour", 0.0f) == MP_OK);
+
+    // glow only attenuates: 1.0 is the top of its declared range because that is where the flash measurement is
+    // taken, so what is asserted is that turning it down makes the field darker.
+    REQUIRE(mp_renderer_set_param(fx.handle, "glow", 0.25f) == MP_OK);
+    const capture dim = fx.shoot(fixed_frame());
+    CHECK(compare(defaults, dim).pixels_differing > 0);
+    const mean_rgb bright_mean = mean_channels(defaults);
+    const mean_rgb dim_mean = mean_channels(dim);
+    CHECK(dim_mean.b + dim_mean.g + dim_mean.r < bright_mean.b + bright_mean.g + bright_mean.r);
+
+    CHECK(mp_renderer_set_param(fx.handle, "glow", 2.0f) == MP_OK); // clamped to the declared 1.0, not refused
+}
+
+// ---- AC-124: Ambient Glow uses palette colours from album art when available --------------------
+//
+// The palette is E3-S7's (IArtCache.LoadPaletteAsync -> ArtPalette, five colours by median cut). It reaches this
+// preset as three parameters through the existing mp_renderer_set_param, one packed sRGB colour each, with a
+// negative value meaning "no art". The managed half of that path - ArtPalette to those three floats - is
+// AmbientGlowPalette in Tunqio.Core and is tested in Tunqio.Core.Tests; what is tested here is the half that
+// needs a GPU: that the colours arrive, that they are what is drawn, and that every "when available" failure
+// still draws a picture.
+
+TEST_CASE("Ambient Glow takes its colours from the album art palette", "[render][preset][golden][art]") {
+    const preset_root_override root{shipped_presets()};
+    const headless_renderer fx{k_golden_width, k_golden_height};
+    REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
+
+    // No art is the default, and the default is what the golden image is of: a blue-teal-ember ramp of the
+    // preset's own, so the field reads blue.
+    const capture no_art = fx.shoot(fixed_frame());
+    const mean_rgb none = mean_channels(no_art);
+    CHECK(none.b > none.r);
+
+    SECTION("a red sleeve makes a red field") {
+        for (const char* name : {"art_primary", "art_secondary", "art_accent"}) {
+            REQUIRE(mp_renderer_set_param(fx.handle, name, pack_srgb(200, 30, 40)) == MP_OK);
+        }
+        const capture red = fx.shoot(fixed_frame());
+        const mean_rgb m = mean_channels(red);
+        char note[192];
+        std::snprintf(note, sizeof note, "ambient-glow with a (200,30,40) palette: mean field B %.2f G %.2f R %.2f",
+                      m.b, m.g, m.r);
+        WARN(note);
+        CHECK(compare(no_art, red).pixels_differing > 0);
+        CHECK(m.r > m.b);          // the sleeve's hue, not the preset's
+        CHECK(m.r > none.r + 2.0); // and by a margin no rounding accounts for
+    }
+
+    SECTION("each of the three colours is used, not just the first") {
+        REQUIRE(mp_renderer_set_param(fx.handle, "art_primary", pack_srgb(200, 30, 40)) == MP_OK);
+        const capture one = fx.shoot(fixed_frame());
+        REQUIRE(mp_renderer_set_param(fx.handle, "art_secondary", pack_srgb(30, 200, 40)) == MP_OK);
+        const capture two = fx.shoot(fixed_frame());
+        REQUIRE(mp_renderer_set_param(fx.handle, "art_accent", pack_srgb(40, 30, 200)) == MP_OK);
+        const capture three = fx.shoot(fixed_frame());
+        CHECK(compare(one, two).pixels_differing > 0);
+        CHECK(compare(two, three).pixels_differing > 0);
+    }
+
+    SECTION("the packing survives the float the ABI takes") {
+        // The one value where a rounding error would be invisible in a hue test: the largest colour there is.
+        REQUIRE(mp_renderer_set_param(fx.handle, "art_primary", pack_srgb(255, 255, 255)) == MP_OK);
+        const capture white = fx.shoot(fixed_frame());
+        REQUIRE(mp_renderer_set_param(fx.handle, "art_primary", pack_srgb(255, 255, 254)) == MP_OK);
+        const capture almost = fx.shoot(fixed_frame());
+        // One step of blue out of 16 777 216 packed values: if the pack/unpack lost a bit these would be equal.
+        CHECK(compare(white, almost).pixels_differing > 0);
+    }
+}
+
+// "When available" is load-bearing: a track with no art, and art whose palette cannot be a glow, both have to
+// draw something. Neither is an assumption here - the shader has a branch for each and this is that branch.
+TEST_CASE("Ambient Glow still draws when there is no usable palette", "[render][preset][golden][art]") {
+    const preset_root_override root{shipped_presets()};
+    const headless_renderer fx{k_golden_width, k_golden_height};
+    REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
+    const capture no_art = fx.shoot(fixed_frame());
+    const size_t lit_without_art = lit_pixels(no_art);
+    CHECK(lit_without_art > no_art.bgra.size() / 4 / 10); // a tenth of the field at least: this is a wash
+
+    SECTION("a track with no art") {
+        // -1 is the declared default and what the managed side sends for a null palette; -1 is also what the
+        // parameter clamps to for anything below it, so "no art" has one representation and not several.
+        for (const char* name : {"art_primary", "art_secondary", "art_accent"}) {
+            REQUIRE(mp_renderer_set_param(fx.handle, name, -5000.0f) == MP_OK);
+        }
+        const capture clamped = fx.shoot(fixed_frame());
+        CHECK(compare(no_art, clamped).max_channel == 0);
+    }
+
+    SECTION("a sleeve whose palette is all but black") {
+        // A near-black cover quantises to near-black entries. Scaling one of those up is not a glow, it is
+        // amplified quantisation noise, so the shader falls back to its own stop for each colour that dark.
+        for (const char* name : {"art_primary", "art_secondary", "art_accent"}) {
+            REQUIRE(mp_renderer_set_param(fx.handle, name, pack_srgb(6, 4, 9)) == MP_OK);
+        }
+        const capture black_art = fx.shoot(fixed_frame());
+        CHECK(lit_pixels(black_art) == lit_without_art);
+        CHECK(compare(no_art, black_art).max_channel == 0); // exactly the no-art picture, by the same branch
+    }
+
+    SECTION("one dark colour in an otherwise usable palette") {
+        // Per colour, not all or nothing: a palette with one black entry keeps the two that work.
+        REQUIRE(mp_renderer_set_param(fx.handle, "art_primary", pack_srgb(4, 4, 4)) == MP_OK);
+        REQUIRE(mp_renderer_set_param(fx.handle, "art_secondary", pack_srgb(200, 30, 40)) == MP_OK);
+        const capture mixed = fx.shoot(fixed_frame());
+        CHECK(compare(no_art, mixed).pixels_differing > 0);
+        CHECK(lit_pixels(mixed) > lit_without_art / 2);
+    }
+}
+
 // ---- the accessibility contract -----------------------------------------------------------------
 //
 // docs/ui-screens-and-flows.md: "never flashes above 3 Hz full-field luminance change". The analysis stream runs
@@ -519,24 +851,56 @@ TEST_CASE("the waveform's point count, smoothing and colour source each change w
 // consecutive frames, against the two thresholds WCAG 2.3.1 states: 10% of maximum relative luminance, over
 // more than 25% of the field.
 
-TEST_CASE("neither shipped preset can flash the field", "[render][preset][a11y]") {
+TEST_CASE("no shipped preset can flash the field", "[render][preset][a11y]") {
     const preset_root_override root{shipped_presets()};
-    for (const char* id : {"spectrum-bars", "waveform"}) {
+    for (const char* id : k_shipped_presets) {
         const headless_renderer fx{k_golden_width, k_golden_height};
         REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
         const capture quiet = fx.shoot(silent_frame());
         const capture loud = fx.shoot(full_scale_frame());
 
         const flash_measurement m = measure_flash(quiet, loud);
-        char note[256];
+        char note[320];
         std::snprintf(note, sizeof note,
-                      "%s silence -> full scale: mean full-field luminance change %.4f, flashing area %.2f%% "
-                      "(WCAG 2.3.1 allows up to 25%%)",
-                      id, m.mean_delta, m.flashing_area * 100.0);
-        WARN(note);
+                      "%s silence -> full scale: mean full-field luminance change %.4f, largest single-pixel "
+                      "change %.4f (a flash is 0.10), flashing area %.2f%% (WCAG 2.3.1 allows up to 25%%)",
+                      id, m.mean_delta, m.peak_delta, m.flashing_area * 100.0);
+        WARN(note); // the peak is printed because ambient-glow's area is zero, and a zero needs a reading beside it
         CHECK(m.flashing_area < 0.25);
         CHECK(m.mean_delta < 0.10);
     }
+}
+
+// Ambient Glow's flash safety is a different claim from the other three - not "only a small part of the field
+// changes" but "no pixel can get bright enough for the change to count", which is what lets a preset cover the
+// whole field at all. It holds for every input and every parameter, so it is worth asserting separately from the
+// silence-to-full-scale measurement: the brightest colour the shader can emit is Background + PeakGlow.
+TEST_CASE("Ambient Glow cannot reach the flash threshold at any input", "[render][preset][a11y]") {
+    const preset_root_override root{shipped_presets()};
+    const headless_renderer fx{k_golden_width, k_golden_height};
+    REQUIRE(mp_renderer_set_preset(fx.handle, "ambient-glow") == MP_OK);
+    // The worst case the parameters allow: full gain, the widest lobes, the brightest glow, and three white
+    // palette colours (the shader renormalises art to a fixed maximum channel, so white is the brightest art
+    // there is). Against a full-scale analysis frame, which saturates every band.
+    REQUIRE(mp_renderer_set_param(fx.handle, "gain", 4.0f) == MP_OK);
+    REQUIRE(mp_renderer_set_param(fx.handle, "spread", 1.2f) == MP_OK);
+    REQUIRE(mp_renderer_set_param(fx.handle, "glow", 1.0f) == MP_OK);
+    for (const char* name : {"art_primary", "art_secondary", "art_accent"}) {
+        REQUIRE(mp_renderer_set_param(fx.handle, name, pack_srgb(255, 255, 255)) == MP_OK);
+    }
+    const capture loud = fx.shoot(full_scale_frame());
+
+    double brightest = 0.0;
+    for (size_t i = 0; i < loud.bgra.size(); i += 4) {
+        brightest = std::max(brightest, relative_luminance(loud.bgra[i], loud.bgra[i + 1], loud.bgra[i + 2]));
+    }
+    char note[256];
+    std::snprintf(note, sizeof note,
+                  "ambient-glow at its brightest possible setting: peak relative luminance %.4f, against the 0.10 "
+                  "change WCAG 2.3.1 counts as a flash from a near-black background",
+                  brightest);
+    WARN(note);
+    CHECK(brightest < 0.10);
 }
 
 // ---- AC-120's WARP half ---------------------------------------------------------------------------
@@ -545,9 +909,9 @@ TEST_CASE("neither shipped preset can flash the field", "[render][preset][a11y]"
 // that is honest on any machine, and a number printed next to the preset it is of. The iGPU figure AC-120 asks
 // for belongs to T-90, which collects the reference-machine criteria.
 
-TEST_CASE("both shipped presets render 1080p on WARP", "[render][preset][perf]") {
+TEST_CASE("every shipped preset renders 1080p on WARP", "[render][preset][perf]") {
     const preset_root_override root{shipped_presets()};
-    for (const char* id : {"spectrum-bars", "waveform"}) {
+    for (const char* id : k_shipped_presets) {
         const headless_renderer fx{1920, 1080};
         REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
         core(fx.handle)->set_analysis_override(&fixed_frame());
@@ -576,9 +940,9 @@ TEST_CASE("both shipped presets render 1080p on WARP", "[render][preset][perf]")
 // frame rate is a property of how busy the machine is as much as of the renderer - asserting one on hardware is
 // how T-119 and T-134 went red with nothing wrong. So this prints the number, names the adapter it came from,
 // and asserts only that frames were drawn and the device survived.
-TEST_CASE("both shipped presets draw 1080p on whatever adapter this machine has", "[render][preset][perf]") {
+TEST_CASE("every shipped preset draws 1080p on whatever adapter this machine has", "[render][preset][perf]") {
     const preset_root_override root{shipped_presets()};
-    for (const char* id : {"spectrum-bars", "waveform"}) {
+    for (const char* id : k_shipped_presets) {
         mp_renderer* handle = nullptr;
         mp_renderer_config cfg{};
         cfg.struct_size = sizeof cfg;

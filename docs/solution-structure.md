@@ -39,7 +39,8 @@ tunqio/
   presets/                         Built-in visualization presets (preset.json + HLSL). Copied to presets/ beside
                                    mpcore.dll in the app output and into the MSIX by Content items in
                                    Tunqio.App.csproj; tools/check-presets.ps1 fails a build that skipped it.
-                                   Empty of presets until E4-S4/E4-S5 write them.
+                                   Holds ADR-009's four: spectrum-bars and waveform (E4-S4),
+                                   radial-spectrum and ambient-glow (E4-S5).
   tests/
     Tunqio.Core.Tests/
     Tunqio.Interop.Tests/     Round-trips every ABI call against the real mpcore with the BASS "no sound" device
