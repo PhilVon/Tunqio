@@ -238,6 +238,7 @@ public sealed class ReactiveThemeController : IDisposable
     public void Tick()
     {
         ReactiveThemePalette? painted = null;
+        ReactiveThemePalette? resting = null;
         bool stopped = false;
         lock (_gate)
         {
@@ -254,6 +255,8 @@ public sealed class ReactiveThemeController : IDisposable
             if (!Allowed(out string? because))
             {
                 stopped = StopLocked(because!);
+                // Read under the lock: the engine is not thread-safe and this runs on the timer thread.
+                resting = _engine.Resting;
             }
             else
             {
@@ -284,6 +287,11 @@ public sealed class ReactiveThemeController : IDisposable
         else if (stopped)
         {
             _sink.Clear();
+            // The visualizer is told to stop too. Without this the presets keep whatever palette was last sent -
+            // the renderer holds the theme across a preset switch by design - so the window would go back to its
+            // static colours and the visualizer inside it would stay frozen on the last chord, which is the
+            // two-palettes-in-one-window failure this class exists to avoid.
+            PushToRenderer(resting!);
         }
     }
 
@@ -295,6 +303,7 @@ public sealed class ReactiveThemeController : IDisposable
     public void Evaluate()
     {
         bool stopped;
+        ReactiveThemePalette resting;
         lock (_gate)
         {
             if (_disposed)
@@ -313,11 +322,13 @@ public sealed class ReactiveThemeController : IDisposable
             }
 
             stopped = StopLocked(because!);
+            resting = _engine.Resting;
         }
 
         if (stopped)
         {
             _sink.Clear();
+            PushToRenderer(resting);
         }
     }
 

@@ -88,13 +88,18 @@ public static class TunqioForeground {
 # and a SendKeys after that goes to whichever window does have focus - which, with a second Tunqio possibly
 # running, would mean driving somebody else's app.
 function Set-Foreground {
-    for ($i = 0; $i -lt 20; $i++) {
+    # Patient, because the commonest reason this fails is not the app: it is somebody using the machine. This
+    # script drives the keyboard, so it can only run on a desktop nobody else is holding.
+    for ($i = 0; $i -lt 60; $i++) {
         try { [Microsoft.VisualBasic.Interaction]::AppActivate($script:processId) } catch { }
-        Start-Sleep -Milliseconds 300
+        Start-Sleep -Milliseconds 500
         if ([TunqioForeground]::ForegroundProcess() -eq $script:processId) { return }
     }
 
-    throw "the shell window never came to the foreground (it is process $script:processId)"
+    $holder = 'unknown'
+    try { $holder = (Get-Process -Id ([TunqioForeground]::ForegroundProcess()) -ErrorAction Stop).ProcessName } catch { }
+    throw ("the shell window (process $script:processId) never came to the foreground after 30 s; '$holder' is " +
+        'holding it. This script types into the focused window, so it cannot run while the desktop is in use.')
 }
 
 function Send-Keys([string]$keys) {

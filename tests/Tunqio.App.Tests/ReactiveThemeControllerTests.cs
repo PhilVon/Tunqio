@@ -393,12 +393,13 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Before anything has been painted, the readout must not assert a renderer state nobody has looked at. It
-    /// said "the renderer is not attached" next to a Renderer section reporting 144 fps on the first live run of
-    /// the harness, which is the readout being wrong in exactly the way T-155 exists to stop.
+    /// A theming that never starts still tells the visualizer once, and the readout must not assert a renderer
+    /// state nobody has looked at. It said "the renderer is not attached" beside a Renderer section reporting
+    /// 144 fps on the first live run of the harness, which is the readout being wrong in exactly the way T-155
+    /// exists to stop.
     /// </summary>
     [Fact]
-    public void Before_the_first_tick_the_readout_does_not_claim_to_know_the_renderer_is_missing()
+    public void A_theming_that_never_runs_still_puts_the_static_theme_on_the_presets()
     {
         using var h = new Harness().Build();
         h.Accessibility.Set(animations: false, highContrast: false);
@@ -406,9 +407,21 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
         h.Run(30);
 
         h.Controller.Active.Should().BeFalse();
-        h.Controller.RendererPushes.Should().Be(0);
-        h.Controller.RendererSkips.Should().Be(0, "nothing was painted, so nothing was owed to the renderer");
-        h.Controller.RendererProblem.Should().Be("nothing has been sent yet");
+        h.Controller.RendererPushes.Should().Be(1, "stopping is said once, not thirty times");
+        h.Controller.RendererSkips.Should().Be(0);
+        h.Controller.RendererProblem.Should().BeNull();
+    }
+
+    /// <summary>The same, with no renderer to tell: the reason is what nobody has looked at, not a claim.</summary>
+    [Fact]
+    public void With_no_renderer_the_readout_says_that_rather_than_guessing_at_one()
+    {
+        using var h = new Harness { WithRenderer = false }.Build();
+        h.Accessibility.Set(animations: false, highContrast: false);
+
+        h.Run(30);
+
+        h.Controller.RendererProblem.Should().Be("no renderer was passed");
     }
 
     [Fact]
@@ -429,7 +442,32 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
 
         h.Controller.Active.Should().BeFalse();
         h.Sink.Applied.Should().BeEmpty("the user's accessibility choice is not a preference this can outvote");
-        h.Renderer.Themes.Should().BeEmpty();
+        // One push, and it is the resting palette: see Stopping_tells_the_visualizer_to_stop_too.
+        h.Renderer.Themes.Should().HaveCount(1);
+    }
+
+    /// <summary>
+    /// AC-297. The renderer holds the theme across a preset switch by design, so a theming that just stops
+    /// talking leaves the presets on the last chord for ever - the window back to its static colours and the
+    /// visualizer inside it frozen, which is precisely the two-palettes-in-one-window state this class exists
+    /// to prevent. Stopping has to be said, not merely stopped saying.
+    /// </summary>
+    [Fact]
+    public void Stopping_tells_the_visualizer_to_stop_too()
+    {
+        using var h = new Harness().Build();
+        h.Run(30);
+        h.Renderer.Themes.Clear();
+
+        h.Settings.SetValue(SettingsKeys.UiReactiveTheming, false);
+
+        h.Sink.Cleared.Should().BeGreaterThan(0);
+        h.Renderer.Themes.Should().HaveCount(1, "the presets are told once, and it is not the last chord");
+        // Resting is the engine's own "what off looks like", which is what the window has gone back to: one
+        // palette across the whole window, in the stopped state as well as the running one.
+        ThemeColors rest = new ReactiveThemeEngine(h.Dark, ReactiveThemeOptions.Read(h.Settings)).Resting.ToThemeColors();
+        h.Renderer.Themes[0].Primary.Should().Equal(rest.Primary);
+        h.Renderer.Themes[0].Background.Should().Equal(rest.Background);
     }
 
     [Fact]
