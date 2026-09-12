@@ -194,4 +194,12 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_quality")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult RendererSetQuality(nint renderer, MpQualityPolicy policy);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_av_sync")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetAvSync(nint renderer, MpAvSyncConfig* config);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_drain_latency")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererDrainLatency(nint renderer, MpLatencySample* samples, uint* count);
 }

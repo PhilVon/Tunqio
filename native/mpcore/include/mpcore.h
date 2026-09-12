@@ -113,6 +113,13 @@
  * a new type is not a break because no existing signature mentions it. Written as 0.14 on its own branch and
  * renumbered here: E4-S7 and E4-S9 were built concurrently off 0.13 with 14 and 15 pre-allocated, E4-S9 landed
  * first, and the number a caller sees has to be monotonic in landing order rather than in who started when.
+ * 0.17 audio-to-picture sync (E4-S8): mp_renderer_set_av_sync and mp_renderer_drain_latency, with
+ * mp_av_sync_config, mp_av_sync_mode and mp_latency_sample. Two appended exports and new types, so a minor by
+ * the plainest reading of the rule at the top - nothing moved and no signature changed. What DID change for an
+ * existing caller is behaviour and not surface: a renderer now draws the analysis frame that matches what the
+ * listener is HEARING rather than the newest one published, which on a real output device is a deliberate
+ * delay of about the WASAPI buffer. See mp_av_sync_mode for why that is a fix and not a regression, and
+ * MP_AV_SYNC_NEWEST for how to have the old behaviour back.
  */
 #pragma once
 
@@ -135,7 +142,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 16u
+#define MP_ABI_MINOR 17u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -623,6 +630,127 @@ MP_API mp_result MP_CALL mp_renderer_set_theme(mp_renderer* renderer, const mp_t
  * Everything the controller decided, and what it decided it on, is in mp_render_stats' 0.16 tail. Cheap to
  * call; MP_E_INVALID_ARG on a policy that is not one of the four. */
 MP_API mp_result MP_CALL mp_renderer_set_quality(mp_renderer* renderer, mp_quality_policy policy);
+
+/* ---- audio-to-picture sync (ABI 0.17; E4-S8) -------------------------------------------------
+ *
+ * WHAT LATENCY MEANS HERE, because four different edges are all called "latency" and summing guesses about
+ * them is how a number stops meaning anything. This ABI measures ONE thing, and measures it as a POSITION
+ * error rather than as a sum of intervals:
+ *
+ *     av_error_ms = (mixer position the listener is HEARING at the instant the frame was presented)
+ *                 - (mixer position the picture was DRAWN from)
+ *
+ * both sides in the units of mp_clock.mixer_byte_pos, converted to milliseconds of audio. POSITIVE means the
+ * picture is LATE - it is showing audio the listener already heard. NEGATIVE means it is EARLY, showing audio
+ * that has been mixed but has not left the device yet. Zero is a picture and a sound that belong together.
+ *
+ * The reason a position and not a stopwatch: mp_analysis_frame.mixer_byte_pos labels every frame with the
+ * mixer byte its hop begins at, and mp_clock gives the listener's own position on the same axis
+ * (mixer_byte_pos minus output_buffered_bytes, which is how a gapless join is timed - see 0.5). One axis, two
+ * readings, and the difference is the answer. A sum of per-edge intervals would need the analysis thread's
+ * turnaround, the render poll's beat and the present's cost to be measured separately and would still miss
+ * the buffer, which is the largest term of all.
+ *
+ * WHY THE SIGN IS THE SURPRISE. The analysis runs at MIX time. The mixer is AHEAD of the loudspeaker by
+ * mp_clock.output_buffered_bytes - tens of milliseconds on a shared-mode WASAPI device. So a renderer that
+ * draws the newest analysis frame is showing the future, and av_error_ms is negative and roughly minus the
+ * output buffer. Compensation is therefore a deliberate DELAY, and the output buffer is the budget that pays
+ * for the analysis, the render and the present out of a debt the listener never hears.
+ *
+ * WHAT THIS ABI CANNOT SEE, and no amount of care inside this process will change:
+ *   - present to photon. Present returns when the frame is queued, not when it is lit. On a flip-model
+ *     composition swap chain that is at least one refresh interval and usually two, plus the panel's own
+ *     response. A caller that knows its display can put that number in mp_av_sync_config.offset_ms.
+ *   - the device's own analogue and driver delay past what WASAPI reports as buffered.
+ * Both are strictly ADDITIVE to a picture that is already late, so an av_error_ms of zero measured here is a
+ * picture that is a little late in the room. That is deliberate: this ABI reports what it measured.
+ *
+ * TWO CONTENT INSTANTS IN ONE FRAME, which is a floor and not a bug. mp_analysis_frame.waveform is the newest
+ * 512-sample hop, so its instant is the hop - and the hop is what mixer_byte_pos names, so that is the
+ * instant this ABI aligns (the hop's midpoint, mixer_byte_pos plus 256 samples). But `spectrum` is a
+ * 2048-point Hann transform whose energy centroid sits 1024 samples - 21.3 ms at 48 kHz - EARLIER than the
+ * newest sample. A caller who cares more about the spectrum than the waveform aligns it by asking for an
+ * offset_ms of about +21, and no choice of frame makes both fields right at once. */
+
+typedef enum mp_av_sync_mode {
+    /* Draw the newest analysis frame the moment it exists. The behaviour every build before 0.17 had, kept
+     * because it is right wherever there is no output buffer to compensate against - a headless render, an
+     * MP_DEVICE_NONE engine - and because a caller measuring the uncompensated number needs to ask for it. */
+    MP_AV_SYNC_NEWEST = 0,
+    /* Draw the frame whose hop the listener is hearing. THE DEFAULT. Degrades to MP_AV_SYNC_NEWEST on its own
+     * wherever the audible position is not behind the mixer's - there is then no older frame to prefer - so
+     * an offline engine and a device-less one behave exactly as they did at 0.16. */
+    MP_AV_SYNC_AUDIBLE = 1
+} mp_av_sync_mode;
+
+typedef struct mp_av_sync_config {
+    uint32_t struct_size;
+    uint32_t mode; /* mp_av_sync_mode */
+    /* Added to the audible position before the frame is chosen, in milliseconds of audio. POSITIVE moves the
+     * picture EARLIER (it draws from audio not yet heard), which is what pays for the present-to-photon edge
+     * this ABI cannot see; negative moves it later. 0 aligns the drawn hop with the audible instant as
+     * measured, which is the honest default because the number a caller would want here is a property of
+     * their display and not of this module. Finite, and clamped to plus or minus the frame history the
+     * renderer keeps (250 ms). */
+    float offset_ms;
+    /* How many mp_latency_sample records to keep for mp_renderer_drain_latency, 0 to turn the probe off. Off
+     * is the default and off is what ships: a renderer with the probe off does not write a sample, does not
+     * read the clock, and pays one relaxed atomic load a frame for asking. Clamped to 4096. */
+    uint32_t probe_capacity;
+} mp_av_sync_config;
+
+/* One presented frame's accounting, filled on the render thread. Every _qpc field is a QueryPerformanceCounter
+ * reading on the same clock as mp_clock.qpc_ticks; qpc_frequency is on the record so a consumer needs nothing
+ * from outside it. */
+typedef struct mp_latency_sample {
+    uint32_t struct_size;
+    uint32_t analysis_sequence; /* mp_analysis_frame.sequence of the frame this picture was drawn from */
+    uint64_t frame_index;       /* the renderer's own frame counter, so a gap in the drain is visible */
+    /* The drawn analysis frame's own mixer_byte_pos, which is where its hop BEGINS. The instant the picture
+     * stands for is the middle of that hop, so av_error_ms is audible_mixer_byte_pos minus this minus half of
+     * MP_ANALYSIS_WAVEFORM_SAMPLES frames. Half a hop is 5.33 ms at 48 kHz - a third of a 60 Hz refresh
+     * interval - so a consumer that leaves it out has a bias and not a rounding. The raw label is what is on
+     * the record because it is what the frame carries; the half hop is arithmetic the consumer can see. */
+    int64_t drawn_mixer_byte_pos;
+    int64_t audible_mixer_byte_pos; /* where the LISTENER is on that axis, at present_qpc */
+    int64_t mixer_byte_pos;         /* where the MIXER is at present_qpc; minus audible is the output buffer */
+    /* mp_analysis_frame.qpc_ticks of the drawn frame: when the mixer finished producing its hop. The start of
+     * the pipeline, and the only edge of it that happened on the audio thread. */
+    int64_t analysis_qpc;
+    /* When the render thread FIRST saw this analysis sequence. Minus analysis_qpc is the analysis thread's
+     * turnaround plus the beat between a 93.75 Hz publisher and a ~60 Hz poller; a frame redrawn because
+     * nothing newer arrived carries the stamp from when it was first seen, which is the honest one. */
+    int64_t first_seen_qpc;
+    /* After Present returned (or after Flush, headless). Minus first_seen_qpc is NOT the draw cost, however
+     * much it looks like one: under MP_AV_SYNC_AUDIBLE the frame was chosen for its age and has been sitting
+     * in the renderer's history since it arrived, so that difference is mostly the compensation itself - tens
+     * of milliseconds against a draw of a fraction of one. Measured this way at 1280x720 on an RTX 4080: 0.14
+     * ms median under MP_AV_SYNC_NEWEST, 66.7 ms under MP_AV_SYNC_AUDIBLE on the same run. */
+    int64_t present_qpc;
+    int64_t qpc_frequency; /* QueryPerformanceFrequency, so every interval above is convertible in isolation */
+    double byte_rate;      /* mixer bytes per second: how the three positions become milliseconds */
+    /* The mixer's frame rate. byte_rate divided by this is the bytes in one frame, which is what turns the
+     * half hop of MP_ANALYSIS_WAVEFORM_SAMPLES frames into a number of bytes. Both are on the record because
+     * a consumer that had only their product would have to guess the channel count to get one from the other. */
+    uint32_t mixer_sample_rate;
+    uint32_t mode;   /* mp_av_sync_mode in force for this frame */
+    uint8_t redrawn; /* 1 = the same analysis frame as the previous picture; no new hop was chosen */
+    uint8_t reserved[3];
+} mp_latency_sample;
+
+/* Sets how the renderer picks which analysis frame to draw, and whether it keeps a record of what it picked.
+ * Takes effect on the render thread's next frame. MP_E_INVALID_ARG on a mode that is neither of the two or an
+ * offset that is not finite, and nothing changes. Safe from any thread and cheap enough to call per user
+ * gesture; it is not a per-frame call. */
+MP_API mp_result MP_CALL mp_renderer_set_av_sync(mp_renderer* renderer, const mp_av_sync_config* config);
+
+/* Takes the samples the probe has collected since the last drain, oldest first, and REMOVES them. Two-call
+ * like the enumerations: out == NULL reports how many are waiting in *count; otherwise at most *count are
+ * written, out[0].struct_size is the stride, and *count becomes how many were taken. MP_E_STATE when the probe
+ * was never turned on. A ring: a caller that drains slower than the renderer draws loses the OLDEST samples,
+ * and frame_index says how many by. Safe from any thread; the render thread is never blocked by a drain for
+ * longer than the copy of the samples it is handing over. */
+MP_API mp_result MP_CALL mp_renderer_drain_latency(mp_renderer* renderer, mp_latency_sample* out, uint32_t* count);
 
 #ifdef __cplusplus
 } /* extern "C" */

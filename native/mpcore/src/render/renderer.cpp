@@ -102,6 +102,9 @@ mp_result renderer::init(mp_engine* engine, void* swap_chain_panel_native, const
         return d3d_fail("CreateEvent(wake)", HRESULT_FROM_WIN32(GetLastError()));
     }
     analysis_ = std::make_unique<mp_analysis_frame>();
+    // 200 KB, allocated here rather than on the render thread, because a 6 KB frame times thirty-three slots
+    // is not something to be allocating between two pictures.
+    analysis_history_ = std::make_unique<std::array<analysis_slot, k_analysis_history + 1>>();
 
     mp_result r = create_device(config.force_warp != 0);
     if (r != MP_OK) {
@@ -663,6 +666,59 @@ void renderer::set_analysis_override(const mp_analysis_frame* frame) {
     analysis_override_active_.store(true, std::memory_order_release);
 }
 
+mp_result renderer::set_av_sync(const mp_av_sync_config& config) {
+    if (config.mode != MP_AV_SYNC_NEWEST && config.mode != MP_AV_SYNC_AUDIBLE) {
+        char text[192];
+        std::snprintf(text, sizeof text,
+                      "mp_renderer_set_av_sync: mode %u is neither MP_AV_SYNC_NEWEST (0) nor MP_AV_SYNC_AUDIBLE (1)",
+                      config.mode);
+        return invalid_arg(text);
+    }
+    if (!std::isfinite(config.offset_ms)) {
+        return invalid_arg("mp_renderer_set_av_sync: offset_ms is not a finite number");
+    }
+    // The ring is sized before the capacity is published, so a render thread that sees a non-zero capacity is
+    // never looking at a vector that has not been resized yet.
+    const uint32_t capacity = std::min<uint32_t>(config.probe_capacity, k_max_probe_samples);
+    {
+        std::lock_guard lock{probe_mutex_};
+        if (capacity != probe_.size()) {
+            probe_.assign(capacity, mp_latency_sample{});
+            probe_head_ = 0;
+            probe_count_ = 0;
+        }
+    }
+    probe_capacity_.store(capacity, std::memory_order_release);
+    av_sync_offset_ms_.store(config.offset_ms, std::memory_order_relaxed);
+    av_sync_mode_.store(config.mode, std::memory_order_release);
+    return MP_OK;
+}
+
+// Full-size elements only: the export wraps this in mp::abi::out_array, which is what serves a caller whose
+// mp_latency_sample is shorter than this build's. Destructive, and safe to run twice for that reason - the
+// count query out_array makes first takes nothing.
+mp_result renderer::drain_latency(mp_latency_sample* out, uint32_t* count) {
+    if (probe_capacity_.load(std::memory_order_acquire) == 0) {
+        mp::abi::set_last_error("mp_renderer_drain_latency: the latency probe is off; call "
+                                "mp_renderer_set_av_sync with a probe_capacity first");
+        return MP_E_STATE;
+    }
+    std::lock_guard lock{probe_mutex_};
+    if (out == nullptr || *count == 0) {
+        *count = static_cast<uint32_t>(probe_count_); // the count query; nothing is taken
+        return MP_OK;
+    }
+    const size_t taking = std::min<size_t>(*count, probe_count_);
+    const size_t capacity = probe_.size();
+    for (size_t i = 0; i < taking; ++i) {
+        out[i] = probe_[(probe_head_ + i) % capacity];
+    }
+    probe_head_ = capacity == 0 ? 0 : (probe_head_ + taking) % capacity;
+    probe_count_ -= taking;
+    *count = static_cast<uint32_t>(taking);
+    return MP_OK;
+}
+
 void renderer::get_stats(mp_render_stats& out) const noexcept {
     std::memset(&out, 0, sizeof out);
     out.struct_size = sizeof out;
@@ -742,7 +798,7 @@ void renderer::run() {
         // frame is drawn entirely at one scale and the cost measured around it is the cost of one tier.
         apply_render_scale();
         begin_gpu_timing();
-        render_frame(seconds, static_cast<double>(now - previous) / static_cast<double>(qpc_freq()));
+        render_frame(seconds, static_cast<double>(now - previous) / static_cast<double>(qpc_freq()), now);
         end_gpu_timing();
         previous = now;
         if (serving) {
@@ -756,10 +812,14 @@ void renderer::run() {
                     static_cast<unsigned long>(hr));
                 break;
             }
+            record_latency_sample();
             collect_dxgi_statistics();
         } else {
             // Headless: pace to roughly 60 fps so the numbers resemble a real display without burning a core.
             context_->Flush();
+            // Before the pacing sleep, not after it: a sample taken on the far side would report the sleep as
+            // latency, and the headless path is where the latency harness measures.
+            record_latency_sample();
             Sleep(vsync_ ? 16 : 0);
         }
         apply_quality(seconds, now); // reads last_frame_qpc_, so before record_frame_time moves it
@@ -827,8 +887,166 @@ void renderer::apply_pending_preset() {
     quality_model_dirty_ = true;
 }
 
-void renderer::update_frame_resources(double seconds, double delta) {
+// The mixer's format, which is how a byte position becomes a millisecond. Cached: it changes only when the
+// output device does, and a device change is not something to pay for on every frame.
+void renderer::refresh_mix_format() {
+    const uint64_t frame = frames_.load(std::memory_order_relaxed);
+    if (byte_rate_ > 0.0 && frame - mix_format_frame_ < 64) {
+        return; // about once a second at 60 fps
+    }
+    mix_format_frame_ = frame;
+    mp_engine_stats stats{};
+    stats.struct_size = sizeof stats;
+    if (engine_ == nullptr || mp_engine_get_stats(engine_, &stats) != MP_OK) {
+        return;
+    }
+    if (stats.output_sample_rate == 0 || stats.output_channels == 0) {
+        return; // no output has been opened yet; the previous cache, or zero, is the honest answer
+    }
+    // mp_clock.mixer_byte_pos counts float frames times channels times four, and E1-S6 made the mixer run at
+    // the device's own rate, so the output format IS the mixer's.
+    bytes_per_frame_ = static_cast<double>(stats.output_channels) * 4.0;
+    byte_rate_ = static_cast<double>(stats.output_sample_rate) * bytes_per_frame_;
+    mix_sample_rate_ = stats.output_sample_rate;
+}
+
+// Takes whatever the analysis has published into the history ring. The frame lands in the slot AFTER the
+// newest, which is not one of the counted entries, so a poll that turns out to hold the sequence already at
+// the head can be discarded by simply not advancing - it has overwritten nothing a later frame may want.
+void renderer::poll_analysis(int64_t now_qpc) {
+    const size_t capacity = analysis_history_->size();
+    analysis_slot& scratch = (*analysis_history_)[analysis_history_next_];
+    scratch.frame.struct_size = sizeof(mp_analysis_frame);
+    if (mp_analysis_try_get_latest(engine_, &scratch.frame) != MP_OK) {
+        return;
+    }
+    if (analysis_history_count_ > 0) {
+        const analysis_slot& newest = (*analysis_history_)[(analysis_history_next_ + capacity - 1) % capacity];
+        if (newest.frame.sequence == scratch.frame.sequence) {
+            return; // nothing new since the last poll; the ring already holds this one
+        }
+    }
+    scratch.first_seen_qpc = now_qpc;
+    analysis_history_next_ = (analysis_history_next_ + 1) % capacity;
+    if (analysis_history_count_ < k_analysis_history) {
+        ++analysis_history_count_;
+    }
+}
+
+// Which of the frames this thread has seen the picture is drawn from (E4-S8). MP_AV_SYNC_NEWEST, and every
+// path that cannot answer the question - no clock, no mixer format, no history - is the newest, which is what
+// every build before ABI 0.17 always did.
+const renderer::analysis_slot* renderer::choose_analysis_frame(int64_t now_qpc) {
+    if (analysis_history_count_ == 0) {
+        return nullptr;
+    }
+    const size_t capacity = analysis_history_->size();
+    // back == 0 is the newest entry; back == count-1 the oldest.
+    const auto at = [&](size_t back) -> const analysis_slot& {
+        return (*analysis_history_)[(analysis_history_next_ + capacity - 1 - back) % capacity];
+    };
+    const analysis_slot* newest = &at(0);
+    if (av_sync_mode_.load(std::memory_order_acquire) != MP_AV_SYNC_AUDIBLE || engine_ == nullptr) {
+        return newest;
+    }
+    refresh_mix_format();
+    if (byte_rate_ <= 0.0) {
+        return newest;
+    }
+    mp_clock clock{};
+    clock.struct_size = sizeof clock;
+    if (mp_engine_get_clock(engine_, &clock) != MP_OK) {
+        return newest;
+    }
+    // Where the listener is on the mixer's own axis, carried forward from the instant the clock was read to
+    // now. The carry is microseconds in practice; it is here because the clock reading and the frame this
+    // decision is for are not the same instant, and pretending they are would be a bias rather than noise.
+    const double elapsed_s = static_cast<double>(now_qpc - clock.qpc_ticks) / static_cast<double>(qpc_freq());
+    const double audible =
+        static_cast<double>(clock.mixer_byte_pos - clock.output_buffered_bytes) + elapsed_s * byte_rate_;
+    const double offset_bytes =
+        static_cast<double>(av_sync_offset_ms_.load(std::memory_order_relaxed)) / 1000.0 * byte_rate_;
+    const double target = audible + offset_bytes;
+    // A frame is documented as describing the hop STARTING at its mixer_byte_pos, so the instant it stands
+    // for is the middle of that hop and not its leading edge. Half a hop is 5.3 ms at 48 kHz and 5.8 at 44.1,
+    // which is a third of a 60 Hz refresh interval: a bias if it is skipped, not a rounding.
+    // The hop length off the ABI rather than out of analysis/analyzer.h: the waveform field IS the newest hop
+    // (the header says so and the analyzer static_asserts it), so this keeps render/ off the analysis
+    // internals for one number that the public contract already carries.
+    const double half_hop = 0.5 * static_cast<double>(MP_ANALYSIS_WAVEFORM_SAMPLES) * bytes_per_frame_;
+    const analysis_slot* best = newest;
+    double best_distance = 0.0;
+    for (size_t back = 0; back < analysis_history_count_; ++back) {
+        const analysis_slot& slot = at(back);
+        const double instant = static_cast<double>(slot.frame.mixer_byte_pos) + half_hop;
+        const double distance = std::fabs(instant - target);
+        if (back == 0 || distance < best_distance) {
+            best_distance = distance;
+            best = &slot;
+        }
+        // The ring is ordered, so once the candidates start getting further away they stay further away and
+        // the rest of the history is older still. Offline, where the listener is level with the mixer, this
+        // exits on the first entry and the whole of compensation costs one comparison.
+        else if (distance > best_distance) {
+            break;
+        }
+    }
+    return best;
+}
+
+// What the picture that has just been presented was drawn from, and where the listener was when it was. Called
+// from the render thread immediately after Present (or after Flush, headless) and BEFORE the headless pacing
+// sleep, because a sample taken after that sleep would report the sleep as latency.
+//
+// The clock is read here rather than reused from choose_analysis_frame's reading precisely because this is the
+// instant the number is about: the frame is on the queue now, and where the loudspeaker is NOW is the other
+// half of the subtraction. Its own qpc_ticks is taken as present_qpc for the same reason - the two halves of
+// av_error_ms are then one reading rather than two instants a caller has to assume are the same.
+void renderer::record_latency_sample() {
+    if (probe_capacity_.load(std::memory_order_acquire) == 0 || !have_analysis_) {
+        return;
+    }
+    mp_latency_sample sample{};
+    sample.struct_size = sizeof sample;
+    sample.analysis_sequence = analysis_sequence_;
+    sample.frame_index = frames_.load(std::memory_order_relaxed);
+    sample.drawn_mixer_byte_pos = analysis_->mixer_byte_pos;
+    sample.analysis_qpc = analysis_->qpc_ticks;
+    sample.first_seen_qpc = drawn_first_seen_qpc_;
+    sample.qpc_frequency = qpc_freq();
+    sample.byte_rate = byte_rate_;
+    sample.mixer_sample_rate = mix_sample_rate_;
+    sample.mode = av_sync_mode_.load(std::memory_order_relaxed);
+    sample.redrawn = drawn_repeat_ ? 1 : 0;
+    sample.present_qpc = qpc();
+    if (engine_ != nullptr) {
+        refresh_mix_format();
+        sample.byte_rate = byte_rate_;
+        sample.mixer_sample_rate = mix_sample_rate_;
+        mp_clock clock{};
+        clock.struct_size = sizeof clock;
+        if (mp_engine_get_clock(engine_, &clock) == MP_OK) {
+            sample.present_qpc = clock.qpc_ticks;
+            sample.mixer_byte_pos = clock.mixer_byte_pos;
+            sample.audible_mixer_byte_pos = clock.mixer_byte_pos - clock.output_buffered_bytes;
+        }
+    }
+    std::lock_guard lock{probe_mutex_};
+    const size_t capacity = probe_.size();
+    if (capacity == 0) {
+        return;
+    }
+    probe_[(probe_head_ + probe_count_) % capacity] = sample;
+    if (probe_count_ < capacity) {
+        ++probe_count_;
+    } else {
+        probe_head_ = (probe_head_ + 1) % capacity; // full: the oldest goes, and frame_index says one did
+    }
+}
+
+void renderer::update_frame_resources(double seconds, double delta, int64_t now_qpc) {
     bool fresh = false;
+    drawn_repeat_ = have_analysis_;
     if (analysis_override_active_.load(std::memory_order_acquire)) {
         // A test's fixed frame wins over the engine's. The generation is compared before the lock is taken, so
         // an override held across a thousand frames costs two atomic loads a frame and exactly one copy; the
@@ -842,16 +1060,25 @@ void renderer::update_frame_resources(double seconds, double delta) {
                 analysis_sequence_ = analysis_->sequence;
                 have_analysis_ = true;
                 fresh = true;
+                drawn_first_seen_qpc_ = now_qpc;
             }
         }
     } else if (engine_ != nullptr) {
-        analysis_->struct_size = sizeof(mp_analysis_frame);
-        if (mp_analysis_try_get_latest(engine_, analysis_.get()) == MP_OK) {
-            fresh = !have_analysis_ || analysis_->sequence != analysis_sequence_;
-            analysis_sequence_ = analysis_->sequence;
+        // Two steps since E4-S8, where there was one: everything published goes into the history ring, and
+        // then one of the ring is chosen. The choice is the newest wherever there is nothing to compensate
+        // against, so the frame this picks up is the frame ABI 0.16 picked up unless a listener is behind.
+        poll_analysis(now_qpc);
+        if (const analysis_slot* chosen = choose_analysis_frame(now_qpc); chosen != nullptr) {
+            fresh = !have_analysis_ || chosen->frame.sequence != analysis_sequence_;
+            if (fresh) {
+                *analysis_ = chosen->frame;
+                analysis_sequence_ = chosen->frame.sequence;
+            }
+            drawn_first_seen_qpc_ = chosen->first_seen_qpc;
             have_analysis_ = true;
         }
     }
+    drawn_repeat_ = drawn_repeat_ && !fresh;
 
     // The size the preset is drawing at, which at anything below MP_QUALITY_HIGH is smaller than the panel.
     // A preset must see the pixels it is actually filling: the waveform's thickness and the radial spectrum's
@@ -911,12 +1138,12 @@ void renderer::update_frame_resources(double seconds, double delta) {
     }
 }
 
-void renderer::render_frame(double seconds, double delta) {
+void renderer::render_frame(double seconds, double delta, int64_t now_qpc) {
     const compiled_preset* preset = render_preset_.get();
     if (preset == nullptr) {
         return; // nothing has compiled yet; the loop keeps the target clear of stale content below
     }
-    update_frame_resources(seconds, delta);
+    update_frame_resources(seconds, delta, now_qpc);
 
     ID3D11RenderTargetView* rtv = rtv_.Get();
     context_->OMSetRenderTargets(1, &rtv, nullptr);
