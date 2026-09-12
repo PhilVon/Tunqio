@@ -106,6 +106,19 @@ public interface IVisualizationHost : IDisposable
     /// <summary>Id of the preset currently drawing, or null while detached.</summary>
     string? ActivePresetId { get; }
 
+    /// <summary>
+    /// <see cref="ActivePresetId"/> changed: <see cref="SetPresetAsync"/> succeeded, or <see cref="AttachAsync"/>
+    /// started the catalogue's first entry. Carries the new id.
+    /// </summary>
+    /// <remarks>
+    /// The preset decides which parameters mean anything, so anything holding values for one preset has to know
+    /// when that preset starts drawing and not only when its own value changes. The album art palette (T-147) is
+    /// the case: <c>ambient-glow</c> is the only preset that declares <c>art_primary</c>, so a person who picks
+    /// Ambient Glow in the middle of a track would otherwise watch it draw its default colours until the next
+    /// one. Raised on the thread that made the change, which for the settings page is the UI thread.
+    /// </remarks>
+    event EventHandler<string>? PresetChanged;
+
     /// <summary>Render statistics, polled while attached. Feeds the diagnostics overlay.</summary>
     IObservable<RenderStats> Stats { get; }
 

@@ -145,6 +145,10 @@ public class AmbientGlowPaletteTests
 
         public IObservable<RenderStats> Stats { get; } = new Subject<RenderStats>();
 
+#pragma warning disable CS0067 // The preset never changes under this fake; Apply is what is under test.
+        public event EventHandler<string>? PresetChanged;
+#pragma warning restore CS0067
+
         public Task AttachAsync(nint swapChainPanelNative, RendererConfig config) => Task.CompletedTask;
 
         public void Detach()

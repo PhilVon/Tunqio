@@ -68,6 +68,9 @@ public sealed class VisualizationHost : IVisualizationHost
 
     public IObservable<RenderStats> Stats => _stats;
 
+    /// <inheritdoc />
+    public event EventHandler<string>? PresetChanged;
+
     /// <summary>Statistics pushed to <see cref="Stats"/> since construction. Diagnostics and tests.</summary>
     public long Pushed { get; private set; }
 
@@ -81,6 +84,7 @@ public sealed class VisualizationHost : IVisualizationHost
             ? NativeRenderer.CreateHeadless(config)
             : NativeRenderer.Create(swapChainPanelNative, config);
         NativeRenderer? previous;
+        string? started;
         try
         {
             IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
@@ -92,6 +96,7 @@ public sealed class VisualizationHost : IVisualizationHost
                 // The core starts on the first entry of its own catalogue - the built-in preset, which is the one
                 // that cannot be missing. After this, SetPresetAsync is what moves it.
                 _activePresetId = presets.Count > 0 ? presets[0].Id : null;
+                started = _activePresetId;
             }
         }
         catch
@@ -101,6 +106,12 @@ public sealed class VisualizationHost : IVisualizationHost
         }
 
         previous?.Dispose();
+        // Outside the lock, and after the old renderer has gone: a handler is free to call back in.
+        if (started is not null)
+        {
+            PresetChanged?.Invoke(this, started);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -138,6 +149,7 @@ public sealed class VisualizationHost : IVisualizationHost
             _activePresetId = id;
         }
 
+        PresetChanged?.Invoke(this, id);
         return Task.CompletedTask;
     }
 

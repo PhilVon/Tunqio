@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
     private ReactiveThemeController? _reactiveTheme;
     private volatile bool _isDark;
     private readonly IVisualizationHost? _visualization;
+    private readonly VisualizerArtLink? _artLink;
     private bool _rendererAttached;
 
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
@@ -64,6 +65,10 @@ public sealed partial class MainWindow : Window
     /// second one would leave that bar with nowhere to appear. Null builds one, which is what the spike modes and
     /// the tests that construct the window directly get; only then does the window dispose it.
     /// </param>
+    /// <param name="art">
+    /// The album art cache (T-147). What turns the track now playing into the colours the Ambient Glow preset
+    /// draws with and the tint the reactive theme carries; null leaves both on their own palettes.
+    /// </param>
     public MainWindow(
         bool forceWarp = false,
         ISettingsStore? settings = null,
@@ -73,7 +78,8 @@ public sealed partial class MainWindow : Window
         Core.Library.ITrackRepository? tracks = null,
         Library.LibraryScanCoordinator? scans = null,
         ShellNotices? notices = null,
-        IVisualizationHost? visualization = null)
+        IVisualizationHost? visualization = null,
+        Core.Library.IArtCache? art = null)
     {
         _forceWarp = forceWarp;
         _settings = settings;
@@ -105,7 +111,8 @@ public sealed partial class MainWindow : Window
 
         // The diagnostics overlay (E2-S8). It reads the renderer through a delegate rather than being handed one,
         // because the renderer does not exist until the swap-chain panel has loaded and may never exist at all.
-        _diagnostics = new DiagnosticsViewModel(audio, RendererStats, DescribeEngine(), SynchronizationContext.Current);
+        _diagnostics = new DiagnosticsViewModel(
+            audio, RendererStats, DescribeEngine(), SynchronizationContext.Current, theming: ThemingStatus);
         Diagnostics.ViewModel = _diagnostics;
 
         if (audio is not null)
@@ -122,6 +129,15 @@ public sealed partial class MainWindow : Window
             {
                 _queue = new QueueViewModel(audio, tracks, SynchronizationContext.Current);
                 QueuePanelControl.ViewModel = _queue;
+            }
+
+            // Now Playing to the visualizer's colours (T-147). Built here rather than with the renderer because
+            // it watches the session, which exists now; the renderer attaches when the panel loads, and the link
+            // simply says nothing until it has.
+            if (visualization is not null)
+            {
+                _artLink = new VisualizerArtLink(audio, visualization, art, SynchronizationContext.Current);
+                _artLink.PaletteChanged += (_, palette) => _reactiveTheme?.SetArtPalette(palette);
             }
         }
 
@@ -150,6 +166,7 @@ public sealed partial class MainWindow : Window
             }
 
             _diagnostics.Dispose();
+            _artLink?.Dispose();
             _reactiveTheme?.Dispose();
             _accessibility?.Dispose();
             _reactiveLayer?.Dispose();
@@ -173,12 +190,41 @@ public sealed partial class MainWindow : Window
 
         _reactiveLayer = new ReactiveThemeLayer(ReactiveLayer);
         _accessibility = new SystemAccessibilitySignals();
-        _reactiveTheme = new ReactiveThemeController(frames, settings, _accessibility, _reactiveLayer, () => _isDark);
+        // The visualizer is passed (T-156): without it mp_renderer_set_theme has no caller in the app, and the
+        // sixteen floats E4-S6 added to every preset's b0 carry nothing. The controller tolerates a host that is
+        // detached or absent; see PushToRenderer for why the guard is there and not on the host.
+        _reactiveTheme = new ReactiveThemeController(
+            frames, settings, _accessibility, _reactiveLayer, () => _isDark, _visualization);
+        // The track already playing, if there is one: the link loaded its palette before this controller existed.
+        _reactiveTheme.SetArtPalette(_artLink?.Palette);
         _reactiveTheme.Start();
     }
 
     /// <summary>The reactive theming, for the diagnostics overlay and the tests that drive the window.</summary>
     internal ReactiveThemeController? ReactiveTheming => _reactiveTheme;
+
+    /// <summary>Now Playing's colours as the visualizer takes them (T-147), for the tests that drive the window.</summary>
+    internal VisualizerArtLink? ArtLink => _artLink;
+
+    /// <summary>
+    /// Everything the overlay says about audio-reactive theming (T-155), gathered from the three objects that
+    /// each know part of it: the controller's state and counts, the layer's painted colours, and the art link's
+    /// album. Null before the theming has been started at all, which is a different thing from stopped.
+    /// </summary>
+    private ReactiveThemeStatus? ThemingStatus() =>
+        _reactiveTheme is not { } theming
+            ? null
+            : new ReactiveThemeStatus(
+                theming.Active,
+                theming.StoppedBecause,
+                _reactiveLayer?.Painted,
+                theming.Ticks,
+                theming.Applied,
+                theming.RendererPushes,
+                theming.RendererSkips,
+                theming.RendererProblem,
+                _artLink?.Hash,
+                _artLink?.Palette?.Colors);
 
     /// <summary>The visualizer surface bound to the panel, once the panel has loaded and if there is one.</summary>
     public IVisualizationHost? Renderer => _rendererAttached ? _visualization : null;
@@ -580,6 +626,9 @@ public sealed partial class MainWindow : Window
                 .ConfigureAwait(true);
             _rendererAttached = true;
             await RestoreVisualizationSettingsAsync().ConfigureAwait(true);
+            // Now there is a preset to tell. Until this point the track playing had a palette and nowhere to
+            // put it, because the panel loads after the window and the catalogue after the device (T-147).
+            _artLink?.Reapply();
         }
         catch (Exception ex) when (ex is NativeException or DllNotFoundException)
         {

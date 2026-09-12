@@ -22,6 +22,31 @@ public class VisualizationHostTests
         await FluentActions.Awaiting(() => host.SetPresetAsync("builtin-bars")).Should().ThrowAsync<InvalidOperationException>();
     }
 
+    /// <summary>
+    /// T-147: the preset changing is a fact more than one thing needs, because the preset decides which
+    /// parameters mean anything. Both moves raise it - attaching, which starts the catalogue's first entry, and
+    /// switching - and a preset that will not compile raises nothing, because nothing changed.
+    /// </summary>
+    [Fact]
+    public async Task Both_ways_the_active_preset_can_move_are_announced_and_a_failed_switch_is_not()
+    {
+        using var root = new PresetRootScope(PresetRootScope.Fixtures);
+        using var host = new VisualizationHost();
+        List<string> announced = [];
+        host.PresetChanged += (_, id) => announced.Add(id);
+
+        await host.AttachAsync(nint.Zero, Headless);
+        // Attaching starts a preset, and that is a change: the catalogue's first entry is now drawing.
+        announced.Should().Equal(["builtin-bars"]);
+
+        await host.SetPresetAsync("solid-green");
+        announced.Should().Equal("builtin-bars", "solid-green");
+
+        await FluentActions.Awaiting(() => host.SetPresetAsync("broken-shader")).Should().ThrowAsync<PresetCompilationException>();
+        announced.Should().Equal("builtin-bars", "solid-green");
+        host.ActivePresetId.Should().Be("solid-green");
+    }
+
     [Fact]
     public async Task Attaching_scans_the_catalogue_and_starts_on_the_built_in_preset()
     {

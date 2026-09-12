@@ -1,5 +1,6 @@
 using Tunqio.App.Shell;
 using Tunqio.Core.Audio;
+using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
 using Tunqio.Core.Tests.Playback;
 using Tunqio.Core.Visualization;
@@ -70,7 +71,7 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(
             _session.Current, _session.EngineStats, Frames(), "0.1.0");
 
-        sections.Select(s => s.Title).Should().Equal("Playback", "Output", "Renderer", "Build");
+        sections.Select(s => s.Title).Should().Equal("Playback", "Output", "Renderer", "Reactive theming", "Build");
         Value(sections, "Playback", "State").Should().Be("Playing");
         Value(sections, "Playback", "Position").Should().Be("1:05 / 3:00");
         Value(sections, "Playback", "Track").Should().Be("One (id 11)");
@@ -114,6 +115,7 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         Value(sections, "Playback", "State").Should().Be("no session");
         Value(sections, "Output", "Engine").Should().Be("unavailable");
         Value(sections, "Renderer", "Renderer").Should().Be("unavailable");
+        Value(sections, "Reactive theming", "Theming").Should().Be("not started (no analysis stream)");
         Value(sections, "Build", "Version").Should().Be("unknown");
     }
 
@@ -124,6 +126,88 @@ public sealed class DiagnosticsTests : IAsyncLifetime
             null, null, null, "0.1.0", "unavailable: mpcore.dll not found");
 
         Value(sections, "Renderer", "Renderer").Should().Be("unavailable: mpcore.dll not found");
+    }
+
+    // ---- T-155: the reactive theming readout ------------------------------------------------------------------------
+
+    /// <summary>The palette AC-266 could not see, as four named hex triples a person can watch change.</summary>
+    private static ReactiveThemeStatus Theming(
+        bool active = true,
+        string? stoppedBecause = null,
+        long rendererPushes = 900,
+        long rendererSkips = 0,
+        string? rendererProblem = null,
+        bool painted = true,
+        string? artHash = "aaaa1111deadbeef") =>
+        new(
+            active,
+            stoppedBecause,
+            painted
+                ? new ReactiveThemePalette(
+                    new Srgb(0x16, 0x32, 0x4f),
+                    new Srgb(0x2a, 0x4a, 0x6e),
+                    new Srgb(0x6f, 0x9a, 0xd6),
+                    new Srgb(0x0c, 0x1a, 0x2b))
+                : null,
+            Ticks: 900,
+            Applied: 900,
+            rendererPushes,
+            rendererSkips,
+            rendererProblem,
+            artHash,
+            artHash is null
+                ? null
+                : [new PaletteColor(40, 90, 160, 0.6, PaletteColor.RelativeLuminance(40, 90, 160))]);
+
+    [Fact]
+    public void A_running_theming_says_so_and_names_the_colours_it_is_painting()
+    {
+        IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(null, null, null, theming: Theming());
+
+        Value(sections, "Reactive theming", "State").Should().Be("running");
+        Value(sections, "Reactive theming", "Palette")
+            .Should().Be("primary #16324f · secondary #2a4a6e · accent #6f9ad6 · background #0c1a2b");
+        Value(sections, "Reactive theming", "Ticks").Should().Be("900 · 900 painted");
+        Value(sections, "Reactive theming", "Visualizer").Should().Be("900 palettes sent");
+        Value(sections, "Reactive theming", "Album art").Should().Be("aaaa1111 · #285aa0");
+    }
+
+    /// <summary>AC-286, and the observation AC-288 asks a person to make: the reason is on the readout.</summary>
+    [Fact]
+    public void A_stopped_theming_gives_the_reason_and_shows_the_static_theme_back()
+    {
+        IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(
+            null, null, null,
+            theming: Theming(active: false, stoppedBecause: "Windows is asking for reduced motion", painted: false));
+
+        Value(sections, "Reactive theming", "State").Should().Be("stopped: Windows is asking for reduced motion");
+        Value(sections, "Reactive theming", "Palette").Should().Be("none (the static theme is showing)");
+    }
+
+    /// <summary>
+    /// The row that would have answered AC-266 before T-156 existed. It is the difference between "the theming is
+    /// running" and "the theming is reaching the thing you are looking at", which is the whole of why the check
+    /// could not be made: the window's gradient moved and the visualizer inside it did not.
+    /// </summary>
+    [Fact]
+    public void A_theme_that_is_not_reaching_the_visualizer_says_so_rather_than_only_that_it_is_running()
+    {
+        IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(
+            null, null, null,
+            theming: Theming(rendererPushes: 0, rendererSkips: 900, rendererProblem: "no renderer was passed"));
+
+        Value(sections, "Reactive theming", "State").Should().Be("running");
+        Value(sections, "Reactive theming", "Visualizer")
+            .Should().Be("not told: no renderer was passed (900 skipped, 0 sent)");
+    }
+
+    [Fact]
+    public void A_track_with_no_art_says_so_rather_than_showing_the_last_album_s_colours()
+    {
+        IReadOnlyList<DiagnosticsSection> sections =
+            Diagnostics.Describe(null, null, null, theming: Theming(artHash: null));
+
+        Value(sections, "Reactive theming", "Album art").Should().Be("none (this track has no art)");
     }
 
     // ---- copying it -------------------------------------------------------------------------------------------------

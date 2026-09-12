@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Tunqio.Core.Audio;
+using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
 using Tunqio.Core.Visualization;
 
@@ -11,6 +12,44 @@ public sealed record DiagnosticsRow(string Label, string Value);
 
 /// <summary>A group of rows under a heading.</summary>
 public sealed record DiagnosticsSection(string Title, IReadOnlyList<DiagnosticsRow> Rows);
+
+/// <summary>
+/// Audio-reactive theming as the overlay reports it (T-155): whether it is running, why it is not, what colours
+/// are on screen, whether the visualizer is being told them, and which album the art colours came from.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This exists because the feature is close to unfalsifiable by eye and was checked by eye. The gradient shows
+/// through two <c>LayerFillColorDefaultBrush</c> panels, in colours held to 4.5:1 against the theme's
+/// foregrounds, eased over a 0.5 to 4 s time constant - which is the correct design and is also why AC-266
+/// asked a person to watch something stop and got, reasonably, "I saw no observable difference". A number that
+/// stops moving is falsifiable; a subtle gradient is not.
+/// </para>
+/// <para>
+/// <see cref="Painted"/> is read off the layer that painted it rather than off the engine that computed it, so
+/// the row says what is on the screen and not what was asked for.
+/// </para>
+/// </remarks>
+/// <param name="Active">True while the theme is following the music.</param>
+/// <param name="StoppedBecause">The first switch that says no, or null while it is running.</param>
+/// <param name="Painted">The colours the shell's gradient is showing, or null when the static theme is back.</param>
+/// <param name="Ticks">Polls served since the controller was created, and <paramref name="Applied"/> of them painted.</param>
+/// <param name="RendererPushes">Palettes that reached the presets through <c>mp_renderer_set_theme</c>.</param>
+/// <param name="RendererSkips">Palettes the visualizer was not told, for the reason in <paramref name="RendererProblem"/>.</param>
+/// <param name="RendererProblem">Why the visualizer is not being told, or null while it is.</param>
+/// <param name="ArtHash">The <c>art_hash</c> the album art colours came from; null for a track with no art.</param>
+/// <param name="ArtColours">Those colours, most populous first, or null when there are none.</param>
+public sealed record ReactiveThemeStatus(
+    bool Active,
+    string? StoppedBecause,
+    ReactiveThemePalette? Painted,
+    long Ticks,
+    long Applied,
+    long RendererPushes,
+    long RendererSkips,
+    string? RendererProblem,
+    string? ArtHash,
+    IReadOnlyList<PaletteColor>? ArtColours);
 
 /// <summary>
 /// What the diagnostics overlay says (E2-S8), as a pure function of the three things it reports on: the playback
@@ -31,11 +70,13 @@ public static class Diagnostics
         EngineStats? engine,
         RenderStats? renderer,
         string? build = null,
-        string? rendererProblem = null) =>
+        string? rendererProblem = null,
+        ReactiveThemeStatus? theming = null) =>
     [
         new("Playback", Playback(snapshot)),
         new("Output", Output(engine)),
         new("Renderer", Renderer(renderer, rendererProblem)),
+        new("Reactive theming", Theming(theming)),
         new("Build", [new DiagnosticsRow("Version", build ?? "unknown")]),
     ];
 
@@ -128,6 +169,69 @@ public static class Diagnostics
             new DiagnosticsRow("Frame histogram", Histogram(renderer.FrameHistogram)),
             new DiagnosticsRow("Device lost", renderer.DeviceLost ? "yes" : "no"),
         ];
+    }
+
+    /// <summary>
+    /// What the theming is doing (T-155). Every row is a fact that changes when the feature's state does, which
+    /// is what the gradient itself cannot offer: "running" becomes "stopped: Windows is asking for reduced
+    /// motion" the moment the switch is thrown, and the palette line stops moving with it.
+    /// </summary>
+    private static IReadOnlyList<DiagnosticsRow> Theming(ReactiveThemeStatus? theming)
+    {
+        if (theming is null)
+        {
+            // Not "off": the controller is started when the audio engine comes up, and a session with no audio
+            // never starts one at all. Saying which is the difference between a bug and a machine with no sound.
+            return [new DiagnosticsRow("Theming", "not started (no analysis stream)")];
+        }
+
+        return
+        [
+            new DiagnosticsRow("State", theming.Active ? "running" : "stopped: " + (theming.StoppedBecause ?? "unknown")),
+            new DiagnosticsRow("Palette", Palette(theming.Painted)),
+            new DiagnosticsRow("Ticks", Inv($"{theming.Ticks} · {theming.Applied} painted")),
+            new DiagnosticsRow("Visualizer", Told(theming)),
+            new DiagnosticsRow("Album art", Art(theming.ArtHash, theming.ArtColours)),
+        ];
+    }
+
+    /// <summary>
+    /// The four colours on screen, named, because the whole point of the row is that a person can watch them
+    /// move with the music - and four bare hex triples say nothing about which is which.
+    /// </summary>
+    private static string Palette(ReactiveThemePalette? painted) =>
+        painted is null
+            ? "none (the static theme is showing)"
+            : Inv($"primary {painted.Primary.Hex} · secondary {painted.Secondary.Hex} · accent {painted.Accent.Hex} · background {painted.Background.Hex}");
+
+    /// <summary>
+    /// Whether the theme is reaching the presets (T-156). This is the row that would have answered AC-266:
+    /// before that wiring existed it read "not told: no renderer was passed", every tick, for the life of the
+    /// app.
+    /// </summary>
+    private static string Told(ReactiveThemeStatus theming) =>
+        theming.RendererProblem is null
+            ? Inv($"{theming.RendererPushes} palettes sent")
+            : Inv($"not told: {theming.RendererProblem} ({theming.RendererSkips} skipped, {theming.RendererPushes} sent)");
+
+    /// <summary>
+    /// Which album the glow's colours came from (T-147). The hash is abbreviated because it is an identity and
+    /// not a value; the colours are whole, because they are the thing being checked.
+    /// </summary>
+    private static string Art(string? hash, IReadOnlyList<PaletteColor>? colours)
+    {
+        if (string.IsNullOrEmpty(hash))
+        {
+            return "none (this track has no art)";
+        }
+
+        string id = hash.Length > 8 ? hash[..8] : hash;
+        if (colours is null || colours.Count == 0)
+        {
+            return id + " · no palette stored";
+        }
+
+        return id + " · " + string.Join(' ', colours.Select(c => c.Hex));
     }
 
     /// <summary>

@@ -355,6 +355,8 @@ public sealed class VisualizationSettingsViewModelTests
 
         public IObservable<RenderStats> Stats { get; } = new Subject<RenderStats>();
 
+        public event EventHandler<string>? PresetChanged;
+
         public Task AttachAsync(nint swapChainPanelNative, RendererConfig config)
         {
             IsAttached = true;
@@ -383,6 +385,7 @@ public sealed class VisualizationSettingsViewModelTests
 
             Switched.Add(id);
             ActivePresetId = id;
+            PresetChanged?.Invoke(this, id);
             return Task.CompletedTask;
         }
 

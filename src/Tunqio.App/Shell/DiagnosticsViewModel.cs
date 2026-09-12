@@ -24,6 +24,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     private readonly SynchronizationContext? _ui;
     private readonly IPlaybackSessionSource? _source;
     private readonly Func<RenderStats?> _renderer;
+    private readonly Func<ReactiveThemeStatus?> _theming;
     private readonly string? _build;
     private readonly TimeProvider _time;
     private ITimer? _timer;
@@ -37,15 +38,21 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     /// <param name="build">The version string for the Build section.</param>
     /// <param name="ui">The XAML thread's context. Null runs updates inline, which is what the tests want.</param>
     /// <param name="clock">Drives the refresh; a fake clock is how a test advances it.</param>
+    /// <param name="theming">
+    /// Reads audio-reactive theming (T-155). A delegate for the same reason <paramref name="renderer"/> is one:
+    /// the controller does not exist until the audio engine is up, and on a machine with no sound never will.
+    /// </param>
     public DiagnosticsViewModel(
         IPlaybackSessionSource? source = null,
         Func<RenderStats?>? renderer = null,
         string? build = null,
         SynchronizationContext? ui = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        Func<ReactiveThemeStatus?>? theming = null)
     {
         _source = source;
         _renderer = renderer ?? (() => null);
+        _theming = theming ?? (() => null);
         _build = build;
         _ui = ui;
         _time = clock ?? TimeProvider.System;
@@ -69,7 +76,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     {
         PlaybackSession? session = _source?.Session;
         IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(
-            session?.Current, session?.EngineStats, Read(), _build, RendererProblem);
+            session?.Current, session?.EngineStats, Read(), _build, RendererProblem, ReadTheming());
 
         Sections.Clear();
         foreach (DiagnosticsSection section in sections)
@@ -94,6 +101,23 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             Serilog.Log.Debug(e, "The renderer could not be read for the diagnostics overlay");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The theming's state, or null. Read behind the same net as the renderer: the controller ticks on a timer
+    /// thread and the layer on the UI one, and a torn read here must not take the overlay down.
+    /// </summary>
+    private ReactiveThemeStatus? ReadTheming()
+    {
+        try
+        {
+            return _theming();
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Serilog.Log.Debug(e, "The reactive theming could not be read for the diagnostics overlay");
             return null;
         }
     }
