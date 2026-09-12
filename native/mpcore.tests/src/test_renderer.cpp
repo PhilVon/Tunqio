@@ -97,18 +97,48 @@ std::string last_error() {
 
 // Where the frame counter stops moving. A hidden renderer is one the render thread has yet to notice is hidden,
 // and the frame it was already drawing still counts.
-uint64_t settled_frames(const renderer_fixture& fx, int timeout_ms = 1000) {
+//
+// "Stopped" has to mean quiet for longer than a frame takes, which is why this waits for a stretch rather than
+// for one gap. Two equal reads 5 ms apart prove nothing on a machine where a frame takes longer than 5 ms: the
+// count is not still, it is merely between frames, and the next one lands during the check that follows. That is
+// what CI did - 392 == 391, one frame past a counter this function had called settled (T-134). Headless WARP runs
+// at ~800 fps on the dev machine and far slower on a shared runner, so the window is fixed at a value that is
+// many frames on either rather than derived from a rate that varies by two orders of magnitude between them.
+uint64_t settled_frames(const renderer_fixture& fx, int timeout_ms = 3000, int quiet_ms = 150) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     uint64_t previous = fx.stats().frames;
+    auto quiet_since = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
         const uint64_t now = fx.stats().frames;
-        if (now == previous) {
+        if (now != previous) {
+            previous = now;
+            quiet_since = std::chrono::steady_clock::now();
+            continue;
+        }
+
+        if (std::chrono::steady_clock::now() - quiet_since >= std::chrono::milliseconds(quiet_ms)) {
             return now;
         }
-        previous = now;
     }
+
     return previous;
+}
+
+// Waits for the renderer to have drawn `n` frames, rather than sleeping a span and asserting it managed them.
+// The difference matters where it is cheapest to get wrong: headless WARP is CPU rendering, so its rate is a
+// property of how busy the machine is, not of the renderer. Hammering this suite while a build ran took it to
+// 5 frames in 400 ms and 0 in 300 ms - both assertions this replaces, both red, with nothing wrong (T-134). A
+// shared CI runner is that machine on an ordinary day.
+bool frames_reach_within(const renderer_fixture& fx, uint64_t n, int timeout_ms) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (fx.stats().frames >= n) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return false;
 }
 
 bool frames_advance_within(const renderer_fixture& fx, uint64_t from, int timeout_ms) {
@@ -138,7 +168,9 @@ TEST_CASE("renderer rejects bad arguments", "[render][abi]") {
 
 TEST_CASE("headless WARP renderer produces frames", "[render]") {
     renderer_fixture fx{true};
-    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    // Waited for rather than slept at: six frames is the claim, and how long six frames take is the machine's
+    // business. Ten seconds is not a budget, it is long enough that failing it means nothing is being drawn.
+    REQUIRE(frames_reach_within(fx, 6, 10000));
 
     // Stop the loop before reading the counters, because the last assertion in here is about two of them
     // agreeing. get_stats samples frames_ and the histogram as separate loads, and the render thread counts a
@@ -151,7 +183,7 @@ TEST_CASE("headless WARP renderer produces frames", "[render]") {
     std::this_thread::sleep_for(std::chrono::milliseconds(120));
 
     const mp_render_stats s = fx.stats();
-    CHECK(s.frames > 5);
+    CHECK(s.frames > 5); // already waited for above; here it reads back off the paused counter
     CHECK(s.warp == 1);
     CHECK(s.headless == 1);
     CHECK(s.visible == 0); // the pause above, and the reason the two counters below can be compared at all
@@ -190,8 +222,9 @@ TEST_CASE("hidden renderer stops rendering and resumes", "[render]") {
     renderer_fixture fx{true};
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
     REQUIRE(mp_renderer_set_visible(fx.renderer, 0) == MP_OK);
-    std::this_thread::sleep_for(std::chrono::milliseconds(120));
-    const uint64_t paused = fx.stats().frames;
+    // Settled rather than slept at, for the reason settled_frames gives: a fixed wait is a guess about how long
+    // a frame takes on a machine nobody has measured, and this test has the same shape as the one T-134 caught.
+    const uint64_t paused = settled_frames(fx);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     CHECK(fx.stats().frames == paused);
     CHECK(fx.stats().visible == 0);
@@ -203,7 +236,8 @@ TEST_CASE("hidden renderer stops rendering and resumes", "[render]") {
 TEST_CASE("hardware renderer falls back to WARP when no adapter exists", "[render]") {
     // On a machine with a GPU this exercises the hardware path; on a CI runner it exercises the fallback.
     renderer_fixture fx{false};
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    // Same reason as above: that a frame is drawn at all is the claim, not that one is drawn inside 300 ms.
+    CHECK(frames_reach_within(fx, 1, 10000));
     const mp_render_stats s = fx.stats();
     CHECK(s.frames > 0);
     CHECK(std::string{s.adapter}.size() > 0);
