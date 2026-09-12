@@ -38,7 +38,8 @@
 param(
     [string]$Exe = "$PSScriptRoot\..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe",
     [int]$Seconds = 14,
-    [switch]$KeepScratch
+    [switch]$KeepScratch,
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -265,6 +266,16 @@ Write-Output "shell:    $Exe"
 Write-Output "scratch:  $runRoot"
 Write-Output ''
 
+# Refuse rather than kill. This script stops the shell, moves the real library database aside and writes tags, and
+# it used to do all of that to whatever instance happened to be running - including the one its author had open,
+# with their own music in it (2026-09-12). An app already running is somebody using it.
+$running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
+if ($running.Count -gt 0 -and -not $Force) {
+    throw ("Tunqio is already running (pid $($running.Id -join ', ')). This script stops the shell, moves " +
+           "$dbPath aside and writes tags to files, so it will not touch a session somebody is using. " +
+           'Close the app and run again, or pass -Force if that instance is yours to discard.')
+}
+
 Stop-Shell
 if (Restore-Database) { Write-Output 'note: a previous run had left the real library database parked; it has been put back.' }
 Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue
@@ -360,6 +371,22 @@ try {
 
         if ($selected.Count -eq $batchSize -or (Get-Date) -ge $deadline) { break }
         Start-Sleep -Milliseconds 500
+    }
+
+    # The isolation, proved rather than assumed. Parking the database is supposed to leave the app with nothing but
+    # the fixture copy; on 2026-09-12 it did not, and the Tracks table came up full of the author's own music while
+    # this script was one step away from selecting twelve rows of it and writing tags to them. It threw first, by
+    # luck rather than design, because those titles did not match the fixtures. So that coincidence becomes the
+    # rule: if what is on screen is not the fixture library, stop before touching anything.
+    if ($selected.Count -ne $batchSize -and $unmatched.Count -gt 0) {
+        $fixtureTitles = @($pathsByTitle.Keys)
+        $strangers = @($unmatched | Where-Object { $_ -and $_ -notin $fixtureTitles })
+        if ($strangers.Count -gt 0) {
+            throw ("the Tracks table is not showing the fixture library - it holds titles this script did not put " +
+                   "there: $($strangers -join ' | '). The real library database was supposed to be parked at " +
+                   "$parked for the run. Nothing has been selected and nothing has been written. Check that " +
+                   "$dbPath was moved aside before letting this run again.")
+        }
     }
 
     if ($selected.Count -ne $batchSize) {
@@ -537,6 +564,10 @@ try {
     }
 
     # The measurements, kept for a failure to be read with rather than guessed at.
+    # The measurements, kept for a failure to be read with rather than guessed at. Note that UIA reports CLIPPED
+    # rectangles, not layout ones: a box cut off by its column comes back at its visible width, ending exactly on
+    # the boundary that cut it. That is why "does anything extend past the edge" could never catch this, and why
+    # the assertion that works compares two boxes against each other instead of against a boundary.
     if ($script:boundsDump -and $script:failures.Count -gt 0) {
         $script:boundsDump | ForEach-Object { Write-Output "        $_" }
     }

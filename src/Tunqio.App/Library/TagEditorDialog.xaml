@@ -39,8 +39,14 @@
     <StackPanel Grid.Row="0" Spacing="12">
       <Grid ColumnSpacing="12" RowSpacing="8">
         <Grid.ColumnDefinitions>
+          <!--
+            Genre takes what is left rather than half. The number boxes on the same row need a definite amount of
+            room and Genre does not: it is a text box that scrolls, so being narrower costs it nothing that being
+            clipped costs the boxes beside it. Star here and Auto there means the numbers are sized for what they
+            hold and Genre absorbs the remainder, so there is no total for anybody to keep true (T-139).
+          -->
           <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
@@ -76,24 +82,27 @@
                  Text="{x:Bind ViewModel.Genres, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <!--
-          A Grid and not a horizontal StackPanel, and no fixed widths on the boxes. The three of them used to be
-          76 + 60 + 60 with two 8px gaps, which is 212 in a column that is (420 - 12) / 2 = 204 wide: eight pixels
-          over, and a horizontal StackPanel does not shrink its children to fit, so Disc ran off the edge of the
-          dialog and was cut (T-139). Widths that have to add up to a number derived from two other numbers are a
-          sum somebody has to keep true by hand, and this one had already stopped being true.
+          Sized for what they hold, in a column that is Auto, so nothing can squeeze them.
 
-          Sharing the column instead means the arithmetic cannot go wrong: whatever the column is, the boxes
-          divide it. Year takes a little more because a four-digit year is the widest thing any of them holds.
+          They were 76 + 60 + 60 with two 8px gaps - 212 - inside a column of (420 - 12) / 2 = 204. A horizontal
+          StackPanel does not overflow visibly, it takes the shortfall out of its last child and the column clips
+          what is left, which is why the right-hand boxes lost the rounding on their right edge: the corner was
+          being cut off (T-139, reported by Phil looking at the screen, after two checks of mine that could not
+          see it).
 
-          They carry the same placeholder as the rest. They are narrow, so "(multiple values)" is clipped in them
-          — but a clipped placeholder still reads as greyed-out text that is not the value, whereas an empty box
-          reads as "they all agree and it is blank", which is the opposite of the truth.
+          Sharing that column proportionally was the first attempt and it was not enough: measured at Year 74,
+          Track 57, Disc 57, it made them equal and all of them narrower, fitting the 204 exactly with no slack
+          at all. Exactly-fits is one rounding error from clipping again.
+
+          So the row asks for what it needs and Genre gives way instead. 90 + 80 + 80 with the gaps is 266 of the
+          420, Genre keeps 142, and because its column is the star one it is the thing that shrinks if the dialog
+          ever narrows. The boxes are the last to give rather than the first.
         -->
         <Grid Grid.Row="4" Grid.Column="1" ColumnSpacing="8" VerticalAlignment="Bottom">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="1.3*" />
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="90" />
+            <ColumnDefinition Width="80" />
+            <ColumnDefinition Width="80" />
           </Grid.ColumnDefinitions>
           <TextBox Grid.Column="0" Header="Year" InputScope="Number"
                    PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
