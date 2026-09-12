@@ -962,8 +962,9 @@ const renderer::analysis_slot* renderer::choose_analysis_frame(int64_t now_qpc) 
     const double offset_bytes =
         static_cast<double>(av_sync_offset_ms_.load(std::memory_order_relaxed)) / 1000.0 * byte_rate_;
     const double target = audible + offset_bytes;
-    // A frame is documented as describing the 10.67 ms STARTING at its mixer_byte_pos, so the instant it
-    // stands for is the middle of that hop and not its edge. Half a hop is 5.3 ms of bias if it is skipped.
+    // A frame is documented as describing the hop STARTING at its mixer_byte_pos, so the instant it stands
+    // for is the middle of that hop and not its leading edge. Half a hop is 5.3 ms at 48 kHz and 5.8 at 44.1,
+    // which is a third of a 60 Hz refresh interval: a bias if it is skipped, not a rounding.
     // The hop length off the ABI rather than out of analysis/analyzer.h: the waveform field IS the newest hop
     // (the header says so and the analyzer static_asserts it), so this keeps render/ off the analysis
     // internals for one number that the public contract already carries.

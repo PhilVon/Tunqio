@@ -151,9 +151,9 @@ double median(std::vector<double> values) {
 }
 
 // The steady part of a run: the first samples are drawn before the history has anything in it to choose from,
-// which is a real behaviour (the renderer draws the newest until it has an older one) and not the one these
-// cases are about. Half a second of audio at ten milliseconds a pull is fifty pulls, so dropping the first
-// third leaves the selection with a full ring behind it.
+// which is a real behaviour - the renderer draws the newest until it has an older one - and not the one these
+// cases are about. Dropping the first third of a 700 ms phase leaves the selection with a full ring behind it,
+// since the ring fills in about a third of a second at the rate the analysis publishes.
 std::vector<double> steady_errors(const std::vector<mp_latency_sample>& samples) {
     std::vector<double> out;
     for (size_t i = samples.size() / 3; i < samples.size(); ++i) {
