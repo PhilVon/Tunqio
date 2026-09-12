@@ -75,25 +75,39 @@
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  Text="{x:Bind ViewModel.Genres, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
-        <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
-          <!--
-            The three number boxes carry the same placeholder as the rest. They are narrow, so "(multiple values)"
-            is clipped in them — but a clipped placeholder still reads as greyed-out text that is not the value,
-            whereas an empty box reads as "they all agree and it is blank", which is the opposite of the truth.
-          -->
-          <TextBox Header="Year" Width="76" InputScope="Number"
+        <!--
+          A Grid and not a horizontal StackPanel, and no fixed widths on the boxes. The three of them used to be
+          76 + 60 + 60 with two 8px gaps, which is 212 in a column that is (420 - 12) / 2 = 204 wide: eight pixels
+          over, and a horizontal StackPanel does not shrink its children to fit, so Disc ran off the edge of the
+          dialog and was cut (T-139). Widths that have to add up to a number derived from two other numbers are a
+          sum somebody has to keep true by hand, and this one had already stopped being true.
+
+          Sharing the column instead means the arithmetic cannot go wrong: whatever the column is, the boxes
+          divide it. Year takes a little more because a four-digit year is the widest thing any of them holds.
+
+          They carry the same placeholder as the rest. They are narrow, so "(multiple values)" is clipped in them
+          — but a clipped placeholder still reads as greyed-out text that is not the value, whereas an empty box
+          reads as "they all agree and it is blank", which is the opposite of the truth.
+        -->
+        <Grid Grid.Row="4" Grid.Column="1" ColumnSpacing="8" VerticalAlignment="Bottom">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.3*" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBox Grid.Column="0" Header="Year" InputScope="Number"
                    PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    Text="{x:Bind ViewModel.Year, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-          <TextBox Header="Track" Width="60" InputScope="Number"
+          <TextBox Grid.Column="1" Header="Track" InputScope="Number"
                    PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    Text="{x:Bind ViewModel.TrackNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-          <TextBox Header="Disc" Width="60" InputScope="Number"
+          <TextBox Grid.Column="2" Header="Disc" InputScope="Number"
                    PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    Text="{x:Bind ViewModel.DiscNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-        </StackPanel>
+        </Grid>
       </Grid>
 
       <TextBlock Text="Separate several artists or genres with a semicolon."

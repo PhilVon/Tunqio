@@ -110,6 +110,7 @@ $script:processId = 0
 # Set by the failure-path case, so the log check can tell the failure it caused on purpose from a real one.
 $script:expectedFailurePath = $null
 $script:t137Verdict = $null
+$script:boundsDump = $null
 
 function Get-Descendants($scope) {
     $scope.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
@@ -323,30 +324,59 @@ try {
     # TrackDto. That is a real defect (Narrator reads out a C# record), it is reported below rather than worked
     # around, and in the meantime it is also the only place the tree says which file a row is. Reading it is not an
     # endorsement of it.
+    $pathsByTitle = Get-PathsByTitle $music
+
+    # Waited for, not assumed. The launch scan inserts a row as soon as it has seen the file and refines it when
+    # the tags are read, so for a moment a row's title is the one derived from the file name rather than the one
+    # in the tag - and the map above is built from tags. Reading the table before that settles gave "matched 3 of
+    # 12" twice, with all twelve rows correctly named: the names were right and simply not final yet.
+    #
+    # So the condition is the thing itself: every row this script is about to select resolves to a file on disk.
+    # A fixed sleep here would be the same guess that cost T-134 two rounds.
     $namedRows = 0
     $selected = @()
-    $pathsByTitle = Get-PathsByTitle $music
-    for ($i = 0; $i -lt $batchSize; $i++) {
-        $name = $rows[$i].Current.Name
-        if ($name -notlike 'TrackDto {*') { $namedRows++ }
-        # The name now leads with the title (T-122): "<title> by <artist>, <album>, <duration>". Take the title
-        # and resolve the file through the map, so what is asserted later is a real path on disk rather than a
-        # string this script parsed out of presentation text.
-        $title = if ($name -like 'TrackDto {*') { if ($name -match ', Title = (?<t>.*?), Artists = ') { $Matches['t'] } else { $null } }
-                 else { ($name -split ' by ', 2)[0] }
-        if ($title -and $pathsByTitle.ContainsKey($title)) {
-            $selected += [pscustomobject]@{ Path = $pathsByTitle[$title]; Title = $title }
+    $unmatched = @()
+    $deadline = (Get-Date).AddSeconds(45)
+    while ($true) {
+        $rows = $table.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+        $namedRows = 0
+        $selected = @()
+        $unmatched = @()
+        for ($i = 0; $i -lt [Math]::Min($batchSize, $rows.Count); $i++) {
+            $name = $rows[$i].Current.Name
+            if ($name -notlike 'TrackDto {*') { $namedRows++ }
+            # The name leads with the title (T-122): "<title> by <artist>, <album>, <duration>". Take the title and
+            # resolve the file through the map, so what is asserted later is a real path on disk rather than a
+            # string this script parsed out of presentation text.
+            $title = if ($name -like 'TrackDto {*') { if ($name -match ', Title = (?<t>.*?), Artists = ') { $Matches['t'] } else { $null } }
+                     else { ($name -split ' by ', 2)[0] }
+            if ($title -and $pathsByTitle.ContainsKey($title)) {
+                $selected += [pscustomobject]@{ Path = $pathsByTitle[$title]; Title = $title }
+            }
+            else {
+                $unmatched += $title
+            }
         }
+
+        if ($selected.Count -eq $batchSize -or (Get-Date) -ge $deadline) { break }
+        Start-Sleep -Milliseconds 500
+    }
+
+    if ($selected.Count -ne $batchSize) {
+        throw ("could not match $batchSize rows to files on disk after 45s; got $($selected.Count). " +
+               "Rows named: $namedRows of $batchSize. Titles on disk: $($pathsByTitle.Count). " +
+               "Row titles that matched nothing: $($unmatched -join ' | '). " +
+               'A row name that no longer leads with the title would show up here first.')
+    }
+
+    $rows = $table.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+    for ($i = 0; $i -lt $batchSize; $i++) {
         $item = $rows[$i].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
         if ($i -eq 0) { $item.Select() } else { $item.AddToSelection() }
     }
+
     if ($namedRows -eq 0) {
         $script:notes += 'every row in the Tracks table falls back to TrackDto.ToString() for its automation name, so Narrator reads out the record (E3-S8, not one of the criteria here)'
-    }
-    if ($selected.Count -ne $batchSize) {
-        throw ("could not match $batchSize rows to files on disk; got $($selected.Count). " +
-               "Rows named: $namedRows of $batchSize. Titles on disk: $($pathsByTitle.Count). " +
-               'A row name that no longer leads with the title would show up here first.')
     }
     Write-Output "selected $batchSize rows: $(($selected | ForEach-Object { $_.Title }) -join ', ')"
     Write-Output ''
@@ -443,6 +473,72 @@ try {
         }
 
         return $null
+    }
+
+    # Phil, reviewing E3-S10 a second time: "the Line of options with Genre Year Track and Disc breaks the width of
+    # the dialog and gets cut off". It did - three boxes at 76 + 60 + 60 with two 8px gaps is 212, in a column that
+    # is (420 - 12) / 2 = 204 wide, and a horizontal StackPanel does not shrink to fit: it squeezes its last child
+    # instead (T-139).
+    #
+    # My first attempt at this case compared every box against the dialog's own bounding rectangle and passed on
+    # the broken layout, which is worth recording as a warning rather than quietly replacing. Two reasons it could
+    # not work. Nothing overflowed - the measurements were Track 64 wide and Disc 48, both ending exactly on the
+    # content edge - so "outside the dialog" was never the symptom. And a ContentDialog's rectangle is the
+    # full-window overlay (1424 px wide here, for 420 px of content), so almost nothing is ever outside it.
+    #
+    # What IS the symptom is compression. Track and Disc are declared the same width, so the moment they render at
+    # different widths the row is being squeezed to fit and the rightmost box is paying for it. That is a fact
+    # about the layout rather than about a number somebody chose, so it survives the boxes being resized.
+    Test-Case 'the number boxes are not squeezed to fit the row they are in' {
+        if (-not $dialog) { return 'no dialog' }
+
+        $boxes = @{}
+        foreach ($element in Get-Descendants $dialog) {
+            if ((Get-TypeName $element) -ne 'Edit') { continue }
+            $r = $element.Current.BoundingRectangle
+            if ($r.Width -le 0) { continue }  # not laid out; nothing to say about its size
+            $boxes[$element.Current.Name] = $r
+        }
+
+        $script:boundsDump = @()
+        foreach ($name in 'Title', 'Genre', 'Year', 'Track', 'Disc') {
+            if ($boxes.ContainsKey($name)) {
+                $r = $boxes[$name]
+                $script:boundsDump += ("  {0,-14} L={1,6} R={2,6} W={3,5}" -f $name, [math]::Round($r.Left), [math]::Round($r.Right), [math]::Round($r.Width))
+            }
+        }
+
+        foreach ($name in 'Year', 'Track', 'Disc') {
+            if (-not $boxes.ContainsKey($name)) { return "no box named '$name'" }
+        }
+
+        # Declared identical in the XAML, so any real difference is the row running out of room.
+        $track = $boxes['Track'].Width
+        $disc = $boxes['Disc'].Width
+        if ([math]::Abs($track - $disc) -gt 2) {
+            return ("Track and Disc are the same size in the layout but render {0} and {1} px wide, " -f [math]::Round($track), [math]::Round($disc)) +
+                   'so the row does not fit and the last box is being cut down to make it'
+        }
+
+        # And they must stay past the point where a four-character header stops fitting, whatever the design does
+        # next: this is the floor the squeeze went through, not a target.
+        foreach ($name in 'Year', 'Track', 'Disc') {
+            if ($boxes[$name].Width -lt 52) {
+                return "the $name box renders $([math]::Round($boxes[$name].Width)) px wide, too narrow for its own header"
+            }
+        }
+
+        # The four full-width boxes share an edge; the number row must end on it too rather than past it.
+        if ($boxes.ContainsKey('Title') -and ($boxes['Disc'].Right -gt $boxes['Title'].Right + 1)) {
+            return ("Disc ends {0} px past the right edge the full-width boxes share" -f [math]::Round($boxes['Disc'].Right - $boxes['Title'].Right))
+        }
+
+        return $null
+    }
+
+    # The measurements, kept for a failure to be read with rather than guessed at.
+    if ($script:boundsDump -and $script:failures.Count -gt 0) {
+        $script:boundsDump | ForEach-Object { Write-Output "        $_" }
     }
 
     Test-Case 'Confirm is offered and Cancel is there to leave by' {
