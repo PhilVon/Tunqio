@@ -173,7 +173,7 @@ public class TagLibTagWriterTests : IDisposable
     {
         string path = Copy(Flac);
         FileStream? holder = null;
-        Task? release = null;
+        Thread? release = null;
 
         var writer = new TagLibTagWriter(TagWriterOptions.Default, null, null, (stage, _) =>
         {
@@ -184,22 +184,28 @@ public class TagLibTagWriterTests : IDisposable
 
             // Grabbed just before the swap and let go 60 ms later: the first attempt refuses, a later one inside
             // the 300 ms retry budget succeeds.
+            //
+            // A dedicated thread rather than Task.Run, and that is the whole difference between this passing and
+            // failing. The release used to be queued to the thread pool, which the rest of this assembly is busy
+            // saturating - so under a full-suite run it could be held back past the retry budget it is supposed
+            // to expire inside, and the write failed for want of a scheduler rather than for want of a retry.
+            // It failed that way reproducibly in a full run and passed every time on its own, which is the shape
+            // of a test measuring the machine instead of the code.
             holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             FileStream held = holder;
-            release = Task.Run(async () =>
+            release = new Thread(() =>
             {
-                await Task.Delay(60);
-                await held.DisposeAsync();
-            });
+                Thread.Sleep(60);
+                held.Dispose();
+            })
+            { IsBackground = true };
+            release.Start();
         });
 
         var watch = System.Diagnostics.Stopwatch.StartNew();
         TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Title: "Landed After A Wait"));
         watch.Stop();
-        if (release is not null)
-        {
-            await release;
-        }
+        release?.Join(TimeSpan.FromSeconds(5));
 
         holder.Should().NotBeNull("the seam must have run, or this test proves nothing");
         result.Outcome.Should().Be(TagWriteOutcome.Written, $"the holder let go inside the retry window (error was: {result.Error}). The write took {watch.ElapsedMilliseconds} ms, which is the tell: under the retry budget means the swap was never retried at all.");
