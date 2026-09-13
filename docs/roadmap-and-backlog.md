@@ -524,7 +524,7 @@ Full-width Now Playing, controls auto-hide after 3 s, edge-peek queue, live-regi
 - [ ] Narrator announces track changes politely
 
 ### E5-S3 · Discovery mode layout · **S** · `ui`
-Albums grid default, Ambient Glow behind art.
+Albums grid default, Ambient Glow behind art. As built: one preset for every mode, with Ambient Glow as the first-run default of `viz.preset` rather than a preset Discovery chooses (Phil, Q-72); a preset already chosen is kept. The Albums grid was already the sidebar's default page and Discovery's shares are E5-S1's.
 - [ ] Discovery matches the mode table in ui-screens-and-flows.md
 
 ### E5-S4 · Curation mode dual pane · **L** · `ui`

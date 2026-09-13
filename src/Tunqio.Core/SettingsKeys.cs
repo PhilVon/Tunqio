@@ -61,7 +61,8 @@ public static class SettingsKeys
         public const bool UiToastOnTrackChange = false;
         public const string UiAlbumsSort = "title";
         public const string UiTracksHiddenColumns = "";
-        public const string VizPreset = "spectrum-bars";
+        /// <summary>Ambient Glow on a first run (E5-S3, Phil in Q-72: one preset for every mode, Ambient Glow as the default).</summary>
+        public const string VizPreset = "ambient-glow";
         public const string VizQuality = "auto";
         public const bool DiagnosticsCrashReporting = false;
     }

@@ -280,7 +280,7 @@ Close-to-tray, when enabled, only hides the window.
 | `ui.toastOnTrackChange` | bool | false |
 | `ui.albumsSort` | `title` \| `artist` \| `year` \| `added` \| `played` | `title` |
 | `ui.tracksHiddenColumns` | comma-separated `TrackColumn` names | empty |
-| `viz.preset` | string | `spectrum-bars` |
+| `viz.preset` | string | `ambient-glow` (E5-S3, Q-72: one preset for every mode) |
 | `viz.quality` | `auto` \| `low` \| `medium` \| `high` | `auto` |
 | `viz.params.<preset>.<name>` | float | preset default |
 | `diagnostics.crashReporting` | bool | false |

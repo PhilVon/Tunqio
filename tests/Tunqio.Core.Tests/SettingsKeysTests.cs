@@ -31,4 +31,16 @@ public class SettingsKeysTests
 
         constants.Should().Contain("ui.minimizeToTray");
     }
+
+    /// <summary>
+    /// E5-S3, Q-72. The mode table asks for Ambient Glow behind the art in Discovery; Phil chose one preset for every
+    /// mode, with Ambient Glow as what a first run draws, over a preset each mode would choose or remember.
+    /// </summary>
+    [Fact]
+    public void A_first_run_draws_ambient_glow()
+    {
+        SettingsKeys.Defaults.VizPreset.Should().Be("ambient-glow");
+        File.Exists(RepoPaths.File("presets", "ambient-glow", "preset.json")).Should().BeTrue(
+            "the default has to name a preset that ships, or a first run falls back to whatever the core draws first");
+    }
 }
