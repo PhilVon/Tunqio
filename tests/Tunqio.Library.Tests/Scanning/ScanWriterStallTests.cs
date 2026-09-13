@@ -68,7 +68,9 @@ public sealed class ScanWriterStallTests(ITestOutputHelper output) : IDisposable
 
         var clock = Stopwatch.StartNew();
         var stalling = new StallingTracks(tracks, db, clock);
-        var scanner = new LibraryScanner(stalling, folders, new TagLibTagReader(new TagReaderOptions()));
+        // No art cache and no duration probe: this test measures writer contention, not the pipeline's optional
+        // stages, and T-180 makes that a statement rather than an omission.
+        var scanner = new LibraryScanner(stalling, folders, new TagLibTagReader(new TagReaderOptions()), artCache: null, durationProbe: null);
         var progress = new ProgressClock(clock);
         var reads = new ConcurrentQueue<Read>();
         using var stop = new CancellationTokenSource();

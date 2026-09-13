@@ -186,7 +186,7 @@ public sealed class ShellNoticesTests : IAsyncLifetime
     [Fact]
     public void A_shell_with_no_session_and_no_scanner_simply_has_nothing_to_say()
     {
-        using var quiet = new ShellNotices();
+        using var quiet = new ShellNotices(source: null, scans: null);
 
         quiet.Items.Should().BeEmpty();
         quiet.Any.Should().BeFalse();

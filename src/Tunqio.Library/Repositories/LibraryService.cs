@@ -41,9 +41,9 @@ public sealed class LibraryService : ILibraryService
             tracks,
             folders,
             tagReader ?? new TagLibTagReader(new TagReaderOptions(), loggers?.CreateLogger<TagLibTagReader>()),
-            clock,
             artCache,
             durationProbe,
+            clock,
             loggers?.CreateLogger<LibraryScanner>());
         Watcher = new LibraryWatcher(Scanner, folders, watcherOptions, clock, loggers?.CreateLogger<LibraryWatcher>());
     }

@@ -92,7 +92,13 @@ public sealed class ReactiveThemeController : IDisposable
     /// can change under a running window and the contrast guarantee is made against the text of the theme that
     /// is actually on screen.
     /// </param>
-    /// <param name="renderer">The visualizer, if one is attached; null simply leaves the presets untold.</param>
+    /// <param name="renderer">
+    /// The visualizer, if one is attached; null simply leaves the presets untold. Required and positional, with
+    /// no default, deliberately (T-180): T-156 was this argument being omitted by the shell — the only caller
+    /// that mattered — which left <c>mp_renderer_set_theme</c> with no caller in the running app and E4-S6's
+    /// sixteen floats in every preset's b0 carrying nothing, while every test passed because every test passes
+    /// it. A caller that genuinely wants the presets untold now has to write <c>null</c> and mean it.
+    /// </param>
     /// <param name="time">Injected so a test owns the clock; <see cref="TimeProvider.System"/> otherwise.</param>
     public ReactiveThemeController(
         IAnalysisFrameSource frames,
@@ -100,7 +106,7 @@ public sealed class ReactiveThemeController : IDisposable
         IAccessibilitySignals accessibility,
         IReactiveThemeSink sink,
         Func<bool> isDark,
-        IVisualizationHost? renderer = null,
+        IVisualizationHost? renderer,
         TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(frames);

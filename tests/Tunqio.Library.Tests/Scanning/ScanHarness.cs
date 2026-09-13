@@ -64,7 +64,7 @@ internal sealed class ScanHarness : IDisposable
         var service = new LibraryService(db, clock);
         var reader = new CountingReader(new TagLibTagReader(new TagReaderOptions()));
         var tracks = new InterceptingTracks(service.Tracks);
-        var scanner = new LibraryScanner(tracks, service.Folders, reader, clock, artCache, durationProbe, readDegree: readDegree);
+        var scanner = new LibraryScanner(tracks, service.Folders, reader, artCache, durationProbe, clock, readDegree: readDegree);
         var harness = new ScanHarness(root, db, service, reader, tracks, scanner);
         harness.Folder = await service.Folders.AddAsync(root);
         return harness;

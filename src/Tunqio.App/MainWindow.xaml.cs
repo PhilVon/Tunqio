@@ -49,6 +49,16 @@ public sealed partial class MainWindow : Window
     private bool _audioSettled;
     private nint _audioEngineNative;
 
+    /// <remarks>
+    /// Every collaborator is <b>required and positional</b>, with no default (T-180). Each one is still nullable,
+    /// because null is a real answer for several of them — but it has to be given as an answer rather than fallen
+    /// into. This constructor is the composition root's own call site: <see cref="App.OnLaunched"/> is the single
+    /// caller in the repository, no test and no spike mode constructs a window, and so before T-180 all nine
+    /// defaults existed only to be omitted by mistake. That is exactly how T-156 and T-179 shipped — a feature
+    /// present in every unit test and absent in the assembled app, because the assembled app is the one call site
+    /// with nothing asserting it. Nine optional collaborators here were nine ways to do it again silently; now the
+    /// compiler asks the question. See <c>CompositionRootTests</c>.
+    /// </remarks>
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
     /// <param name="settings">Read for <c>ui.theme</c>; the system theme is used when it is not supplied.</param>
     /// <param name="audio">Where the transport finds the session; it may not exist yet, and may never.</param>
@@ -59,30 +69,32 @@ public sealed partial class MainWindow : Window
     /// <param name="visualization">
     /// The visualizer surface (E4-S9). The window attaches it to the SwapChainPanel once the panel has loaded and
     /// detaches it on close; Settings › Visualization drives the same object out of the container, which is the
-    /// whole reason it is passed in rather than built here. Null leaves the panel blank, which is what the tests
-    /// that construct the window directly get.
+    /// whole reason it is passed in rather than built here. Null leaves the panel blank — which nothing in the
+    /// repository actually asks for: this parameter's old default was documented as being for "the tests that
+    /// construct the window directly", and there are none (T-180).
     /// </param>
     /// <param name="notices">
     /// The shell's notice bars. Supplied by the host so that the window's panel and the tag editor's Undo bar
     /// (E3-S10, flow 8) are the same object — the dialog resolves it from the container, and a window holding a
-    /// second one would leave that bar with nowhere to appear. Null builds one, which is what the spike modes and
-    /// the tests that construct the window directly get; only then does the window dispose it.
+    /// second one would leave that bar with nowhere to appear. Null builds one, and only then does the window
+    /// dispose it — a branch no caller currently takes, kept because a window with nowhere to put a notice is
+    /// worse than a second set of them (T-180).
     /// </param>
     /// <param name="art">
     /// The album art cache (T-147). What turns the track now playing into the colours the Ambient Glow preset
     /// draws with and the tint the reactive theme carries; null leaves both on their own palettes.
     /// </param>
     public MainWindow(
-        bool forceWarp = false,
-        ISettingsStore? settings = null,
-        IPlaybackSessionSource? audio = null,
-        Library.ILibraryNavigator? navigator = null,
-        OpenCoordinator? open = null,
-        Core.Library.ITrackRepository? tracks = null,
-        Library.LibraryScanCoordinator? scans = null,
-        ShellNotices? notices = null,
-        IVisualizationHost? visualization = null,
-        Core.Library.IArtCache? art = null)
+        bool forceWarp,
+        ISettingsStore? settings,
+        IPlaybackSessionSource? audio,
+        Library.ILibraryNavigator? navigator,
+        OpenCoordinator? open,
+        Core.Library.ITrackRepository? tracks,
+        Library.LibraryScanCoordinator? scans,
+        ShellNotices? notices,
+        IVisualizationHost? visualization,
+        Core.Library.IArtCache? art)
     {
         _forceWarp = forceWarp;
         _settings = settings;

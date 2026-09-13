@@ -113,9 +113,15 @@ public sealed partial class ShellNotices : ObservableObject, IDisposable
     /// <param name="scans">The library's scans, for the report bar; null leaves scans unreported.</param>
     /// <param name="ui">The XAML thread's context. Null runs updates inline, which is what the tests want.</param>
     /// <param name="clock">Times the transient bars out; a fake clock is how a test watches one go.</param>
+    /// <remarks>
+    /// <paramref name="source"/> and <paramref name="scans"/> are required and positional, with no default
+    /// (T-180): both are subscriptions, and a notices object that quietly subscribed to nothing looks exactly
+    /// like one with nothing to report. Still nullable — the tag editor's tests want a bar wired to neither —
+    /// but the caller has to say so.
+    /// </remarks>
     public ShellNotices(
-        IPlaybackSessionSource? source = null,
-        LibraryScanCoordinator? scans = null,
+        IPlaybackSessionSource? source,
+        LibraryScanCoordinator? scans,
         SynchronizationContext? ui = null,
         TimeProvider? clock = null)
     {

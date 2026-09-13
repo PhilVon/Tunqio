@@ -167,7 +167,7 @@ public class TagEditorViewModelTests
     [Fact]
     public async Task A_finished_edit_leaves_a_sticky_bar_that_offers_undo_Async()
     {
-        using var notices = new ShellNotices();
+        using var notices = new ShellNotices(source: null, scans: null);
         var editor = new FakeTagEditor();
         var report = new TagEditReport("Album artist on 12 tracks", [.. Twelve.Select(t => new TagEditFileResult(TagEditTarget.For(t), TagWriteOutcome.Written))]);
 
@@ -188,7 +188,7 @@ public class TagEditorViewModelTests
     [Fact]
     public void An_edit_that_wrote_nothing_offers_no_undo()
     {
-        using var notices = new ShellNotices();
+        using var notices = new ShellNotices(source: null, scans: null);
         var report = new TagEditReport("Title on 1 track", [new(TagEditTarget.For(Twelve[0]), TagWriteOutcome.Unchanged)]);
 
         notices.ShowTagEdit(report, () => Task.CompletedTask);

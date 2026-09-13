@@ -55,7 +55,7 @@ public sealed class OpenFilesService
         IPlaybackCommands playback,
         ITagReader tags,
         TransientTrackStore transient,
-        ITrackRepository? library = null,
+        ITrackRepository? library,
         ILogger<OpenFilesService>? log = null)
     {
         ArgumentNullException.ThrowIfNull(playback);
