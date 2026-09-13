@@ -348,6 +348,23 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         Value(vm.Sections, "Renderer", "Renderer").Should().Be("unavailable");
     }
 
+    /// <summary>
+    /// T-159. The refresh runs from a timer and the engine's statistics are a native read that throws on a refusal or
+    /// a closed handle. On the UI thread an exception out of it reaches the XAML handler, which does not recover.
+    /// </summary>
+    [Fact]
+    public void An_engine_whose_statistics_throw_does_not_take_the_overlay_with_it()
+    {
+        _engine.StatsFault = new InvalidOperationException("mp_engine_get_stats refused");
+        using var vm = new DiagnosticsViewModel(_source, () => Frames(), clock: _clock);
+
+        vm.Toggle();
+        _clock.Advance(DiagnosticsViewModel.RefreshInterval);
+
+        Value(vm.Sections, "Output", "Engine").Should().Be("unavailable");
+        Value(vm.Sections, "Renderer", "Adapter").Should().Be("NVIDIA GeForce RTX 4080 SUPER", "one failed read does not blank the others");
+    }
+
     // ---- the shortcut -------------------------------------------------------------------------------------------------
 
     /// <summary>

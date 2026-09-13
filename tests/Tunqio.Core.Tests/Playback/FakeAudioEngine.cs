@@ -38,7 +38,12 @@ internal sealed class FakeAudioEngine : IAudioEngine
 
     public TimeSpan Duration { get; set; } = TimeSpan.FromMinutes(3);
 
-    public EngineStats Stats { get; } = new(0, 0, TimeSpan.Zero, 48000, 2, TimeSpan.Zero, false, true, "48000/2/32");
+    /// <summary>When set, what reading <see cref="Stats"/> throws - the native read refusing, or a closed handle.</summary>
+    public Exception? StatsFault { get; set; }
+
+    public EngineStats Stats => StatsFault is { } fault
+        ? throw fault
+        : new(0, 0, TimeSpan.Zero, 48000, 2, TimeSpan.Zero, false, true, "48000/2/32");
 
     public IObservable<EngineEvent> Events => _events;
 

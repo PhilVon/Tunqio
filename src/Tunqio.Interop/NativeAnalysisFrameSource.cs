@@ -44,6 +44,13 @@ public sealed class NativeAnalysisFrameSource : IAnalysisFrameSource, IDisposabl
     /// <summary>Frames pushed to <see cref="Frames"/> since construction. Diagnostics and tests.</summary>
     public long Pushed { get; private set; }
 
+    /// <summary>
+    /// Why the <see cref="Frames"/> poll stopped, when it has. Null while it is running. The poll gives up on the
+    /// first failure that is not a detach, because it runs on a timer and a failure it cannot fix would otherwise
+    /// repeat thirty times a second - or, before T-159, end the process on the first one.
+    /// </summary>
+    public Exception? PollFailure { get; private set; }
+
     public bool TryGetLatest(out AnalysisFrame frame)
     {
         // A buffer per call rather than a shared one: this is callable from any thread at any time, and a shared
@@ -124,6 +131,16 @@ public sealed class NativeAnalysisFrameSource : IAnalysisFrameSource, IDisposabl
             catch (ObjectDisposedException)
             {
                 // The engine went away between the disposed check and the call; nothing left to publish.
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // T-159, the same shape VisualizationHost.Poll has since T-58: this runs on a System.Threading.Timer,
+                // so an exception that leaves it takes the process down rather than failing a call. Two things can
+                // throw here - the core refusing mp_analysis_try_get_latest, and a subscriber throwing from OnNext -
+                // and neither is fixed by asking again thirty times a second. So the poll stops and keeps the reason.
+                // TryGetLatest is untouched by this and still throws to its own caller.
+                PollFailure = ex;
+                _ = _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             }
         }
     }

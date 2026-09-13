@@ -261,6 +261,44 @@ public class AnalysisFrameSourceTests
     }
 
     [Fact]
+    public async Task A_poll_that_throws_stops_the_stream_and_keeps_the_reason_instead_of_ending_the_process()
+    {
+        // T-159. The poll is a System.Threading.Timer callback, and an exception leaving one terminates the process,
+        // so without the guard this test does not fail an assertion - it takes the test host down with it. A
+        // subscriber that throws is the failure a test can cause on demand; a core refusing the call reaches the
+        // same catch.
+        using NativeEngine engine = CreateHeadless();
+        using var source = new NativeAnalysisFrameSource(engine);
+        int delivered = 0;
+        using IDisposable subscription = source.Frames.Subscribe(_ =>
+        {
+            Interlocked.Increment(ref delivered);
+            throw new InvalidOperationException("a subscriber that fails");
+        });
+
+        using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("analysis-poll-throws", seconds: 4.0, amplitude: 0.5));
+        engine.Play(track);
+        var elapsed = Stopwatch.StartNew();
+        while (source.PollFailure is null && elapsed.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            Render(engine, 4800);
+            await Task.Delay(40);
+        }
+
+        source.PollFailure.Should().BeOfType<InvalidOperationException>("the reason the poll stopped is kept for whoever asks");
+
+        // Keep making audio for several poll intervals: a poll that was still running would push again.
+        for (int i = 0; i < 6; i++)
+        {
+            Render(engine, 4800);
+            await Task.Delay(40);
+        }
+
+        delivered.Should().Be(1, "the poll stops on the first failure rather than repeating it thirty times a second");
+        source.TryGetLatest(out _).Should().BeTrue("stopping the stream does not break the pull path");
+    }
+
+    [Fact]
     public void Disposing_the_source_completes_the_stream_and_leaves_the_engine_alone()
     {
         using NativeEngine engine = CreateHeadless();
