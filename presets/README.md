@@ -53,6 +53,20 @@ scaled so it is **no more luminous than the stop it replaces**, so a theme can c
 make it brighter. That is what keeps the flash-safety measurements below valid under a palette the preset author
 never saw. `mpcore.tests [theme]` measures it over the seven corners of the sRGB cube.
 
+## Adaptive quality reaches only a preset whose cost is in its pixels
+
+The renderer's one quality lever is **render scale** (E4-S7): a lower tier draws fewer pixels and stretches them.
+That saves time only where time is spent per pixel. Of the four here, that is `ambient-glow` alone — one quad whose
+whole picture is pixel-shader arithmetic. The other three draw primitives, and at 1080p on WARP they cost well under
+a millisecond a frame (T-148), so the controller never has cause to lower them, and pinning them to Low costs
+them resolution without buying back any time.
+
+Nothing in `preset.json` says which kind a preset is, and nothing needs to: the controller learns it at runtime from
+the cost ratio it measures across a tier boundary (about 1.0 per-primitive, up to 2.25 per-pixel). What it means for
+you as an author is that **a preset which does its work per pixel is the one adaptive quality will act on** — test
+it at Low as well as High, because a user on a slow GPU will see that tier. The controller itself is described in
+[docs/visualization-engine.md](../docs/visualization-engine.md) ("Adaptive quality (as built, E4-S7)").
+
 What the four here are, what their parameters mean, and why `smoothing` is spatial rather than temporal are in
 [docs/visualization-engine.md](../docs/visualization-engine.md) ("The presets that ship").
 
