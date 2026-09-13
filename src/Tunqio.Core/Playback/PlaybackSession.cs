@@ -393,6 +393,44 @@ public sealed class PlaybackSession : IPlaybackCommands, IPreviewPlayer, IAsyncD
         }
     });
 
+    /// <summary>
+    /// Settings › Output's test tone (E6-S3, AC-146): plays the WAV at <paramref name="wavPath"/> (<see cref="TestTone.Wav"/>)
+    /// on the preview stream, so it sounds through the device the output is open on, over music or without it - the core
+    /// starts the output when a device opens, not when a track plays. It stops by itself at the end of the file. False
+    /// when it did not start, most often because a hover preview is still fading out.
+    /// </summary>
+    public Task<bool> PlayTestToneAsync(string wavPath, CancellationToken ct = default) => LockedAsync(async () =>
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(wavPath);
+        TrackHandle handle;
+        try
+        {
+            handle = await _engine.OpenAsync(wavPath, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "The test tone at {Path} could not be opened", wavPath);
+            return false;
+        }
+
+        try
+        {
+            // 0 dB: the file is already about -12 dBFS, and the preview's own gain is not a volume the user set.
+            await _engine.StartPreviewAsync(handle, 0f).ConfigureAwait(false);
+            _log.LogInformation("Test tone started on the open output");
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogInformation(ex, "The test tone did not start");
+            return false;
+        }
+        finally
+        {
+            await _engine.CloseAsync(handle).ConfigureAwait(false);
+        }
+    });
+
     /// <inheritdoc />
     public Task StopPreviewAsync() => LockedAsync(async () =>
     {
@@ -538,6 +576,28 @@ public sealed class PlaybackSession : IPlaybackCommands, IPreviewPlayer, IAsyncD
             preference with { DeviceId = _output.DeviceId }, Devices());
         return ReopenAsync(selection.Config, ct);
     });
+
+    /// <summary>
+    /// Settings › Output (E6-S3): stores <paramref name="preference"/> and reopens the output on it at once. A playing
+    /// track carries on across the reopen, because the engine keeps its streams and only the device changes (E1-S6). A
+    /// device named in the preference that is not connected resolves to the system default, as at launch. False when
+    /// the output would not open; the preference is still stored, since it is what the user chose.
+    /// </summary>
+    public Task<bool> ApplyOutputAsync(OutputPreference preference, CancellationToken ct = default) => LockedAsync(async () =>
+    {
+        OutputPolicy.Write(_settings, preference);
+        await _settings.FlushAsync(ct).ConfigureAwait(false);
+        OutputSelection selection = OutputPolicy.Resolve(preference, Devices());
+        _log.LogInformation(
+            "Output changed in settings to {Device} ({Mode}, {BufferMs} ms)",
+            selection.Device?.Name ?? "the system default",
+            OutputPolicy.ModeName(selection.Config.Mode),
+            selection.Config.BufferMs);
+        return await ReopenAsync(selection.Config, ct).ConfigureAwait(false);
+    });
+
+    /// <summary>The devices the engine reports now, for the Output page's list; empty when they cannot be read.</summary>
+    public IReadOnlyList<OutputDevice> OutputDevices() => Devices();
 
     private IReadOnlyList<OutputDevice> Devices()
     {

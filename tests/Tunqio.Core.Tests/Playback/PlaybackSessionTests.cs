@@ -403,6 +403,54 @@ public sealed class PlaybackSessionTests : IAsyncLifetime
         _session.Current.Track!.Id.Should().Be(1, "nothing was unloaded, so resuming carries on from here");
     }
 
+    // ---- Settings > Output (E6-S3) -------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Changing_the_output_in_settings_stores_it_and_reopens_at_once_without_stopping_the_track_Async()
+    {
+        _engine.Devices.Add(new OutputDevice(3, "USB DAC", "usb-dac", 96_000, 2, TimeSpan.FromMilliseconds(3), TimeSpan.FromMilliseconds(10), false));
+        await _session.PlayNowAsync([1, 2]);
+        Drain();
+
+        bool opened = await _session.ApplyOutputAsync(new OutputPreference("usb-dac", OutputMode.Exclusive, 20));
+
+        opened.Should().BeTrue();
+        // The track was never unloaded and nothing was paused, so the reopen is the whole of it: no stop, no play.
+        Drain().Should().Equal("init:3:exclusive:20");
+        _session.Current.State.Should().Be(PlaybackState.Playing);
+        OutputPolicy.Read(_settings).Should().Be(new OutputPreference("usb-dac", OutputMode.Exclusive, 20));
+    }
+
+    [Fact]
+    public async Task A_chosen_device_that_is_not_connected_opens_the_system_default_and_is_still_remembered_Async()
+    {
+        bool opened = await _session.ApplyOutputAsync(new OutputPreference("gone", OutputMode.Shared, null));
+
+        opened.Should().BeTrue();
+        Drain().Should().Equal("init:-1:shared:40");
+        _settings.GetValue<string?>(SettingsKeys.OutputDeviceId, null).Should().Be("gone");
+    }
+
+    [Fact]
+    public async Task The_test_tone_plays_on_the_preview_stream_and_releases_its_handle_Async()
+    {
+        bool started = await _session.PlayTestToneAsync(@"C:\Data\test-tone.wav");
+
+        started.Should().BeTrue();
+        Drain().Should().Equal(@"open:1:C:\Data\test-tone.wav", "preview:1:0", "close:1");
+    }
+
+    [Fact]
+    public async Task A_test_tone_the_engine_refuses_says_so_rather_than_throwing_Async()
+    {
+        _engine.PreviewFault = new InvalidOperationException("a preview is still fading out");
+
+        bool started = await _session.PlayTestToneAsync(@"C:\Data\test-tone.wav");
+
+        started.Should().BeFalse();
+        _engine.OpenHandles.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Losing_the_device_is_a_state_the_shell_can_draw_a_sticky_bar_from_Async()
     {
