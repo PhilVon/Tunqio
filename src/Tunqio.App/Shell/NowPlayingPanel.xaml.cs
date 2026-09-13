@@ -69,6 +69,13 @@ public sealed partial class NowPlayingPanel : UserControl
     public static readonly DependencyProperty ViewModelProperty = DependencyProperty.Register(
         nameof(ViewModel), typeof(NowPlayingViewModel), typeof(NowPlayingPanel), new PropertyMetadata(null));
 
+    /// <summary>
+    /// The element a track-change announcement is raised from (T-62): the title, which is on screen in Focus and is a
+    /// TextBlock, so it has an automation peer. The panel itself is a UserControl, which has none, and
+    /// CreatePeerForElement returns null for it (Microsoft Learn, FrameworkElementAutomationPeer.CreatePeerForElement).
+    /// </summary>
+    internal FrameworkElement AnnouncementSource => TitleText;
+
     /// <summary>The most recent art load, for the spike; null until one has finished.</summary>
     internal ArtLoad? LastArtLoad { get; private set; }
 

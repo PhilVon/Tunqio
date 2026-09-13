@@ -460,13 +460,18 @@ public sealed partial class MainWindow : Window
         // is what "politely" means. TrackAnnouncer keeps the text only so a check can read what was said.
         string text = nowPlaying.AutomationName;
         TrackAnnouncer.Text = text;
-        Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(NowPlaying)
-            ?.RaiseNotificationEvent(
-                Microsoft.UI.Xaml.Automation.Peers.AutomationNotificationKind.Other,
-                Microsoft.UI.Xaml.Automation.Peers.AutomationNotificationProcessing.CurrentThenMostRecent,
-                text,
-                "Tunqio.TrackChanged");
-        Serilog.Log.Debug("Focus announced a track change");
+        // Not the NowPlaying panel: it is a UserControl, which has no OnCreateAutomationPeer, so CreatePeerForElement
+        // returned null for it and the notification was never raised, while the line below was still logged (Q-73).
+        // The title TextBlock has a peer and is on screen in Focus; the hidden announcer is the fallback.
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(NowPlaying.AnnouncementSource)
+            ?? Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(TrackAnnouncer);
+        peer?.RaiseNotificationEvent(
+            Microsoft.UI.Xaml.Automation.Peers.AutomationNotificationKind.Other,
+            Microsoft.UI.Xaml.Automation.Peers.AutomationNotificationProcessing.CurrentThenMostRecent,
+            text,
+            "Tunqio.TrackChanged");
+        // Which peer, if any, carried it (T-62): the log line alone was written whether or not anything was raised.
+        Serilog.Log.Debug("Focus announced a track change through {Peer}", peer?.GetType().Name ?? "no peer, so nothing was raised");
     }
 
     /// <summary>The switcher shows the mode, without its own selection change writing the mode back.</summary>

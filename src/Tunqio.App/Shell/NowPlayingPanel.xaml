@@ -81,7 +81,7 @@
       <StackPanel x:Name="MetadataBlock" Grid.Row="1" Spacing="4" Padding="16,12" CornerRadius="8"
                   Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}"
                   HorizontalAlignment="Stretch">
-        <TextBlock Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+        <TextBlock x:Name="TitleText" Text="{x:Bind ViewModel.Title, Mode=OneWay}"
                    FontSize="28" FontWeight="SemiBold" LineHeight="34"
                    TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                    HorizontalAlignment="Center" TextAlignment="Center" />
