@@ -122,9 +122,10 @@ try {
 
     # ---- appearance: the theme is stored and applied ---------------------------------------------------------------
     Select-Element (Find-Named $overlay 'Appearance settings')
-    $themeGroup = Wait-Until { Find-Named $overlay 'Theme' } 8 'the theme choices appeared'
+    # Searched from the overlay, not from an element named Theme: the section header TextBlock is also named Theme and
+    # comes first in the tree, and the first run of this check looked for the radio buttons inside it.
     $target = if ($themeBefore -eq 'dark') { 'Light' } else { 'Dark' }
-    Select-Element (Wait-Until { Find-Named $themeGroup $target } 5 "the theme choices offered $target")
+    Select-Element (Wait-Until { Find-Named $overlay $target } 8 "the theme choices offered $target")
     $themeChanged = $true
     Start-Sleep -Milliseconds 1200
     Check 'Choosing a theme writes ui.theme at once' ((Get-StoredTheme) -eq $target.ToLowerInvariant()) "ui.theme is '$(Get-StoredTheme)'"
@@ -148,9 +149,8 @@ finally {
                 if (-not $open) { Invoke-Element (Find-Named $window 'Open settings'); Start-Sleep -Milliseconds 800; $open = Find-Named $window 'Settings overlay' }
                 Select-Element (Find-Named $open 'Appearance settings')
                 Start-Sleep -Milliseconds 800
-                $group = Find-Named $open 'Theme'
                 $back = switch ($themeBefore) { 'light' { 'Light' } 'dark' { 'Dark' } default { 'Use Windows setting' } }
-                Select-Element (Find-Named $group $back)
+                Select-Element (Wait-Until { Find-Named $open $back } 8 "the theme choices offered $back")
                 Start-Sleep -Milliseconds 1000
                 Write-Output "cleanup: theme back to '$back' (ui.theme is '$(Get-StoredTheme)')"
                 $closeButton = Find-Named $window 'Close settings'
