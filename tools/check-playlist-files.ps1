@@ -251,7 +251,7 @@ finally {
 # "Playlist N changed" since that playlist's previous export: the change that opened the window.
 if ($reachedEnd) {
     $log = Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
-    $pattern = '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}) \S+ \[DBG\] \[[^\]]*\] Tunqio\.Library\.Playlists\.PlaylistFiles: (Playlist (\d+) changed|Auto-exported playlist (\d+) .* to (.+)|Removed the auto-export of playlist (\d+) at (.+))$'
+    $pattern = '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}) \S+ \[DBG\] \[[^\]]*\] Tunqio\.Library\.Playlists\.PlaylistFiles: (Playlist (\d+) changed.*|Auto-exported playlist (\d+) .* to (.+)|Removed the auto-export of playlist (\d+) at (.+))$'
     $opened = @{}
     $worst = 0
     $pairs = 0
