@@ -46,7 +46,7 @@ internal sealed record ShellMeasurement(
 /// <remarks>
 /// <see cref="ShellLayoutTests"/> proves the table; this proves the table reached the visual tree. They are
 /// different claims, and the gap between them is the whole class of bug where a policy is right and nothing is
-/// bound to it. At 1600 px the shares must be 75 / 25 with the controls bar spanning Now Playing; at 700 px the
+/// bound to it. At 1600 px the shares must be 60 / 40 with the controls bar spanning Now Playing; at 700 px the
 /// panels must have stacked, which shows as all three spanning the full client width instead of dividing it.
 /// </remarks>
 internal sealed class ShellSpikeRunner
@@ -146,7 +146,7 @@ internal sealed class ShellSpikeRunner
         {
             Machine = Environment.MachineName,
             Verdict = pass
-                ? "PASS: 75/25 at 1600 px with the controls bar under Now Playing, panels stacked at 700 px, and every theme switch applied in place without rebuilding the tree"
+                ? "PASS: 60/40 at 1600 px with the controls bar under Now Playing, panels stacked at 700 px, and every theme switch applied in place without rebuilding the tree"
                 : "FAIL: see the Note on each measurement and each theme switch",
             Tolerance,
             LayoutPass = layoutPass,

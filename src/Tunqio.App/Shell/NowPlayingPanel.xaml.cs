@@ -46,6 +46,17 @@ public sealed partial class NowPlayingPanel : UserControl
         ProductText.Text = Identity.ProductName;
         VersionText.Text = string.Create(CultureInfo.InvariantCulture, $"Version {ProductVersion()}");
         Art.RegisterPropertyChangedCallback(Image.SourceProperty, OnArtSourceChanged);
+        // T-182: sized from the room left over, not left at 360 and clipped when the stacked shell makes this a short row.
+        SizeChanged += (_, _) => FitArt();
+        MetadataBlock.SizeChanged += (_, _) => FitArt();
+    }
+
+    /// <summary>Bounds the art's box to <see cref="NowPlayingArtLayout.ArtEdge"/> for the panel's current size.</summary>
+    private void FitArt()
+    {
+        double edge = NowPlayingArtLayout.ArtEdge(ActualHeight, ActualWidth, MetadataBlock.ActualHeight);
+        ArtBox.MaxWidth = edge;
+        ArtBox.MaxHeight = edge;
     }
 
     /// <summary>Set by the shell once the panel is in the tree; null before that, which XAML tolerates.</summary>
@@ -65,7 +76,7 @@ public sealed partial class NowPlayingPanel : UserControl
     internal Canvas ArtMeasurementCanvas => ArtMeasurementHost;
 
     /// <summary>The size the art is drawn at, so the spike's burst images decode to what the panel decodes to.</summary>
-    internal static double ArtEdge => 360;
+    internal static double ArtEdge => NowPlayingArtLayout.MaxEdge;
 
     /// <summary>Raised on the UI thread when an art load finishes, opened or failed.</summary>
     internal event EventHandler<ArtLoad>? ArtLoadCompleted;

@@ -106,6 +106,25 @@ public sealed partial class LibraryPane : UserControl
         PageFrame.Navigate(typeof(LibrarySettingsPage), null, new EntranceNavigationTransitionInfo());
     }
 
+    /// <summary>
+    /// The library views behind a single menu button (<paramref name="minimal"/>) or as a strip of icons down the
+    /// pane's left edge. Minimal is for the narrow shell (T-182, Q-55): there the sidebar sits under Now Playing and
+    /// is short rather than narrow, and Phil found the strip of vertical buttons impossible to navigate in the
+    /// height left over. The pane is closed on every switch, so a narrowed window does not open with the views
+    /// spread over the page.
+    /// </summary>
+    public void UseMinimalNavigation(bool minimal)
+    {
+        NavigationViewPaneDisplayMode mode = minimal ? NavigationViewPaneDisplayMode.LeftMinimal : NavigationViewPaneDisplayMode.LeftCompact;
+        if (Nav.PaneDisplayMode == mode)
+        {
+            return;
+        }
+
+        Nav.PaneDisplayMode = mode;
+        Nav.IsPaneOpen = false;
+    }
+
     private void OnSettingsAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         OpenSettings();

@@ -54,8 +54,8 @@ The interface uses a responsive three-panel layout that adapts to window size an
     <!-- T-182: the controls are a bar under Now Playing, not a third column. As a 15% column they measured
          128 px at a 1000 px window for a transport that needs 242, and Shuffle was clipped to nothing. -->
     <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="3*" MinWidth="400" />  <!-- Now Playing and the transport bar: 75% -->
-        <ColumnDefinition Width="1*" MinWidth="200"/>   <!-- Sidebar, full height: 25% -->
+        <ColumnDefinition Width="3*" MinWidth="400" />  <!-- Now Playing and the transport bar: 60% -->
+        <ColumnDefinition Width="2*" MinWidth="200"/>   <!-- Sidebar, full height: 40% (Q-54) -->
     </Grid.ColumnDefinitions>
     <Grid.RowDefinitions>
         <RowDefinition Height="*" />                    <!-- Now Playing; the sidebar spans both rows -->
@@ -105,7 +105,7 @@ public class ResponsiveLayoutManager
             MainLayoutGrid.ColumnDefinitions.Clear();
             MainLayoutGrid.RowDefinitions.Clear();
 
-            MainLayoutGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(2, GridUnitType.Star) });
+            MainLayoutGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // equal rows (T-182, Q-56)
             MainLayoutGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
             Grid.SetColumn(NowPlayingPanel, 0); Grid.SetRow(NowPlayingPanel, 0);
@@ -115,7 +115,7 @@ public class ResponsiveLayoutManager
         else if (windowWidth < MEDIUM_THRESHOLD)
         {
             // Medium layout: Reduce sidebar width (two columns; the controls stay a bar under Now Playing, T-182)
-            MainLayoutGrid.ColumnDefinitions[0].Width = new GridLength(4, GridUnitType.Star);
+            MainLayoutGrid.ColumnDefinitions[0].Width = new GridLength(2, GridUnitType.Star);
             MainLayoutGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
         }
         else

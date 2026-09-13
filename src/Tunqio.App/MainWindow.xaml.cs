@@ -107,8 +107,8 @@ public sealed partial class MainWindow : Window
         // Before the first frame: the theme a repaint would otherwise arrive one frame late in, and a shape, so
         // the window never draws with all three panels stacked on top of each other in column 0.
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
-        _chrome.ApplyLayout(ShellLayout.MediumThreshold);
-        Root.SizeChanged += (_, e) => _chrome.ApplyLayout(e.NewSize.Width);
+        ApplyShellLayout(ShellLayout.MediumThreshold);
+        Root.SizeChanged += (_, e) => ApplyShellLayout(e.NewSize.Width);
         // Which theme is on screen decides which text the reactive contrast guarantee is made against, and the
         // theming ticks on a timer thread where ActualTheme cannot be read at all. So it is cached here, on the
         // thread that owns it, and the theming reads the cache.
@@ -247,6 +247,17 @@ public sealed partial class MainWindow : Window
 
     /// <summary>The shape the shell is in, for the tests that drive the window and for the diagnostics overlay.</summary>
     public ShellLayoutMode? LayoutMode => _chrome.Mode;
+
+    /// <summary>
+    /// Puts the panels into the shape <paramref name="width"/> calls for, and tells the sidebar which navigation that
+    /// shape wants: the views behind a menu button when stacked, where the sidebar is short (T-182, Q-55), and the
+    /// strip of icons otherwise.
+    /// </summary>
+    private void ApplyShellLayout(double width)
+    {
+        _chrome.ApplyLayout(width);
+        SidebarPanel.UseMinimalNavigation(_chrome.Mode == ShellLayoutMode.Compact);
+    }
 
     /// <summary>Whether the window will take a drag (E2-S4), read off the live tree for the spike.</summary>
     internal bool RootAcceptsDrop => Root.AllowDrop;

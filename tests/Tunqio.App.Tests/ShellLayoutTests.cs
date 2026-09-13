@@ -10,37 +10,41 @@ namespace Tunqio.App.Tests;
 public class ShellLayoutTests
 {
     [Fact]
-    public void At_1600_px_now_playing_and_the_sidebar_are_seventyfive_twentyfive()
+    public void At_1600_px_now_playing_and_the_sidebar_are_sixty_forty()
     {
         ShellLayoutState state = ShellLayout.For(1600);
 
         state.Mode.Should().Be(ShellLayoutMode.Full);
         state.Stacked.Should().BeFalse();
         (double nowPlaying, double sidebar) = state.Fractions;
-        // T-182: the controls panel is a bar under Now Playing rather than a 15% column, and the 15% went to Now
-        // Playing, so the sidebar keeps the 25% it has always had.
-        nowPlaying.Should().BeApproximately(0.75, 0.001);
-        sidebar.Should().BeApproximately(0.25, 0.001);
+        // T-182, Q-54: the controls became a bar under Now Playing, and the width their column freed went to the
+        // sidebar. A first cut gave it to Now Playing at 75/25 and was rejected: the sidebar narrowed too far.
+        nowPlaying.Should().BeApproximately(0.60, 0.001);
+        sidebar.Should().BeApproximately(0.40, 0.001);
     }
 
     [Fact]
-    public void At_700_px_the_panels_stack_with_the_music_on_top()
+    public void At_700_px_the_panels_stack_and_share_the_height_equally()
     {
         ShellLayoutState state = ShellLayout.For(700);
 
         state.Mode.Should().Be(ShellLayoutMode.Compact);
         state.Stacked.Should().BeTrue();
-        state.NowPlaying.Should().BeGreaterThan(state.Sidebar, "the music keeps the larger share when there is least room");
+        // T-182, Q-56: at 2:1 the library got about 230 px of an 800x900 window under the art and could not be
+        // navigated. The art scales down to its half instead.
+        state.Fractions.NowPlaying.Should().BeApproximately(0.5, 0.001);
+        state.Fractions.Sidebar.Should().BeApproximately(0.5, 0.001);
     }
 
     [Fact]
-    public void Between_the_breakpoints_the_sidebar_gives_its_share_to_now_playing()
+    public void Between_the_breakpoints_the_sidebar_gives_some_of_its_share_to_now_playing()
     {
         ShellLayoutState medium = ShellLayout.For(1000);
         ShellLayoutState full = ShellLayout.For(1600);
 
         medium.Mode.Should().Be(ShellLayoutMode.Medium);
         medium.Stacked.Should().BeFalse("the columns survive down to the compact threshold");
+        medium.Fractions.Sidebar.Should().BeApproximately(1.0 / 3.0, 0.001);
         medium.Fractions.Sidebar.Should().BeLessThan(full.Fractions.Sidebar);
         medium.Fractions.NowPlaying.Should().BeGreaterThan(full.Fractions.NowPlaying);
     }
@@ -82,28 +86,27 @@ public class ShellLayoutTests
             "a Now Playing floor under the transport's own width would bring back the clipping T-182 removed");
     }
 
-    [Fact]
-    public void At_the_widths_the_criterion_names_the_shares_are_the_shares_and_no_floor_binds()
+    [Theory]
+    [InlineData(700)]
+    [InlineData(800)]
+    [InlineData(900)]
+    [InlineData(1199.9)]
+    [InlineData(1200)]
+    [InlineData(1600)]
+    public void At_the_documented_shares_no_floor_ever_binds(double width)
     {
-        ShellLayout.FloorsBind(1600).Should().BeFalse("1600 px is wide enough for the documented shares to be the real ones");
-        ShellLayout.FloorsBind(700).Should().BeFalse("stacked panels each span the width, so nothing divides it");
+        // The narrowest column shape is an 800 px client at 2:1: 533 / 267 px, above both floors. Under the old
+        // 4:1:1 a 900 px window put the sidebar at 150 px and the floor had to take over; that regime is gone.
+        ShellLayout.FloorsBind(width).Should().BeFalse("the shares alone keep both panels above their floors at every width");
     }
 
     [Fact]
-    public void Just_above_the_compact_threshold_the_floors_win_and_the_shares_are_not_the_documented_ones()
+    public void The_sidebar_is_never_narrower_than_a_third_of_the_window_in_a_column_shape()
     {
-        ShellLayout.FloorsBind(900).Should().BeTrue(
-            "a fifth of 900 px is 180, and a 180 px sidebar is not a sidebar — the floor takes it to 200 and the shares move");
-
-        ShellLayoutState state = ShellLayout.For(900);
-        (900 * state.Fractions.Sidebar).Should().BeLessThan(
-            ShellLayout.SidebarMinWidth, "which is exactly why the floor has to override the share here");
-    }
-
-    [Fact]
-    public void The_floors_stop_binding_before_the_full_layout_starts()
-    {
-        ShellLayout.FloorsBind(ShellLayout.MediumThreshold).Should().BeFalse(
-            "the documented 75/25 must be achievable from the moment the full layout applies, or it is not the layout");
+        // Q-54, stated as the property Phil asked for rather than as the numbers that deliver it.
+        foreach (double width in new[] { ShellLayout.CompactThreshold, 1000, ShellLayout.MediumThreshold - 0.1, ShellLayout.MediumThreshold, 1600 })
+        {
+            ShellLayout.For(width).Fractions.Sidebar.Should().BeGreaterThanOrEqualTo(1.0 / 3.0 - 0.001, $"at {width} px");
+        }
     }
 }

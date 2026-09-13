@@ -78,7 +78,7 @@
         The metadata. A scrim rather than a solid panel: the visualizer is meant to show through, and the text
         still has to be readable over a bright frame of it.
       -->
-      <StackPanel Grid.Row="1" Spacing="4" Padding="16,12" CornerRadius="8"
+      <StackPanel x:Name="MetadataBlock" Grid.Row="1" Spacing="4" Padding="16,12" CornerRadius="8"
                   Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}"
                   HorizontalAlignment="Stretch">
         <TextBlock Text="{x:Bind ViewModel.Title, Mode=OneWay}"

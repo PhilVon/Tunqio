@@ -322,14 +322,14 @@ function Test-Geometry([int]$width) {
     # T-182 moved the controls to a bar under Now Playing, so the sidebar is now the right-hand column and that
     # sibling boundary no longer exists on its right. Two things replace it, both measured on the new layout. On
     # the LEFT the sidebar's neighbour is the Now Playing column the bar spans, so the surface must start at or
-    # right of the bar's right edge (at 1600 px the bar ends at 1256 and the surface starts at 1305). On the RIGHT
+    # right of the bar's right edge (at a 1600 px window the bar spans 68..1018 since the sidebar went to 60/40). On the RIGHT
     # the neighbour is the window's edge, and UIA clips a rectangle there: the surface's right edge reads as the
     # client's right edge whatever its content does, so "does not cross the edge" cannot fail. What clipping does
     # leave visible is the content column losing the padding it sits in: at every column width it is 16 px inside
     # the surface on both sides, and over-wide content would push it out to the clipped edge.
     if (-not $neighbour) { return "the playback controls panel is not in the tree at ${width}px, so the boundary cannot be checked" }
     # The left edge is shared only in a column shape, where the bar spans Now Playing and stops well short of the
-    # window's right edge (at 1600 px it ends at 1256 in a window ending at 1660). Stacked, the bar spans the
+    # window's right edge (at a 1600 px window it ends at 1018 in a window ending at 1660). Stacked, the bar spans the
     # client (852 in a window ending at 860) and sits beneath the sidebar, so it is not beside it at all.
     $frame = Get-Rect $script:window
     $barBesideSidebar = $neighbour.Right -lt ($frame.Right - 40)

@@ -3,13 +3,13 @@ namespace Tunqio.App.Shell;
 /// <summary>Which of the three shapes the shell is in (docs/user-interface.md, "Window Size Adaptation").</summary>
 public enum ShellLayoutMode
 {
-    /// <summary>Under 800 px: the panels stack, because side by side none of them would be usable.</summary>
+    /// <summary>Under 800 px: the panels stack, sharing the height equally, because side by side neither would be usable.</summary>
     Compact,
 
-    /// <summary>800 to 1200 px: still two columns, but the sidebar gives some of its share to Now Playing.</summary>
+    /// <summary>800 to 1200 px: two columns at 2:1, Now Playing and the sidebar.</summary>
     Medium,
 
-    /// <summary>1200 px and up: Now Playing 75, the sidebar 25.</summary>
+    /// <summary>1200 px and up: Now Playing 60, the sidebar 40.</summary>
     Full,
 }
 
@@ -22,6 +22,8 @@ public enum ShellLayoutMode
 /// The controls panel is not a share in any shape. It is a transport bar at its natural height: beneath Now Playing
 /// in the column shapes, and beneath both panels when they stack. Until T-182 it was a third column of 15%, which
 /// measured 238 px at 1600 and 128 px at 1000 against a transport row that needs 242, and clipped Shuffle to nothing.
+/// The shares below are Phil's (T-182, Q-54 and Q-56): the first cut of that change gave the freed width to Now
+/// Playing, at 75/25 and 80/20, and was rejected because the sidebar narrowed too far to browse.
 /// </remarks>
 /// <param name="Mode">Which shape this width is in.</param>
 /// <param name="NowPlaying">Now Playing's star weight, along the axis the panels are laid out on.</param>
@@ -33,7 +35,7 @@ public readonly record struct ShellLayoutState(
     double Sidebar,
     bool Stacked)
 {
-    /// <summary>The two shares as fractions of the space the panels divide, which is what "75 / 25" means.</summary>
+    /// <summary>The two shares as fractions of the space the panels divide, which is what "60 / 40" means.</summary>
     public (double NowPlaying, double Sidebar) Fractions
     {
         get
@@ -54,7 +56,7 @@ public static class ShellLayout
     /// <summary>Below this the panels stack (docs/user-interface.md, <c>COMPACT_THRESHOLD</c>).</summary>
     public const double CompactThreshold = 800;
 
-    /// <summary>Below this the sidebar is narrowed (docs/user-interface.md, <c>MEDIUM_THRESHOLD</c>).</summary>
+    /// <summary>Below this the sidebar's share shrinks (docs/user-interface.md, <c>MEDIUM_THRESHOLD</c>).</summary>
     public const double MediumThreshold = 1200;
 
     /// <summary>Now Playing's floor in a column shape, which is also the floor of the transport bar beneath it.</summary>
@@ -71,15 +73,16 @@ public static class ShellLayout
     public const double TransportMinWidth = 242;
 
     /// <summary>
-    /// The shape for <paramref name="windowWidth"/>. Compact stacks Now Playing over the sidebar with the transport
-    /// bar beneath both; medium keeps two columns but takes some of the sidebar's share for Now Playing, since a
-    /// 200 px sidebar is already at its floor there and widening it would come out of the art; full is 75 / 25.
+    /// The shape for <paramref name="windowWidth"/>. Compact stacks Now Playing over the sidebar at equal heights with
+    /// the transport bar beneath both; medium is two columns at 2:1; full is 60 / 40.
     /// </summary>
     public static ShellLayoutState For(double windowWidth) => windowWidth switch
     {
-        < CompactThreshold => new ShellLayoutState(ShellLayoutMode.Compact, 2, 1, Stacked: true),
-        < MediumThreshold => new ShellLayoutState(ShellLayoutMode.Medium, 4, 1, Stacked: false),
-        _ => new ShellLayoutState(ShellLayoutMode.Full, 3, 1, Stacked: false),
+        // Equal rows (T-182, Q-56): at 2:1 the sidebar got about 230 px of an 800x900 window under the art, which
+        // Phil found impossible to navigate. The art scales down to its row instead.
+        < CompactThreshold => new ShellLayoutState(ShellLayoutMode.Compact, 1, 1, Stacked: true),
+        < MediumThreshold => new ShellLayoutState(ShellLayoutMode.Medium, 2, 1, Stacked: false),
+        _ => new ShellLayoutState(ShellLayoutMode.Full, 3, 2, Stacked: false),
     };
 
     /// <summary>
@@ -87,10 +90,10 @@ public static class ShellLayout
     /// panel under its floor, so the floors win and the shares are no longer the documented ones.
     /// </summary>
     /// <remarks>
-    /// This is not a failure, it is the floors doing their job — a 160 px sidebar is not a sidebar. It is worth
-    /// naming because it is the difference between two true statements about the same layout: at 1600 px the shares
-    /// are 75 / 25, and at 900 px they are not, and both are correct. Anything checking the proportions has to know
-    /// which regime it is in, or it reports a bug against a rule that never applied.
+    /// At today's shares this never happens in a column shape: the narrowest column shape is an 800 px client at
+    /// 2:1, which is 533 / 267 px, above both floors. It is kept because the floors are what stops a future change
+    /// to the shares from making a panel unusable, and anything checking the proportions has to know whether a floor
+    /// won, or it reports a bug against a rule that did not apply.
     /// </remarks>
     public static bool FloorsBind(double clientWidth)
     {
