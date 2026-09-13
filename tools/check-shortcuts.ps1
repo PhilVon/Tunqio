@@ -242,6 +242,7 @@ try {
     # thing in it a person acts on) must be on screen.
     Test-Case 'the overlay is whole inside the window at every width' {
         $problems = @()
+        $readings = @()
         foreach ($w in $widthList) {
             Set-UiaWindowSize -ProcessId $script:processId -Width $w -Height 900
             $script:window = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid)
@@ -254,9 +255,15 @@ try {
             Write-Host ("        {0,5}px  window {1}, overlay {2}" -f $w, $windowRect.Describe, $panelRect.Describe)
             $problem = Test-UiaInside $panelRect $windowRect 'the diagnostics overlay' "the ${w}px window"
             if ($problem) { $problems += "at ${w}px $problem" }
+            $readings += [pscustomobject]@{ Width = $w; Name = 'the diagnostics overlay'; Rect = $panelRect }
             $copy = Get-ElementNamed 'Copy diagnostics' 'Button'
             if (-not $copy -or (Get-UiaRect $copy).Offscreen) { $problems += "at ${w}px the Copy diagnostics button has nothing on screen" }
+            else { $readings += [pscustomobject]@{ Width = $w; Name = 'Copy diagnostics'; Rect = (Get-UiaRect $copy) } }
         }
+        # Inside-the-window alone passes an overlay the window edge has cut to a sliver: UIA clips the rectangle to
+        # what is visible, so a 72 px stub of a 540 px overlay reads as inside (measured, T-168). The overlay is
+        # MaxWidth 560 and every width here leaves it room, so any reading narrower than its widest is a cut.
+        $problems += @(Get-UiaClippedControls $readings)
         # Back to the widest, so the cases after this one run against the window they were written for.
         Set-UiaWindowSize -ProcessId $script:processId -Width ($widthList | Measure-Object -Maximum).Maximum -Height 900
         $script:window = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid)
