@@ -5,9 +5,9 @@
   sidebar page that was there, playback keeps going across every switch, and ui.mode is written and read back by a
   relaunch.
 
-  Keystroke-free: every action is a UIA pattern (SelectionItem, Invoke, Toggle, Window), so nothing typed can land in
-  another window. The price is that Ctrl+1/2/3, F11 and Esc are not pressed here; their table is ShellShortcutsTests
-  and what they do is ShellStateTests.
+  Keystroke-free by default: every action is a UIA pattern (SelectionItem, Invoke, Toggle, Window), so nothing typed
+  can land in another window. -Keys adds Ctrl+1/2/3, F11 and Esc pressed at the window, each only after the shell is
+  confirmed to hold the foreground; use it only on a machine nobody is typing on.
 
   WHAT IT CHANGES. It launches the app over the user's own library, mutes it, and switches modes, which writes
   ui.mode. When nothing is loaded it plays the first album tile, which replaces the saved queue with that album. At the end it pauses, restores the mute state it found, and leaves the app
@@ -20,7 +20,10 @@
 [CmdletBinding()]
 param(
     [string]$Exe,
-    [int]$Seconds = 10
+    [int]$Seconds = 10,
+    # Also press Ctrl+1/2/3, F11 and Esc at the window. Off by default: keystrokes go to whatever holds the
+    # foreground, so this is for a machine nobody is using (T-163's refusal guards each key regardless).
+    [switch]$Keys
 )
 
 $ErrorActionPreference = 'Stop'
@@ -210,6 +213,39 @@ try {
     Stop-Shell $shell
     $shell = Start-Shell
     Check 'a relaunch opens in the mode the app was closed in' (Get-Selected (Find-Named $shell.Window 'Curation mode')) 'Curation selected after relaunch'
+    if ($Keys) {
+        # The keys themselves (AC-410, AC-135), on the relaunched window, which opens in Curation. Each key is sent
+        # only once the shell is confirmed to hold the foreground, so none can land in another window.
+        . (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'uia-geometry.ps1')
+        Add-Type -AssemblyName System.Windows.Forms
+        $keyWindow = $shell.Window
+        $keyPid = $shell.Process.Id
+        $keyClient = $keyWindow.Current.BoundingRectangle.Width
+        $curationWidth = (Find-Named $keyWindow 'Playback controls panel').Current.BoundingRectangle.Width
+
+        foreach ($press in @(
+                @{ Keys = '^1'; Label = 'Ctrl+1'; Want = 'Discovery' },
+                @{ Keys = '^3'; Label = 'Ctrl+3'; Want = 'Curation' },
+                @{ Keys = '{F11}'; Label = 'F11 from Curation'; Want = 'Focus' },
+                @{ Keys = '{ESC}'; Label = 'Esc from Focus'; Want = 'Curation'; RestoredWidth = $curationWidth },
+                @{ Keys = '^2'; Label = 'Ctrl+2'; Want = 'Focus' },
+                @{ Keys = '{F11}'; Label = 'F11 from Focus'; Want = 'Curation' },
+                @{ Keys = '{ESC}'; Label = 'Esc outside Focus'; Want = 'Curation' })) {
+            Assert-UiaForeground -ProcessId $keyPid
+            [System.Windows.Forms.SendKeys]::SendWait($press.Keys)
+            Start-Sleep -Milliseconds 1200
+            $selected = Get-Selected (Find-Named $keyWindow "$($press.Want) mode")
+            Check "$($press.Label) leaves the shell in $($press.Want)" $selected 'switcher'
+            $width = (Find-Named $keyWindow 'Playback controls panel').Current.BoundingRectangle.Width
+            if ($press.Want -eq 'Focus') {
+                Check "$($press.Label) gives Now Playing the whole width" ($width -ge $keyClient * 0.9) "controls bar $([math]::Round($width)) of $([math]::Round($keyClient)) px"
+            }
+            if ($press.ContainsKey('RestoredWidth')) {
+                Check 'Esc restores the layout of the mode Focus was entered from' ([math]::Abs($width - $press.RestoredWidth) -le 4) "controls bar $([math]::Round($width)) px, $([math]::Round($press.RestoredWidth)) before Focus"
+            }
+        }
+    }
+
     Select-Mode $shell.Window 'Discovery'
 }
 catch {
