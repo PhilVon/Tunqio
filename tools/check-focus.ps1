@@ -274,9 +274,10 @@ try {
     Check 'moving away puts the peek back' ($opened.Count -gt 0 -and (Get-LogTimes 'Focus queue peek closed' $leaving).Count -gt 0) 'close logged'
 
     # ---- the announcer (AC-137) ----------------------------------------------------------------------------------------
-    # LiveSetting (UIA property 30135) is not readable from the .NET UIA client this script uses ("Unsupported
-    # Property"), so politeness rests on the XAML; what is checked is that a track change in Focus reaches the region.
-    Write-Output '  note  LiveSetting cannot be read from the managed UIA client; Polite is set in MainWindow.xaml'
+    # What Narrator hears is a UIA notification event, which the .NET UIA client this script uses cannot subscribe
+    # to. So this checks that a track change in Focus reaches the announcement path (log line and announcer text);
+    # whether Narrator speaks it is for a person to hear (Q-71 found the first version silent).
+    Write-Output '  note  the notification itself cannot be observed from the managed UIA client; Narrator is checked by ear'
     $announcer = Find-Id $window 'TrackAnnouncer'
     $nameBefore = if ($announcer) { $announcer.Current.Name } else { '' }
     # A track change has to actually happen for there to be anything to say. The second run pressed Next on the last

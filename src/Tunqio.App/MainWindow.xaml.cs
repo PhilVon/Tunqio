@@ -406,9 +406,18 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        TrackAnnouncer.Text = nowPlaying.AutomationName;
-        Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(TrackAnnouncer)
-            ?.RaiseAutomationEvent(Microsoft.UI.Xaml.Automation.Peers.AutomationEvents.LiveRegionChanged);
+        // A UIA notification on the visible Now Playing panel, not a live region. The first cut raised LiveRegionChanged
+        // on TrackAnnouncer, a 1x1 text block at opacity 0, and Narrator never spoke it (Phil, Q-71). A notification
+        // needs no region at all, and CurrentThenMostRecent lets what Narrator is already saying finish first, which
+        // is what "politely" means. TrackAnnouncer keeps the text only so a check can read what was said.
+        string text = nowPlaying.AutomationName;
+        TrackAnnouncer.Text = text;
+        Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(NowPlaying)
+            ?.RaiseNotificationEvent(
+                Microsoft.UI.Xaml.Automation.Peers.AutomationNotificationKind.Other,
+                Microsoft.UI.Xaml.Automation.Peers.AutomationNotificationProcessing.CurrentThenMostRecent,
+                text,
+                "Tunqio.TrackChanged");
         Serilog.Log.Debug("Focus announced a track change");
     }
 

@@ -89,14 +89,14 @@
       so the empty area over the shell is not a lid on the window.
     -->
     <!--
-      Focus mode (E5-S2). The announcer is a polite live region carrying the track, told to speak on each change in
-      Focus: invisible, but in the tree, because a collapsed element is not in the automation tree and cannot speak.
+      Focus mode (E5-S2). The announcer holds the text of the last track change announced, for a check to read. What
+      Narrator hears is a UIA notification raised on the Now Playing panel; a live region here was never spoken (Q-71).
       The strip is the left edge's hit area; the peek is the queue it opens, a second QueuePanel over the same view
       model, since the button's flyout owns the first. Both are collapsed outside Focus.
     -->
     <TextBlock x:Name="TrackAnnouncer" Opacity="0" IsHitTestVisible="False" Width="1" Height="1"
                HorizontalAlignment="Left" VerticalAlignment="Top"
-               AutomationProperties.LiveSetting="Polite" AutomationProperties.AutomationId="TrackAnnouncer" />
+               AutomationProperties.AutomationId="TrackAnnouncer" />
     <Border x:Name="QueuePeekStrip" Width="8" HorizontalAlignment="Left" Background="Transparent" Visibility="Collapsed"
             PointerEntered="OnQueuePeekStripEntered" AutomationProperties.AccessibilityView="Raw" />
     <Border x:Name="QueuePeek" HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0,48,0,48"
