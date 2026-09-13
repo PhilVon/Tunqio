@@ -1,0 +1,6 @@
+{
+  "_comment": "The ffmpeg build tools/fetch-ffmpeg.ps1 fetches into artifacts/ffmpeg/bin for the tag-writer and fixture tests (T-136). A test tool, not a product dependency, so not in native-deps.json. The release publishes no digest: the hash was taken from the downloaded archive on 2026-09-13. Update url and sha256 together (tools/fetch-ffmpeg.ps1 -PrintHash). Essentials, not full: it carries every encoder tools/FixtureGen uses and is what the Chocolatey package installed before.",
+  "description": "ffmpeg 7.1.1 essentials build (gyan.dev)",
+  "url": "https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip",
+  "sha256": "04861d3339c5ebe38b56c19a15cf2c0cc97f5de4fa8910e4d47e5e6404e4a2d4"
+}
