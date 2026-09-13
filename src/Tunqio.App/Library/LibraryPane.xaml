@@ -8,8 +8,8 @@
   <!--
     The sidebar's library section (docs/ui-screens-and-flows.md, "Navigation map"): a search box in the
     header, then the eight library views in a NavigationView pane and a Frame with a back stack for the detail
-    pages. Alt+Left and the pane's back button go back. The pane's settings item (and Ctrl+,) opens Settings ›
-    Library in the same frame until E6 builds the settings overlay (E3-S12); after a scan or a Settings action
+    pages. Alt+Left and the pane's back button go back. The pane's settings item asks the window for the settings
+    overlay (E6-S3; Ctrl+, is the shell's shortcut table's now, since this pane is collapsed in Focus); after a scan or a Settings action
     that changed rows the page showing is asked to reload (ILibraryRefreshable). E3-S9: while the search box has text the results view
     replaces the frame (the page keeps its state underneath); Esc, or any navigation, clears the search. Ctrl+F
     or "/" focuses the box. E2-S1 places this pane in the shell's sidebar column and hides it in Focus mode.

@@ -364,15 +364,19 @@ try {
 
     $toggleOffCase = {
         Close-Overlay
+        # Since E6-S3 the switch is on Settings > Appearance, a section of the settings overlay; sections are
+        # NavigationViewItems, which answer SelectionItem rather than Invoke.
         for ($attempt = 0; $attempt -lt 3; $attempt++) {
             Send-Keys '^{,}'
-            if (Get-ElementNamed 'Visualization settings' 'Button') { break }
+            if (Get-ElementNamed 'Appearance settings' 'ListItem') { break }
             Start-Sleep -Milliseconds 800
         }
-        if (-not (Get-ElementNamed 'Visualization settings' 'Button')) { return 'Settings would not open' }
-        Invoke-Named 'Visualization settings'
+        $section = Get-ElementNamed 'Appearance settings' 'ListItem'
+        if (-not $section) { return 'Settings would not open' }
+        $section.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Start-Sleep -Milliseconds 800
         $toggle = Get-ElementNamed 'Let the theme follow the music'
-        if (-not $toggle) { return 'no reactive theming switch on the Visualization page' }
+        if (-not $toggle) { return 'no reactive theming switch on the Appearance page' }
         $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
         Start-Sleep -Milliseconds 900
 

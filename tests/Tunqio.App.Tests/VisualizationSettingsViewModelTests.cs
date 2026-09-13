@@ -259,56 +259,6 @@ public sealed class VisualizationSettingsViewModelTests
         vm.Notice.Should().Contain("3 presets");
     }
 
-    [Fact]
-    public void The_two_reactive_theming_settings_are_read_and_written()
-    {
-        var settings = new FakeSettings();
-        settings.SetValue(SettingsKeys.UiReactiveTheming, false);
-        settings.SetValue(SettingsKeys.UiReactiveSmoothing, 0.75f);
-
-        VisualizationSettingsViewModel vm = Build(Attached(), settings);
-        vm.ReactiveTheming.Should().BeFalse();
-        vm.ReactiveSmoothing.Should().Be(0.75f);
-
-        vm.ReactiveTheming = true;
-        vm.ReactiveSmoothing = 0.25f;
-
-        settings.GetValue(SettingsKeys.UiReactiveTheming, false).Should().BeTrue();
-        settings.GetValue(SettingsKeys.UiReactiveSmoothing, 0f).Should().Be(0.25f);
-    }
-
-    [Fact]
-    public void Seeding_the_two_settings_from_the_store_does_not_write_them_back()
-    {
-        var settings = new FakeSettings();
-        Build(Attached(), settings);
-        settings.Contains(SettingsKeys.UiReactiveTheming).Should().BeFalse();
-        settings.Contains(SettingsKeys.UiReactiveSmoothing).Should().BeFalse();
-    }
-
-    /// <summary>
-    /// T-151: the smoothing slider says what the person is choosing in seconds. The numbers here are
-    /// <see cref="ReactiveThemeOptions.TimeConstant"/>'s, so the label cannot drift from the engine.
-    /// </summary>
-    [Theory]
-    [InlineData(0f, "0.5 s")]
-    [InlineData(0.15f, "1.0 s")]
-    [InlineData(0.5f, "2.3 s")]
-    [InlineData(1f, "4.0 s")]
-    public void The_smoothing_label_states_the_time_constant_it_maps_to(float smoothing, string expected)
-    {
-        VisualizationSettingsViewModel vm = Build(Attached());
-        vm.ReactiveSmoothing = smoothing;
-
-        vm.SmoothingDescription.Should().StartWith(expected);
-        // And what a time constant is, or the number is a second opaque thing beside the first.
-        vm.SmoothingDescription.Should().Contain("63%");
-        vm.SmoothingDescription.Should().Contain("0.5 s at the left, 4.0 s at the right");
-
-        // The claim itself, against the engine that will do the smoothing.
-        new ReactiveThemeOptions(true, smoothing).TimeConstant.TotalSeconds
-            .Should().BeApproximately(double.Parse(expected[..^2], System.Globalization.CultureInfo.InvariantCulture), 0.05);
-    }
 
     private sealed class FakePaths : IAppPaths
     {

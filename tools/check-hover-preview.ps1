@@ -184,9 +184,12 @@ try {
     }
 
     # ---- the switch (AC-421), and turning previews on when the offer did not ------------------------------------
+    # Since E6-S3 Settings is an overlay: the sidebar's item opens it, and Library is one of its sections.
     $settingsItem = Wait-Until { Find-Named $window 'Settings' } 10 'the sidebar showed its Settings item'
     try { Select-Element $settingsItem } catch { Invoke-Element $settingsItem }
-    Start-Sleep -Milliseconds 1500
+    Start-Sleep -Milliseconds 1000
+    Select-Element (Wait-Until { Find-Named $window 'Library settings' } 10 'the settings overlay listed its Library section')
+    Start-Sleep -Milliseconds 1000
     $switch = Wait-Until { Find-Named $window 'Preview albums on hover' } 10 'Settings > Library showed the hover preview switch'
     $switchToggle = $switch.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
     Check 'Settings > Library has the hover preview switch' ($null -ne $switch) 'found by name'
@@ -196,6 +199,8 @@ try {
     }
     Check 'the switch reads previews as on' ($switchToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On -and (Get-StoredSetting 'ui.hoverPreview') -eq $true) "ui.hoverPreview=$(Get-StoredSetting 'ui.hoverPreview')"
 
+    Invoke-Element (Wait-Until { Find-Named $window 'Close settings' } 5 'the settings overlay offered Close')
+    Start-Sleep -Milliseconds 600
     Select-Element (Find-Named $window 'Albums')
     Start-Sleep -Milliseconds 1500
     Assert-UiaForeground -ProcessId $process.Id
@@ -236,7 +241,10 @@ finally {
             # Previews back off through the app's own switch, so the settings file is written by the app.
             $settingsItem = Find-Named $window 'Settings'
             if ($settingsItem) { try { Select-Element $settingsItem } catch { Invoke-Element $settingsItem } }
-            Start-Sleep -Milliseconds 1200
+            Start-Sleep -Milliseconds 1000
+            $librarySection = Find-Named $window 'Library settings'
+            if ($librarySection) { Select-Element $librarySection }
+            Start-Sleep -Milliseconds 1000
             $switch = Find-Named $window 'Preview albums on hover'
             if ($switch -and $previewBefore -ne $true) {
                 $p = $switch.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)

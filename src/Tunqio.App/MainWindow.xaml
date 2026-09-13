@@ -44,6 +44,10 @@
                             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                             Background="{ThemeResource LayerFillColorDefaultBrush}" />
 
+      <!-- Settings (E6-S3, Q-92): over the sidebar and Now Playing's metadata, the visualizer running behind it and the
+           controls bar under it. Collapsed until opened; ShellChrome places it in every shape. -->
+      <shell:SettingsOverlay x:Name="SettingsPanel" Visibility="Collapsed" />
+
       <!-- Controls: the transport (E2-S2), the mode switcher (E5-S1) and the queue button (E2-S5).
            A bar under Now Playing at its natural height in every shape (T-182; ShellChrome places it), because
            as a third column it was narrower than the transport and clipped Shuffle. Named for the automation tree
@@ -90,6 +94,14 @@
               <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
                 <FontIcon Glyph="&#xEE47;" FontSize="14" />
                 <TextBlock Text="Mini" Style="{StaticResource CaptionTextBlockStyle}" />
+              </StackPanel>
+            </Button>
+            <!-- The navigation map's Settings button (E6-S3), beside Queue and Mini on the same row. -->
+            <Button x:Name="SettingsButton" Click="OnSettingsClick"
+                    AutomationProperties.Name="Open settings" ToolTipService.ToolTip="Settings (Ctrl+,)">
+              <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
+                <FontIcon Glyph="&#xE713;" FontSize="14" />
+                <TextBlock Text="Settings" Style="{StaticResource CaptionTextBlockStyle}" />
               </StackPanel>
             </Button>
           </StackPanel>

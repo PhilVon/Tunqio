@@ -6,10 +6,9 @@
     xmlns:shell="using:Tunqio.App.Shell"
     NavigationCacheMode="Enabled">
   <!--
-    Settings › Visualization (docs/ui-screens-and-flows.md; E4-S9). The preset switcher, the parameters the
-    chosen preset declares, and the two audio-reactive theming settings E4-S6 shipped with no UI (T-151). Until
-    E6 builds the settings overlay this lives in the library pane's frame beside Settings › Library, reached
-    from the selector at the top of either page.
+    Settings › Visualization (docs/ui-screens-and-flows.md; E4-S9). The preset switcher and the parameters the
+    chosen preset declares. A section of the settings overlay (E6-S3); the two audio-reactive theming settings
+    that were here (T-151) moved to Settings › Appearance with it.
 
     Every control under "Preset options" is built from what the ABI says the preset declares
     (mp_renderer_enum_preset_params, T-142) - the label, the range, the step, the unit, and whether it is a
@@ -31,16 +30,8 @@
     </Style>
   </Page.Resources>
 
-  <Grid RowDefinitions="Auto,Auto,*">
-    <TextBlock Text="Visualization settings" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,12,16,4" />
-
-    <!-- The two settings pages there are, until E6's overlay. -->
-    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="16,4,16,4">
-      <Button x:Name="LibraryTab" Content="Library" Click="OnOpenLibrarySettings"
-              AutomationProperties.Name="Library settings" />
-      <Button x:Name="VisualizationTab" Content="Visualization" IsEnabled="False"
-              AutomationProperties.Name="Visualization settings" />
-    </StackPanel>
+  <Grid RowDefinitions="Auto,*">
+    <TextBlock Text="Visualization" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,12,16,4" />
 
     <!--
       Named so a harness can read its bounding rectangle and check that every control on the page is inside it
@@ -53,7 +44,7 @@
       at the content alignment, and the default leaves a Stretch child sitting at its desired width. Without it
       the column measured 119 px inside a 224 px panel even with HorizontalAlignment="Stretch" on the panel.
     -->
-    <ScrollViewer x:Name="SettingsSurface" Grid.Row="2" Padding="16,0,16,16"
+    <ScrollViewer x:Name="SettingsSurface" Grid.Row="1" Padding="16,0,16,16"
                   HorizontalContentAlignment="Stretch"
                   AutomationProperties.Name="Visualization settings surface">
       <!--
@@ -151,27 +142,6 @@
                     AutomationProperties.Name="Open preset folder" />
           </StackPanel>
         </StackPanel>
-
-        <!-- Audio-reactive theming (T-151) -->
-        <TextBlock Text="Audio-reactive theming" Style="{StaticResource SectionHeader}" />
-        <ToggleSwitch x:Name="ReactiveThemingSwitch" Header="Let the theme follow the music"
-                      IsOn="{x:Bind ViewModel.ReactiveTheming, Mode=TwoWay}"
-                      AutomationProperties.Name="Let the theme follow the music" />
-        <TextBlock Text="The window's background gradient takes its colour from what is playing. Off is the resting palette, and Windows' own reduced-motion and high-contrast settings turn it off whatever this says."
-                   Style="{StaticResource Hint}" />
-        <TextBlock Text="Smoothing" Margin="0,12,0,0" />
-        <Slider x:Name="SmoothingSlider" Minimum="0" Maximum="1" StepFrequency="0.05"
-                Value="{x:Bind ViewModel.ReactiveSmoothing, Mode=TwoWay}"
-                HorizontalAlignment="Stretch"
-                IsEnabled="{x:Bind ViewModel.ReactiveTheming, Mode=OneWay}"
-                AutomationProperties.Name="Reactive theming smoothing" />
-        <!--
-          The label states the time constant the setting maps to rather than showing a bare 0..1, because the
-          number means something: alpha = 1 - exp(-dt / tau), tau runs 0.5 s to 4 s, and one tau covers 63% of a
-          step (measured at 63.9% at all four settings in E4-S6). A slider whose only feedback is "0.35" is a
-          number with no meaning outside the source.
-        -->
-        <TextBlock Text="{x:Bind ViewModel.SmoothingDescription, Mode=OneWay}" Style="{StaticResource Hint}" />
       </StackPanel>
     </ScrollViewer>
   </Grid>

@@ -15,9 +15,6 @@ public sealed partial class LibraryPane : UserControl
     /// <summary>The "/" key (VK_OEM_2 on a US layout), which has no <see cref="VirtualKey"/> name.</summary>
     private const VirtualKey SlashKey = (VirtualKey)191;
 
-    /// <summary>The "," key (VK_OEM_COMMA), for Ctrl+, (docs/ui-screens-and-flows.md, "Keyboard shortcuts": Settings).</summary>
-    private const VirtualKey CommaKey = (VirtualKey)188;
-
     /// <summary>The root page of each pane item; a Tracks page is told which fixed view it is.</summary>
     private static readonly Dictionary<string, (Type Page, object? Parameter)> Routes = new(StringComparer.Ordinal)
     {
@@ -43,9 +40,6 @@ public sealed partial class LibraryPane : UserControl
         _scans = App.Services.GetRequiredService<LibraryScanCoordinator>();
         Search = App.Services.GetRequiredService<SearchViewModel>();
         InitializeComponent();
-        var settings = new KeyboardAccelerator { Key = CommaKey, Modifiers = VirtualKeyModifiers.Control };
-        settings.Invoked += OnSettingsAccelerator;
-        KeyboardAccelerators.Add(settings);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -117,16 +111,17 @@ public sealed partial class LibraryPane : UserControl
         }
     }
 
-    /// <summary>Settings › Library in the frame (E3-S12); already there, it is shown (the search cleared).</summary>
+    /// <summary>The pane's settings item was chosen: the window opens the settings overlay (E6-S3).</summary>
+    public event EventHandler? SettingsRequested;
+
+    /// <summary>
+    /// Asks for the settings overlay, and puts the pane's selection back on the page that is showing: Settings is not a
+    /// page in this frame any more (E6-S3), so leaving the settings item selected would say something untrue.
+    /// </summary>
     public void OpenSettings()
     {
-        if (PageFrame.Content is LibrarySettingsPage or Shell.VisualizationSettingsPage)
-        {
-            ClearSearch();
-            return;
-        }
-
-        PageFrame.Navigate(typeof(LibrarySettingsPage), null, new EntranceNavigationTransitionInfo());
+        SettingsRequested?.Invoke(this, EventArgs.Empty);
+        SyncSelectionToPage();
     }
 
     /// <summary>
@@ -161,12 +156,6 @@ public sealed partial class LibraryPane : UserControl
     /// </summary>
     private const double MinimalNavigationInset = 44;
 
-    private void OnSettingsAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
-    {
-        OpenSettings();
-        args.Handled = true;
-    }
-
     private void Navigate(string tag)
     {
         (Type page, object? parameter) = Routes[tag];
@@ -185,15 +174,15 @@ public sealed partial class LibraryPane : UserControl
         Nav.IsBackEnabled = PageFrame.CanGoBack;
         ClearSearch(); // a result opened, a pane item chosen, back: the page is the destination now
 
-        // A root page (or settings) selects its pane item; a detail page leaves the selection where it was.
-        // Either settings page keeps the pane's settings item selected: they are two halves of one
-        // destination until E6 builds the overlay (E4-S9 added Settings > Visualization).
-        object? item = e.SourcePageType == typeof(LibrarySettingsPage)
-                       || e.SourcePageType == typeof(Shell.VisualizationSettingsPage)
-            ? Nav.SettingsItem
-            : Routes.FirstOrDefault(r => r.Value.Page == e.SourcePageType && Equals(r.Value.Parameter, e.Parameter)).Key is { } tag
-                ? Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => (string?)i.Tag == tag)
-                : null;
+        SyncSelectionToPage();
+    }
+
+    /// <summary>A root page selects its pane item; a detail page leaves the selection where it was.</summary>
+    private void SyncSelectionToPage()
+    {
+        object? item = Routes.FirstOrDefault(r => r.Value.Page == PageFrame.Content?.GetType() && Equals(r.Value.Parameter, _currentParameter)).Key is { } tag
+            ? Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => (string?)i.Tag == tag)
+            : null;
         if (item is null)
         {
             return;

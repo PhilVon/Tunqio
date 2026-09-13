@@ -44,11 +44,6 @@ public sealed partial class LibrarySettingsPage : Page, ILibraryRefreshable
         ViewModel.Detach();
     }
 
-    /// <summary>Settings > Visualization (E4-S9), in the same frame; the pair of buttons is the settings
-    /// navigation until E6 builds the overlay.</summary>
-    private void OnOpenVisualizationSettings(object sender, RoutedEventArgs e) =>
-        Frame?.Navigate(typeof(Shell.VisualizationSettingsPage));
-
     private void OnAddFolder(object sender, RoutedEventArgs e) => AddFolderAsync().Forget("Add library folder");
 
     private async Task AddFolderAsync()

@@ -143,16 +143,6 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         _host = host;
         _settings = settings;
         _paths = paths;
-        _seeding = true;
-        try
-        {
-            ReactiveTheming = settings.GetValue(SettingsKeys.UiReactiveTheming, SettingsKeys.Defaults.UiReactiveTheming);
-            ReactiveSmoothing = settings.GetValue(SettingsKeys.UiReactiveSmoothing, SettingsKeys.Defaults.UiReactiveSmoothing);
-        }
-        finally
-        {
-            _seeding = false;
-        }
     }
 
     /// <summary>Where a user's own presets go. Shown on the page, because "drop one in" needs a path.</summary>
@@ -186,30 +176,6 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
     [ObservableProperty]
     public partial bool NoticeIsError { get; set; }
 
-    /// <summary><c>ui.reactiveTheming</c> (T-151), written as it changes; the controller watches the store.</summary>
-    [ObservableProperty]
-    public partial bool ReactiveTheming { get; set; }
-
-    /// <summary><c>ui.reactiveSmoothing</c> (T-151), 0 to 1.</summary>
-    [ObservableProperty]
-    public partial float ReactiveSmoothing { get; set; }
-
-    /// <summary>
-    /// What the smoothing setting means in seconds, which is the point of showing it at all: 0 is a half-second
-    /// time constant and 1 is four seconds, and one time constant is 63% of the way to the colour the music is
-    /// asking for. A bare 0..1 slider would be a number with no meaning outside the source.
-    /// </summary>
-    public string SmoothingDescription
-    {
-        get
-        {
-            TimeSpan tau = new ReactiveThemeOptions(true, ReactiveSmoothing).TimeConstant;
-            return string.Format(
-                CultureInfo.CurrentCulture,
-                "{0:0.0} s to move 63% of the way to the colour the music is asking for (0.5 s at the left, 4.0 s at the right).",
-                tau.TotalSeconds);
-        }
-    }
 
     /// <summary>
     /// Reads the catalogue and the chosen preset off the running renderer. Called when the page appears, so a
@@ -421,28 +387,5 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         _settings.FlushAsync().Forget("Save the chosen preset");
         ClearNotice();
         LoadParameters(value.Id);
-    }
-
-    partial void OnReactiveThemingChanged(bool value)
-    {
-        if (_seeding)
-        {
-            return;
-        }
-
-        _settings.SetValue(SettingsKeys.UiReactiveTheming, value);
-        _settings.FlushAsync().Forget("Save reactive theming");
-    }
-
-    partial void OnReactiveSmoothingChanged(float value)
-    {
-        OnPropertyChanged(nameof(SmoothingDescription));
-        if (_seeding)
-        {
-            return;
-        }
-
-        _settings.SetValue(SettingsKeys.UiReactiveSmoothing, value);
-        _settings.FlushAsync().Forget("Save reactive smoothing");
     }
 }

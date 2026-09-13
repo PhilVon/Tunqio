@@ -49,6 +49,7 @@ public class ShellShortcutsTests
         Find(VirtualKey.F11)!.Value.Command.Should().Be(ShellCommand.ToggleFocus);
         Find(VirtualKey.Escape)!.Value.Command.Should().Be(ShellCommand.LeaveFocus);
         Find(VirtualKey.M, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.MiniPlayer);
+        Find((VirtualKey)188, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.OpenSettings);
         Find(VirtualKey.M)!.Value.Command.Should().Be(ShellCommand.Mute, "Ctrl+M is the mini player and M on its own is still Mute");
         Find(VirtualKey.Z, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Undo);
         Find(VirtualKey.Y, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Redo);

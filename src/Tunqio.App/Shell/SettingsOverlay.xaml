@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Tunqio.App.Shell.SettingsOverlay"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    AutomationProperties.Name="Settings overlay">
+  <!--
+    Settings (E6-S3, docs/ui-screens-and-flows.md, "Navigation map"; Phil chose the overlay on Q-92): a full-panel
+    overlay over the sidebar and Now Playing's metadata, with the visualizer still running behind it and the controls
+    bar still under it. ShellChrome places it; MainWindow opens it from the Settings button, Ctrl+, and the sidebar's
+    settings item, and closes it on Close or Esc. The sections are pages in one frame, cached, so moving between them
+    keeps their state. Shortcuts and About & Diagnostics are their own stories (E6-S4, E6-S5) and join the list then.
+  -->
+  <Grid Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}" RowDefinitions="Auto,*">
+    <Grid Padding="16,10,12,6" ColumnDefinitions="*,Auto">
+      <TextBlock Text="Settings" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+      <Button Grid.Column="1" Click="OnClose" AutomationProperties.Name="Close settings" ToolTipService.ToolTip="Close settings (Esc)">
+        <FontIcon Glyph="&#xE711;" FontSize="14" />
+      </Button>
+    </Grid>
+
+    <NavigationView
+        x:Name="Sections"
+        Grid.Row="1"
+        PaneDisplayMode="Auto"
+        OpenPaneLength="200"
+        CompactModeThresholdWidth="640"
+        ExpandedModeThresholdWidth="900"
+        IsSettingsVisible="False"
+        IsBackButtonVisible="Collapsed"
+        IsPaneToggleButtonVisible="True"
+        SelectionChanged="OnSectionChanged"
+        AutomationProperties.Name="Settings sections">
+      <NavigationView.MenuItems>
+        <NavigationViewItem Content="Playback" Tag="playback" AutomationProperties.Name="Playback settings">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE768;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem Content="Output" Tag="output" AutomationProperties.Name="Output settings">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE7F5;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem Content="Library" Tag="library" AutomationProperties.Name="Library settings">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE8F1;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem Content="Appearance" Tag="appearance" AutomationProperties.Name="Appearance settings">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE790;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem Content="Visualization" Tag="visualization" AutomationProperties.Name="Visualization settings">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE9D9;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
+      </NavigationView.MenuItems>
+      <Frame x:Name="SectionFrame" />
+    </NavigationView>
+  </Grid>
+</UserControl>

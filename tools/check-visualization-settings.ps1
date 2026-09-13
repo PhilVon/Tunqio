@@ -392,19 +392,28 @@ try {
 
     # ---- reachable at all ------------------------------------------------------------------------------------
 
+    # Since E6-S3 Settings is an overlay whose sections are NavigationViewItems, which answer SelectionItem, not Invoke.
+    $selectSection = {
+        param([string]$name)
+        $item = Get-ElementNamed $name 'ListItem'
+        if (-not $item) { return $false }
+        $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Start-Sleep -Milliseconds 800
+        return $true
+    }
+
     Test-Case 'Ctrl+, then Visualization opens the page' {
         # Retried, because the keystroke is the thing under test and a keystroke lost to a window that was not
         # yet ready would be reported as a missing feature. Three presses is still "Ctrl+, opens Settings".
         for ($attempt = 0; $attempt -lt 3; $attempt++) {
             Send-Keys '^{,}'
-            if (Get-ElementNamed 'Visualization settings' 'Button') { break }
+            if (Get-ElementNamed 'Visualization settings' 'ListItem') { break }
             Start-Sleep -Milliseconds 800
         }
 
-        if (-not (Get-ElementNamed 'Visualization settings' 'Button')) {
-            return 'Settings > Library did not open, or it has no Visualization button'
+        if (-not (& $selectSection 'Visualization settings')) {
+            return 'Settings did not open, or it has no Visualization section'
         }
-        Invoke-Named 'Visualization settings'
         if (-not (Get-ElementNamed 'Presets' 'List')) { 'the visualization page has no preset list' }
     }
 
@@ -412,8 +421,6 @@ try {
         foreach ($want in 'Refresh presets', 'Open preset folder', 'Reset to defaults') {
             if (-not (Get-ElementNamed $want 'Button')) { return "no '$want' button" }
         }
-        if (-not (Get-ElementNamed 'Let the theme follow the music')) { return 'no reactive theming switch' }
-        if (-not (Get-ElementNamed 'Reactive theming smoothing' 'Slider')) { 'no smoothing slider' }
     }
 
     # ---- the preset list -------------------------------------------------------------------------------------
@@ -562,9 +569,10 @@ try {
         Send-Keys '^+d'
     }
 
-    # ---- T-151: the two settings E4-S6 shipped with no UI --------------------------------------------------------
+    # ---- T-151: the two settings E4-S6 shipped with no UI, on Settings > Appearance since E6-S3 --------------------
 
     Test-Case 'the smoothing slider says what the person is choosing, in seconds' {
+        if (-not (& $selectSection 'Appearance settings')) { return 'the settings overlay has no Appearance section' }
         $slider = Get-ElementNamed 'Reactive theming smoothing' 'Slider'
         if (-not $slider) { return 'no smoothing slider' }
         $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
@@ -601,6 +609,7 @@ try {
     }
 
     Test-Case 'the chosen preset is written to viz.preset' {
+        if (-not (& $selectSection 'Visualization settings')) { return 'could not return to the Visualization section' }
         Select-ListRow 'Presets' 'Radial Spectrum'
         $settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
         $json = Get-Content $settingsPath -Raw | ConvertFrom-Json
@@ -645,10 +654,10 @@ try {
         if ($over.Count -gt 0) { "the controls panel's own controls overflow it: " + ($over -join '; ') }
     }
 
-    Test-Case 'and back to Settings > Library, so the two halves are one destination' {
+    Test-Case 'and on to Settings > Library, another section of the same overlay' {
         Set-WindowSize 1600 900
-        Invoke-Named 'Library settings'
-        if (-not (Get-ElementNamed 'Rescan all' 'Button')) { 'the library settings page did not come back' }
+        if (-not (& $selectSection 'Library settings')) { return 'the settings overlay has no Library section' }
+        if (-not (Get-ElementNamed 'Rescan all' 'Button')) { 'the library settings page did not open' }
     }
 
     Write-Output ''

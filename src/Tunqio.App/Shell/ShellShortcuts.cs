@@ -43,6 +43,9 @@ public enum ShellCommand
     /// <summary>Open the mini player (E5-S6).</summary>
     MiniPlayer,
 
+    /// <summary>Open the settings overlay (E6-S3).</summary>
+    OpenSettings,
+
     /// <summary>Undo the Curation editor's last edit (E5-S4); nothing outside Curation.</summary>
     Undo,
 
@@ -160,6 +163,9 @@ public static class ShellShortcuts
         new(VirtualKey.Number3, VirtualKeyModifiers.Control, ShellCommand.Curation, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.F11, VirtualKeyModifiers.None, ShellCommand.ToggleFocus, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.M, VirtualKeyModifiers.Control, ShellCommand.MiniPlayer, 0, ShortcutDelivery.PreEmpt),
+        // Ctrl+, (VK_OEM_COMMA, no VirtualKey name). At the shell rather than on the sidebar, where E3-S12 put it: the
+        // sidebar is collapsed in Focus, and Settings is an overlay over the whole shell now (E6-S3).
+        new((VirtualKey)188, VirtualKeyModifiers.Control, ShellCommand.OpenSettings, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.Escape, VirtualKeyModifiers.None, ShellCommand.LeaveFocus, 0, ShortcutDelivery.Accelerator),
 
         // Curation's undo and redo (E5-S4). Accelerators, like Esc: a text box has an undo of its own and keeps it.

@@ -118,7 +118,8 @@ public sealed partial class MainWindow : Window
         Title = Identity.WindowTitle(null, null);
 
         _chrome = new ShellChrome(
-            Root, ShellGrid, NowPlayingColumn, SidebarPanel, CurationEditor, ControlsPanel, () => _uiSettings.AnimationsEnabled);
+            Root, ShellGrid, NowPlayingColumn, SidebarPanel, CurationEditor, ControlsPanel, SettingsPanel, NowPlaying,
+            () => _uiSettings.AnimationsEnabled);
         _shell = shell;
         SyncModeSwitcher();
         if (_shell is not null)
@@ -155,6 +156,19 @@ public sealed partial class MainWindow : Window
         // Before the first frame: the theme a repaint would otherwise arrive one frame late in, and a shape, so
         // the window never draws with all three panels stacked on top of each other in column 0.
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
+        if (settings is not null)
+        {
+            // Settings > Appearance (E6-S3) writes ui.theme; the repaint follows the store rather than the page holding
+            // the window. The store raises Changed on whatever thread wrote, so the repaint is posted to this one.
+            settings.Changed += (_, key) =>
+            {
+                if (key == SettingsKeys.UiTheme)
+                {
+                    DispatcherQueue.TryEnqueue(() => _chrome.ApplyTheme(ThemePolicy.Read(settings)));
+                }
+            };
+        }
+
         ApplyShellLayout(ShellLayout.MediumThreshold);
         Root.SizeChanged += (_, e) => ApplyShellLayout(e.NewSize.Width);
         if (CurrentMode == ShellMode.Curation)
@@ -214,6 +228,11 @@ public sealed partial class MainWindow : Window
         // Registered whether or not audio came up: a shortcut with nothing to act on leaves the key unhandled,
         // which is a better shape than a table that exists only on the machines where start-up went well.
         AddShellShortcuts();
+
+        // Settings (E6-S3): the controls bar's button, Ctrl+, (the shortcut table), and the sidebar's settings item all
+        // open the one overlay; its Close button and Esc close it.
+        SettingsPanel.CloseRequested += (_, _) => CloseSettings();
+        SidebarPanel.SettingsRequested += (_, _) => OpenSettings();
 
         if (_open is not null)
         {
@@ -524,6 +543,33 @@ public sealed partial class MainWindow : Window
     public QualityPolicy QualityPolicy =>
         _settings is null ? QualityPolicy.Auto : QualityPolicyStore.Read(_settings);
 
+    /// <summary>True while the settings overlay is showing.</summary>
+    public bool SettingsOpen => _chrome.SettingsOpen;
+
+    /// <summary>Shows the settings overlay (E6-S3) on <paramref name="section"/>, or where it was last left.</summary>
+    public void OpenSettings(string? section = null)
+    {
+        _chrome.SetSettingsOpen(true);
+        SettingsPanel.Show(section);
+        Serilog.Log.Debug("Settings opened on {Section}", SettingsPanel.CurrentSection);
+    }
+
+    /// <summary>Hides the settings overlay; false when it was not open, so Esc can go on to leave Focus.</summary>
+    public bool CloseSettings()
+    {
+        if (!_chrome.SettingsOpen)
+        {
+            return false;
+        }
+
+        _chrome.SetSettingsOpen(false);
+        SettingsButton.Focus(FocusState.Programmatic);
+        Serilog.Log.Debug("Settings closed");
+        return true;
+    }
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e) => OpenSettings();
+
     /// <summary>
     /// Switches the theme and remembers the choice. The Appearance page (E6-S3) is what will call this; it lives
     /// here because the repaint has to happen on the shell's root for it to be a repaint rather than a reload.
@@ -676,9 +722,13 @@ public sealed partial class MainWindow : Window
             case ShellCommand.ToggleFocus:
                 return _shell?.ToggleFocus() ?? false;
             case ShellCommand.LeaveFocus:
-                return _shell?.LeaveFocus() ?? false;
+                // Esc closes the settings overlay before it leaves Focus: the overlay is the thing on top.
+                return CloseSettings() || (_shell?.LeaveFocus() ?? false);
             case ShellCommand.MiniPlayer:
                 return OpenMiniPlayer();
+            case ShellCommand.OpenSettings:
+                OpenSettings();
+                return true;
             // Curation's history (E5-S4). Outside Curation, or with nothing to undo, the key stays unhandled; a text box
             // takes Ctrl+Z before an accelerator sees it, and the typing check is for anything that does not.
             case ShellCommand.Undo:

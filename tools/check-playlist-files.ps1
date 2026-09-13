@@ -212,9 +212,10 @@ try {
     Check 'Deleting the playlist removes its export' $true 'file gone'
 
     # ---- Settings > Library -------------------------------------------------------------------------------------------
-    $settings = Wait-Until { Find-SidebarItem $window 'Settings' } 10 'the sidebar showed Settings'
-    Select-Element $settings
-    Wait-Until { Find-Named $window 'Library settings' } 10 'Settings > Library opened' | Out-Null
+    # Since E6-S3 Settings is an overlay: the controls bar's button opens it, and Library is one of its sections.
+    Invoke-Element (Wait-Until { Find-Named $window 'Open settings' } 10 'the controls bar offered Settings')
+    Select-Element (Wait-Until { Find-Named $window 'Library settings' } 10 'the settings overlay listed its Library section')
+    Wait-Until { Find-Named $window 'Rescan all' } 10 'Settings > Library opened' | Out-Null
     Start-Sleep -Milliseconds 800
     $offered = @(
         (Find-Named $window 'Import playlists from exports'),

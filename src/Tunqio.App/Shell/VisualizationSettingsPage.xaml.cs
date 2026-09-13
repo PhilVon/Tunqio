@@ -41,9 +41,6 @@ public sealed partial class VisualizationSettingsPage : Page
 
     private void OnNoticeClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.ClearNotice();
 
-    private void OnOpenLibrarySettings(object sender, RoutedEventArgs e) =>
-        Frame?.Navigate(typeof(LibrarySettingsPage));
-
     /// <summary>
     /// Opens the user preset directory in Explorer, creating it first: "drop a preset in here" is not an
     /// instruction anyone can follow when the folder is only named and not reachable.

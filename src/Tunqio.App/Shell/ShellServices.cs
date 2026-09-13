@@ -43,6 +43,14 @@ public static class ShellServices
             p.GetRequiredService<IVisualizationHost>(),
             p.GetRequiredService<ISettingsStore>(),
             p.GetRequiredService<IAppPaths>()));
+        // Settings > Playback, Output and Appearance (E6-S3). Singletons like the Visualization page's: the overlay caches
+        // its pages, and one view model per page is what they bind to.
+        services.AddSingleton(p => new PlaybackSettingsViewModel(p.GetRequiredService<ISettingsStore>()));
+        services.AddSingleton(p => new OutputSettingsViewModel(
+            p.GetRequiredService<IPlaybackSessionSource>(),
+            p.GetRequiredService<ISettingsStore>(),
+            p.GetRequiredService<IAppPaths>().DataRoot));
+        services.AddSingleton(p => new AppearanceSettingsViewModel(p.GetRequiredService<ISettingsStore>()));
         return services;
     }
 }

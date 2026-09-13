@@ -19,13 +19,18 @@ public sealed class ShellChrome
     private readonly FrameworkElement _sidebar;
     private readonly FrameworkElement _curation;
     private readonly FrameworkElement _controls;
+    private readonly FrameworkElement _settings;
+    private readonly FrameworkElement _nowPlayingMetadata;
     private readonly Func<bool> _animationsEnabled;
     private ShellLayoutMode? _applied;
     private ShellMode? _appliedShellMode;
+    private ShellLayoutState? _state;
 
     /// <param name="root">The element the theme is set on; everything else must be inside it.</param>
     /// <param name="grid">The grid whose rows and columns the three panels sit in.</param>
     /// <param name="curation">Curation's dual pane (E5-S4), which takes the sidebar's place in that mode.</param>
+    /// <param name="settings">The settings overlay (E6-S3), placed over the sidebar and Now Playing while it is open.</param>
+    /// <param name="nowPlayingMetadata">Now Playing's art and metadata, hidden under the overlay; the visualizer is not.</param>
     /// <param name="animationsEnabled">
     /// Windows' "Show animations" switch, read at each mode change so a transition is instant the moment reduced
     /// motion is turned on (flow 10).
@@ -37,6 +42,8 @@ public sealed class ShellChrome
         FrameworkElement sidebar,
         FrameworkElement curation,
         FrameworkElement controls,
+        FrameworkElement settings,
+        FrameworkElement nowPlayingMetadata,
         Func<bool> animationsEnabled)
     {
         ArgumentNullException.ThrowIfNull(root);
@@ -45,6 +52,8 @@ public sealed class ShellChrome
         ArgumentNullException.ThrowIfNull(sidebar);
         ArgumentNullException.ThrowIfNull(curation);
         ArgumentNullException.ThrowIfNull(controls);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(nowPlayingMetadata);
         ArgumentNullException.ThrowIfNull(animationsEnabled);
         _root = root;
         _grid = grid;
@@ -52,7 +61,23 @@ public sealed class ShellChrome
         _sidebar = sidebar;
         _curation = curation;
         _controls = controls;
+        _settings = settings;
+        _nowPlayingMetadata = nowPlayingMetadata;
         _animationsEnabled = animationsEnabled;
+    }
+
+    /// <summary>True while the settings overlay is showing.</summary>
+    public bool SettingsOpen { get; private set; }
+
+    /// <summary>
+    /// Shows or hides the settings overlay (E6-S3). While it is open it covers the cells Now Playing and the sidebar take in
+    /// the current shape, the art and metadata under it are hidden so the visualizer is what shows through, and the
+    /// controls bar stays where it is and in reach. Closing puts every panel back as the shape and mode say.
+    /// </summary>
+    public void SetSettingsOpen(bool open)
+    {
+        SettingsOpen = open;
+        ApplySettingsPlacement();
     }
 
     /// <summary>The shape currently applied, or null before the first <see cref="ApplyLayout"/>.</summary>
@@ -80,6 +105,7 @@ public sealed class ShellChrome
         }
 
         bool modeChanged = _appliedShellMode is not null && _appliedShellMode != mode;
+        _state = state;
         _applied = state.Mode;
         _appliedShellMode = mode;
         _grid.ColumnDefinitions.Clear();
@@ -100,12 +126,44 @@ public sealed class ShellChrome
         Grid.SetRowSpan(_curation, Grid.GetRowSpan(_sidebar));
         _curation.MinWidth = _sidebar.MinWidth;
         SetBorder(_curation, (_sidebar as Control)?.BorderThickness ?? default);
-        _sidebar.Visibility = state.SidebarShown && !state.CurationEditor ? Visibility.Visible : Visibility.Collapsed;
-        _curation.Visibility = state.CurationEditor ? Visibility.Visible : Visibility.Collapsed;
+        ApplySettingsPlacement();
         if (modeChanged)
         {
             AnimateModeChange(state);
         }
+    }
+
+    /// <summary>
+    /// Where the overlay goes and what it hides, for the shape last applied. Stacked, the overlay takes the Now Playing and
+    /// sidebar rows. In columns the controls bar sits under Now Playing only, so the overlay takes the top row across both
+    /// columns and the bar is widened to both for as long as the overlay is open; otherwise the sidebar's lower part would
+    /// show beside the bar with the overlay over the rest of it.
+    /// </summary>
+    private void ApplySettingsPlacement()
+    {
+        if (_state is not { } state)
+        {
+            return;
+        }
+
+        bool open = SettingsOpen;
+        if (state.Stacked)
+        {
+            Place(_settings, row: 0, column: 0, rowSpan: 2);
+            Grid.SetColumnSpan(_settings, 1);
+            Grid.SetColumnSpan(_controls, 1);
+        }
+        else
+        {
+            Place(_settings, row: 0, column: 0);
+            Grid.SetColumnSpan(_settings, 2);
+            Grid.SetColumnSpan(_controls, open ? 2 : 1);
+        }
+
+        _settings.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        _nowPlayingMetadata.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
+        _sidebar.Visibility = !open && state.SidebarShown && !state.CurationEditor ? Visibility.Visible : Visibility.Collapsed;
+        _curation.Visibility = !open && state.CurationEditor ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>

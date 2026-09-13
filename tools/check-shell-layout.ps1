@@ -46,7 +46,7 @@ if ($widthList.Count -eq 0) { throw "-Widths '$Widths' names no width" }
 if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Tunqio is already running; close it first rather than have this drive a second instance.' }
 
 # The titles the library's pages show. Text elements only: a navigation item of the same name is a ListItem.
-$script:titleNames = 'Albums', 'Artists', 'Tracks', 'All tracks', 'Genres', 'Folders', 'Recently added', 'Recently played', 'Most played', 'Library settings'
+$script:titleNames = 'Albums', 'Artists', 'Tracks', 'All tracks', 'Genres', 'Folders', 'Recently added', 'Recently played', 'Most played'
 
 function TypeOf($e) { $e.Current.ControlType.ProgrammaticName -replace 'ControlType\.', '' }
 
@@ -159,7 +159,8 @@ try {
         # Stacked is where the menu buttons float over the content, so every library page is visited there, not
         # only the default one: a title with a different margin would pass on Albums and fail elsewhere.
         if ($stacked) {
-            foreach ($view in 'Artists', 'Tracks', 'Genres', 'Folders', 'Settings') {
+            # Not Settings since E6-S3: it is an overlay over the whole shell now, not a page in this pane.
+            foreach ($view in 'Artists', 'Tracks', 'Genres', 'Folders') {
                 if (-not (Select-LibraryView $window $view)) {
                     $failures += "at ${w}px the '$view' view could not be reached through the menu, so its title was not checked"
                     continue
