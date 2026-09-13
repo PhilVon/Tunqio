@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   E2-S6 AC-77 and AC-78, and E2-S8's overlay toggle: the shell's shortcuts reach the transport from wherever focus is, and get out of the way
-  where the keystroke belongs to something else.
+  where the keystroke belongs to something else. T-168: and the overlay those shortcuts open is whole on screen.
 
   The table itself is asserted in Tunqio.App.Tests. What cannot be asserted there is the thing the table is *for*:
   whether a key pressed while a button or a list has focus reaches the shell at all. That depends on WinUI's event
@@ -12,28 +12,44 @@
   Each case is written so that the wrong routing gives a different answer from the right one. Pressing Space with
   the shuffle button focused is the clearest: if the shell does not take Space first, the focused ToggleButton does,
   and shuffle flips. Every case here runs with an empty queue, which is why none of them assert on playing.
+
+  WHAT IT TOUCHES. It sends real keystrokes, so before every one it brings its own window to the foreground and
+  CHECKS that it got there, refusing to type otherwise (T-168: the previous version assumed AppActivate worked, and
+  a keystroke sent after it silently fails goes to whatever window has focus). It reads and restores the
+  clipboard, and resizes its own window.
 .PARAMETER Exe
   The built shell. Defaults to the Debug x64 output.
 .PARAMETER Seconds
   How long to give the window before driving it.
+.PARAMETER Widths
+  Window widths the diagnostics overlay is measured at, comma-separated. A string for the reason given in
+  check-transport-automation.ps1: under powershell.exe -File an [int[]] of "1600,640" becomes one integer.
 #>
 [CmdletBinding()]
 param(
     # T-161: drive a build that is older than the source on purpose (comparing against an old shell).
     [switch]$SkipFreshnessCheck,
-    [string]$Exe = "$PSScriptRoot\..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe",
-    [int]$Seconds = 9
+    [string]$Exe,
+    [int]$Seconds = 9,
+    [string]$Widths = '1600,1000,800,640'
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, Microsoft.VisualBasic
 
+# Resolved in the body rather than in the param default: $PSScriptRoot is empty there under powershell.exe -File (T-168).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
 if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 (T-161)." }
 
 # T-161: a harness driving a build that predates its own source reports the OLD binary's behaviour, and every
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.
 . (Join-Path $PSScriptRoot 'assert-fresh-build.ps1')
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
+
+. (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+
+$widthList = @($Widths -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [int]$_.Trim() })
+if ($widthList.Count -eq 0) { throw "-Widths '$Widths' names no width" }
 
 $script:window = $null
 $script:processId = 0
@@ -79,9 +95,9 @@ function Get-Value([string]$name) {
         [System.Windows.Automation.ValuePattern]::Pattern).Current.Value
 }
 
+# Activated and then CHECKED (tools/uia-geometry.ps1): throws rather than let a keystroke reach another window.
 function Set-Foreground {
-    [Microsoft.VisualBasic.Interaction]::AppActivate($script:processId)
-    Start-Sleep -Milliseconds 300
+    Assert-UiaForeground -ProcessId $script:processId
 }
 
 # Focus is moved by pressing Tab until it lands, rather than by AutomationElement.SetFocus, which WinUI's provider
@@ -91,6 +107,7 @@ function Set-FocusTo([string]$name) {
     Set-Foreground
     for ($i = 0; $i -lt 40; $i++) {
         if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -eq $name) { return }
+        Set-Foreground
         [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
         Start-Sleep -Milliseconds 120
     }
@@ -219,6 +236,33 @@ try {
         }
     }
 
+    # T-168. The overlay floats over Now Playing at a fixed top-left margin with a MaxWidth of 560, so it is the
+    # surface most likely to run off a narrow window - and a check that it exists passed regardless. Measured at
+    # each width with the overlay open: its rectangle must lie inside the window, and its Copy button (the one
+    # thing in it a person acts on) must be on screen.
+    Test-Case 'the overlay is whole inside the window at every width' {
+        $problems = @()
+        foreach ($w in $widthList) {
+            Set-UiaWindowSize -ProcessId $script:processId -Width $w -Height 900
+            $script:window = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid)
+            $panel = Get-ElementNamed 'Diagnostics' 'Group'
+            if (-not $panel) { $problems += "no overlay in the tree at ${w}px"; continue }
+            $windowRect = Get-UiaRect $script:window
+            $panelRect = Get-UiaRect $panel
+            # Write-Host, not Write-Output: whatever this script block outputs is the case's problem string, and a
+            # progress line there turned a passing measurement into a FAIL.
+            Write-Host ("        {0,5}px  window {1}, overlay {2}" -f $w, $windowRect.Describe, $panelRect.Describe)
+            $problem = Test-UiaInside $panelRect $windowRect 'the diagnostics overlay' "the ${w}px window"
+            if ($problem) { $problems += "at ${w}px $problem" }
+            $copy = Get-ElementNamed 'Copy diagnostics' 'Button'
+            if (-not $copy -or (Get-UiaRect $copy).Offscreen) { $problems += "at ${w}px the Copy diagnostics button has nothing on screen" }
+        }
+        # Back to the widest, so the cases after this one run against the window they were written for.
+        Set-UiaWindowSize -ProcessId $script:processId -Width ($widthList | Measure-Object -Maximum).Maximum -Height 900
+        $script:window = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid)
+        if ($problems.Count -gt 0) { $problems -join '; ' }
+    }
+
     Test-Case 'Copy puts the whole report on the clipboard' {
         $button = Get-ElementNamed 'Copy diagnostics' 'Button'
         if (-not $button) { return 'no Copy button to press' }
@@ -244,7 +288,7 @@ try {
 
     Write-Output ''
     if ($failures.Count -eq 0) {
-        Write-Output 'PASS: the shell takes the keys it must take and leaves the ones it must not'
+        Write-Output 'PASS: the shell takes the keys it must take and leaves the ones it must not, and its overlay is whole on screen'
         exit 0
     }
 
