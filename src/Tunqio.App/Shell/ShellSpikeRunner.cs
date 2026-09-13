@@ -190,7 +190,8 @@ internal sealed class ShellSpikeRunner
             return (false, "the panels measured nothing; the window had not laid out");
         }
 
-        if (nowPlaying < ShellLayout.NowPlayingMinWidth - 1 || sidebar < ShellLayout.SidebarMinWidth - 1)
+        // A hidden sidebar (Focus, E5-S1) measures nothing and has no floor to be under.
+        if (nowPlaying < ShellLayout.NowPlayingMinWidth - 1 || (expected.SidebarShown && sidebar < ShellLayout.SidebarMinWidth - 1))
         {
             return (false, string.Create(
                 CultureInfo.InvariantCulture,
@@ -209,7 +210,12 @@ internal sealed class ShellSpikeRunner
 
         double gotNowPlaying = nowPlaying / total;
         double gotSidebar = sidebar / total;
-        if (ShellLayout.FloorsBind(clientWidth))
+        // From the expected shape rather than from Discovery's table: Curation's inverted shares put Now Playing on
+        // its floor below 1200 px, and Focus has no sidebar floor at all (E5-S1).
+        (double shareNowPlaying, double shareSidebar) = expected.Fractions;
+        bool floorsBind = clientWidth * shareNowPlaying < ShellLayout.NowPlayingMinWidth
+            || (expected.SidebarShown && clientWidth * shareSidebar < ShellLayout.SidebarMinWidth);
+        if (floorsBind)
         {
             // The shares are not the documented ones here and are not meant to be: the floors won. What has to
             // hold is that they won without leaving a gap, and the floors themselves were checked above.

@@ -156,6 +156,7 @@ public sealed class CompositionRootTests
     [InlineData(typeof(ITrackRepository))]
     [InlineData(typeof(LibraryScanCoordinator))]
     [InlineData(typeof(ShellNotices))]
+    [InlineData(typeof(ShellState))]
     [InlineData(typeof(IVisualizationHost))]
     [InlineData(typeof(IArtCache))]
     [InlineData(typeof(AudioStartup))]

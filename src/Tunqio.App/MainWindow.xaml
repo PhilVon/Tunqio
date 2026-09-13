@@ -39,7 +39,7 @@
                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                            Background="{ThemeResource LayerFillColorDefaultBrush}" />
 
-      <!-- Controls: the transport (E2-S2) and the queue button (E2-S5). The mode switcher joins them in E5-S1.
+      <!-- Controls: the transport (E2-S2), the mode switcher (E5-S1) and the queue button (E2-S5).
            A bar under Now Playing at its natural height in every shape (T-182; ShellChrome places it), because
            as a third column it was narrower than the transport and clipped Shuffle. Named for the automation tree
            so a harness can read where it is: the sidebar beside it is a boundary with two sides, and E4-S9
@@ -50,6 +50,19 @@
               Background="{ThemeResource LayerFillColorDefaultBrush}">
         <StackPanel VerticalAlignment="Center">
           <shell:TransportControls x:Name="Transport" />
+          <!--
+            The mode switcher (E5-S1). RadioButtons rather than three toggles: one of three is selected, and Narrator
+            says so ("Focus mode, selected, 2 of 3") without a name having to carry the state.
+          -->
+          <RadioButtons x:Name="ModeSwitcher" HorizontalAlignment="Center" MaxColumns="3" Margin="0,0,0,8"
+                        AutomationProperties.Name="Mode" SelectionChanged="OnModeSwitcherChanged">
+            <RadioButton Content="Discovery" MinWidth="0" AutomationProperties.Name="Discovery mode"
+                         ToolTipService.ToolTip="Discovery (Ctrl+1)" />
+            <RadioButton Content="Focus" MinWidth="0" AutomationProperties.Name="Focus mode"
+                         ToolTipService.ToolTip="Focus (Ctrl+2, F11; Esc leaves)" />
+            <RadioButton Content="Curation" MinWidth="0" AutomationProperties.Name="Curation mode"
+                         ToolTipService.ToolTip="Curation (Ctrl+3)" />
+          </RadioButtons>
           <!--
             The queue lives in a flyout from this button (docs/ui-screens-and-flows.md, "Navigation map"). The
             sidebar's own Queue page waits for the Playlists section it sits beside there (E6-S1).

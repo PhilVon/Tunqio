@@ -32,6 +32,9 @@ public static class ShellServices
             p.GetRequiredService<IPlaybackSessionSource>(),
             p.GetRequiredService<LibraryScanCoordinator>(),
             uiContext));
+        // The mode (E5-S1, ADR-007). One for the process: the window's layout, the switcher and the shortcuts all
+        // move this value, and ui.mode is written back from here.
+        services.AddSingleton(p => new ShellState(p.GetRequiredService<ISettingsStore>()));
         // One visualizer surface for the process (E4-S9). MainWindow attaches it to the SwapChainPanel;
         // VisualizationSettingsViewModel switches its preset and moves its parameters. Two of these would be two
         // D3D devices, one of them drawing into nothing.

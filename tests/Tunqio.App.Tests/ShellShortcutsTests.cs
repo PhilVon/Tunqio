@@ -21,9 +21,9 @@ public class ShellShortcutsTests
     }
 
     /// <summary>
-    /// The table against docs/ui-screens-and-flows.md, "Keyboard shortcuts" — the rows E2 owns. The rest of that
-    /// table is deliberately absent: the media keys are SMTC (E7), and the mode switches, mini player, playlists,
-    /// tag editing and presets have nothing yet to do.
+    /// The table against docs/ui-screens-and-flows.md, "Keyboard shortcuts" — the rows E2 and E5-S1 own. The rest of
+    /// that table is deliberately absent: the media keys are SMTC (E7), and the mini player, playlists, tag editing
+    /// and presets have nothing yet to do.
     /// </summary>
     [Fact]
     public void The_table_is_the_documented_one()
@@ -42,6 +42,35 @@ public class ShellShortcutsTests
         Find(VirtualKey.Left, VirtualKeyModifiers.Shift)!.Value.Amount.Should().Be(-30);
         Find(VirtualKey.Up)!.Value.Amount.Should().Be(0.05);
         Find(VirtualKey.Down)!.Value.Amount.Should().Be(-0.05);
+
+        Find(VirtualKey.Number1, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Discovery);
+        Find(VirtualKey.Number2, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Focus);
+        Find(VirtualKey.Number3, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Curation);
+        Find(VirtualKey.F11)!.Value.Command.Should().Be(ShellCommand.ToggleFocus);
+        Find(VirtualKey.Escape)!.Value.Command.Should().Be(ShellCommand.LeaveFocus);
+    }
+
+    // ---- E5-S1: the mode keys ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public void The_mode_keys_are_taken_before_a_focused_control_sees_them()
+    {
+        foreach (VirtualKey key in new[] { VirtualKey.Number1, VirtualKey.Number2, VirtualKey.Number3 })
+        {
+            Find(key, VirtualKeyModifiers.Control)!.Value.Delivery.Should().Be(ShortcutDelivery.PreEmpt);
+        }
+
+        Find(VirtualKey.F11)!.Value.Delivery.Should().Be(ShortcutDelivery.PreEmpt);
+    }
+
+    /// <summary>
+    /// Esc belongs to a search box, a flyout and a dialog before it belongs to the shell, so it must only ever fire
+    /// on a key none of them wanted.
+    /// </summary>
+    [Fact]
+    public void Esc_is_only_the_shells_when_nothing_else_wanted_it()
+    {
+        Find(VirtualKey.Escape)!.Value.Delivery.Should().Be(ShortcutDelivery.Accelerator);
     }
 
     [Fact]

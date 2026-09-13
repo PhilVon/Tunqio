@@ -1,5 +1,7 @@
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Tunqio.Core;
 
 namespace Tunqio.App.Shell;
@@ -16,40 +18,65 @@ public sealed class ShellChrome
     private readonly FrameworkElement _nowPlaying;
     private readonly FrameworkElement _sidebar;
     private readonly FrameworkElement _controls;
+    private readonly Func<bool> _animationsEnabled;
     private ShellLayoutMode? _applied;
+    private ShellMode? _appliedShellMode;
 
     /// <param name="root">The element the theme is set on; everything else must be inside it.</param>
     /// <param name="grid">The grid whose rows and columns the three panels sit in.</param>
-    public ShellChrome(FrameworkElement root, Grid grid, FrameworkElement nowPlaying, FrameworkElement sidebar, FrameworkElement controls)
+    /// <param name="animationsEnabled">
+    /// Windows' "Show animations" switch, read at each mode change so a transition is instant the moment reduced
+    /// motion is turned on (flow 10).
+    /// </param>
+    public ShellChrome(
+        FrameworkElement root,
+        Grid grid,
+        FrameworkElement nowPlaying,
+        FrameworkElement sidebar,
+        FrameworkElement controls,
+        Func<bool> animationsEnabled)
     {
         ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentNullException.ThrowIfNull(nowPlaying);
         ArgumentNullException.ThrowIfNull(sidebar);
         ArgumentNullException.ThrowIfNull(controls);
+        ArgumentNullException.ThrowIfNull(animationsEnabled);
         _root = root;
         _grid = grid;
         _nowPlaying = nowPlaying;
         _sidebar = sidebar;
         _controls = controls;
+        _animationsEnabled = animationsEnabled;
     }
 
     /// <summary>The shape currently applied, or null before the first <see cref="ApplyLayout"/>.</summary>
     public ShellLayoutMode? Mode => _applied;
 
+    /// <summary>The mode currently applied, or null before the first <see cref="ApplyLayout"/>.</summary>
+    public ShellMode? ShellMode => _appliedShellMode;
+
     /// <summary>
-    /// Puts the three panels into the shape <paramref name="windowWidth"/> calls for. A no-op when the shape has
-    /// not changed, so dragging a window edge rebuilds the grid three times at most rather than once a pixel.
+    /// Puts the three panels into the shape <paramref name="windowWidth"/> and <paramref name="mode"/> call for. A
+    /// no-op when neither has changed, so dragging a window edge rebuilds the grid three times at most rather than
+    /// once a pixel.
     /// </summary>
-    public void ApplyLayout(double windowWidth)
+    /// <remarks>
+    /// The sidebar is collapsed in Focus rather than taken out of the grid. A collapsed element stays in the visual
+    /// tree and does not unload, so the library pane keeps its navigator, its page and its back stack, and leaving
+    /// Focus shows the page that was there (AC-134).
+    /// </remarks>
+    public void ApplyLayout(double windowWidth, ShellMode mode)
     {
-        ShellLayoutState state = ShellLayout.For(windowWidth);
-        if (_applied == state.Mode)
+        ShellLayoutState state = ShellLayout.For(windowWidth, mode);
+        if (_applied == state.Mode && _appliedShellMode == mode)
         {
             return;
         }
 
+        bool modeChanged = _appliedShellMode is not null && _appliedShellMode != mode;
         _applied = state.Mode;
+        _appliedShellMode = mode;
         _grid.ColumnDefinitions.Clear();
         _grid.RowDefinitions.Clear();
         if (state.Stacked)
@@ -59,6 +86,12 @@ public sealed class ShellChrome
         else
         {
             LayOutInColumns(state);
+        }
+
+        _sidebar.Visibility = state.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
+        if (modeChanged)
+        {
+            AnimateModeChange(state);
         }
     }
 
@@ -86,22 +119,54 @@ public sealed class ShellChrome
     /// Medium and full: Now Playing and the sidebar side by side, each with the floor below which its content stops
     /// working, and the controls as a bar beneath Now Playing at their natural height (T-182). The sidebar spans both
     /// rows, so browsing keeps the full height of the window. The bar used to be a third column, and at 1000 px that
-    /// column was 128 px for a transport that needs 242.
+    /// column was 128 px for a transport that needs 242. In Focus the sidebar's column has no share and no floor.
     /// </summary>
     private void LayOutInColumns(ShellLayoutState state)
     {
+        double sidebarFloor = state.SidebarShown ? ShellLayout.SidebarMinWidth : 0;
         _grid.RowDefinitions.Add(Star(1));
         _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _grid.ColumnDefinitions.Add(Star(state.NowPlaying, ShellLayout.NowPlayingMinWidth));
-        _grid.ColumnDefinitions.Add(Star(state.Sidebar, ShellLayout.SidebarMinWidth));
+        _grid.ColumnDefinitions.Add(Star(state.Sidebar, sidebarFloor));
         Place(_nowPlaying, row: 0, column: 0);
         Place(_controls, row: 1, column: 0);
         Place(_sidebar, row: 0, column: 1, rowSpan: 2);
         _nowPlaying.MinWidth = ShellLayout.NowPlayingMinWidth;
-        _sidebar.MinWidth = ShellLayout.SidebarMinWidth;
+        _sidebar.MinWidth = sidebarFloor;
         _controls.MinWidth = 0;
         SetBorder(_sidebar, new Thickness(1, 0, 0, 0));
         SetBorder(_controls, new Thickness(0, 1, 0, 0));
+    }
+
+    /// <summary>
+    /// The mode transition: Now Playing, and the sidebar when it has come back, fade in over
+    /// <see cref="ShellLayout.ModeTransitionDuration"/> on their composition visuals. Nothing runs under reduced
+    /// motion. The panels' sizes are not animated: the grid resizes them in one layout pass, and a fade over the new
+    /// shape is what keeps that from reading as a jump.
+    /// </summary>
+    private void AnimateModeChange(ShellLayoutState state)
+    {
+        TimeSpan duration = ShellLayout.ModeTransition(_animationsEnabled());
+        if (duration == TimeSpan.Zero)
+        {
+            return;
+        }
+
+        FadeIn(_nowPlaying, duration);
+        if (state.SidebarShown)
+        {
+            FadeIn(_sidebar, duration);
+        }
+    }
+
+    private static void FadeIn(UIElement element, TimeSpan duration)
+    {
+        Visual visual = ElementCompositionPreview.GetElementVisual(element);
+        ScalarKeyFrameAnimation fade = visual.Compositor.CreateScalarKeyFrameAnimation();
+        fade.InsertKeyFrame(0f, 0f);
+        fade.InsertKeyFrame(1f, 1f);
+        fade.Duration = duration;
+        visual.StartAnimation("Opacity", fade);
     }
 
     /// <summary>

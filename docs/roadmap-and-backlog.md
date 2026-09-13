@@ -514,7 +514,7 @@ Depends on: E4-S1, E4-S3. Implement ADR-012 look-ahead in `mpcore/render` using 
 ## E5 · Modes: Discovery, Focus, Curation (M4)
 
 ### E5-S1 · ShellState and mode switching · **M** · `ui`
-Segmented control, shortcuts, persisted mode, Composition transitions honouring reduced motion.
+Segmented control, shortcuts, persisted mode, Composition transitions honouring reduced motion. Built as `ShellState` (persisted in `ui.mode`, no dependency on playback), `ShellLayout.For(width, mode)` (Focus full width with the sidebar collapsed; Curation's shares inverted in column shapes, Q-67), a `RadioButtons` switcher in the controls panel, and Ctrl+1/2/3, F11 and Esc in `ShellShortcuts`. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Modes, defined precisely".
 - [ ] Switching modes never interrupts playback or resets sidebar navigation
 - [ ] Esc leaves Focus to the previous mode with the layout restored (flow 7)
 

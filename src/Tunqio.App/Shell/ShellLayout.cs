@@ -29,11 +29,13 @@ public enum ShellLayoutMode
 /// <param name="NowPlaying">Now Playing's star weight, along the axis the panels are laid out on.</param>
 /// <param name="Sidebar">The sidebar's star weight.</param>
 /// <param name="Stacked">True when the panels are rows rather than columns.</param>
+/// <param name="SidebarShown">False in Focus, where Now Playing takes the whole width (E5-S1).</param>
 public readonly record struct ShellLayoutState(
     ShellLayoutMode Mode,
     double NowPlaying,
     double Sidebar,
-    bool Stacked)
+    bool Stacked,
+    bool SidebarShown = true)
 {
     /// <summary>The two shares as fractions of the space the panels divide, which is what "60 / 40" means.</summary>
     public (double NowPlaying, double Sidebar) Fractions
@@ -85,6 +87,31 @@ public static class ShellLayout
         _ => new ShellLayoutState(ShellLayoutMode.Full, 3, 2, Stacked: false),
     };
 
+    /// <summary>How long a mode transition takes when animations are on (docs/ui-screens-and-flows.md: 200-300 ms).</summary>
+    public static readonly TimeSpan ModeTransitionDuration = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// The shape for <paramref name="windowWidth"/> in <paramref name="mode"/> (E5-S1). Focus gives Now Playing the
+    /// whole width at every size and hides the sidebar. Discovery is the width table above. Curation swaps the two
+    /// shares wherever the panels are columns - 40 / 60 from 1200 px, 1 : 2 between 800 and 1200 - because the library
+    /// side is where its dual pane goes (Phil, Q-67). Stacked it stays at equal heights. Between 800 and 1200 the
+    /// inverted share puts Now Playing under its 400 px floor, and the floor wins (<see cref="FloorsBind(double, ShellMode)"/>).
+    /// </summary>
+    public static ShellLayoutState For(double windowWidth, ShellMode mode)
+    {
+        ShellLayoutState shape = For(windowWidth);
+        return mode switch
+        {
+            ShellMode.Focus => shape with { NowPlaying = 1, Sidebar = 0, SidebarShown = false },
+            ShellMode.Curation when !shape.Stacked => shape with { NowPlaying = shape.Sidebar, Sidebar = shape.NowPlaying },
+            _ => shape,
+        };
+    }
+
+    /// <summary>The mode transition's length: <see cref="ModeTransitionDuration"/>, or instant under reduced motion (flow 10).</summary>
+    public static TimeSpan ModeTransition(bool animationsEnabled) =>
+        animationsEnabled ? ModeTransitionDuration : TimeSpan.Zero;
+
     /// <summary>
     /// True when <paramref name="clientWidth"/> is narrow enough that dividing it by the star weights would put a
     /// panel under its floor, so the floors win and the shares are no longer the documented ones.
@@ -95,9 +122,16 @@ public static class ShellLayout
     /// to the shares from making a panel unusable, and anything checking the proportions has to know whether a floor
     /// won, or it reports a bug against a rule that did not apply.
     /// </remarks>
-    public static bool FloorsBind(double clientWidth)
+    public static bool FloorsBind(double clientWidth) => FloorsBind(clientWidth, ShellMode.Discovery);
+
+    /// <summary>
+    /// <see cref="FloorsBind(double)"/> for <paramref name="mode"/>. A hidden sidebar has no floor to bind, so Focus
+    /// only ever asks about Now Playing, which has the whole width. Curation between 800 and 1200 px is where a floor
+    /// does win: 1 : 2 of a 1000 px client is 333 px of Now Playing against a floor of 400.
+    /// </summary>
+    public static bool FloorsBind(double clientWidth, ShellMode mode)
     {
-        ShellLayoutState state = ShellLayout.For(clientWidth);
+        ShellLayoutState state = ShellLayout.For(clientWidth, mode);
         if (state.Stacked)
         {
             return false; // stacked panels each span the width; nothing divides it
@@ -105,6 +139,6 @@ public static class ShellLayout
 
         (double nowPlaying, double sidebar) = state.Fractions;
         return clientWidth * nowPlaying < NowPlayingMinWidth
-            || clientWidth * sidebar < SidebarMinWidth;
+            || (state.SidebarShown && clientWidth * sidebar < SidebarMinWidth);
     }
 }

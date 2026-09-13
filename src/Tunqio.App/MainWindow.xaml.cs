@@ -30,6 +30,10 @@ public sealed partial class MainWindow : Window
 {
     private readonly bool _forceWarp;
     private readonly ShellChrome _chrome;
+    private readonly ShellState? _shell;
+    private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
+    private double _lastWidth = ShellLayout.MediumThreshold;
+    private bool _syncingSwitcher;
     private readonly ISettingsStore? _settings;
     private readonly TransportViewModel? _transport;
     private readonly NowPlayingViewModel? _nowPlaying;
@@ -84,6 +88,10 @@ public sealed partial class MainWindow : Window
     /// The album art cache (T-147). What turns the track now playing into the colours the Ambient Glow preset
     /// draws with and the tint the reactive theme carries; null leaves both on their own palettes.
     /// </param>
+    /// <param name="shell">
+    /// The mode (E5-S1): the container's one, so the switcher, the shortcuts and the layout move the same value.
+    /// Null keeps the window in Discovery with the switcher and the mode keys doing nothing.
+    /// </param>
     public MainWindow(
         bool forceWarp,
         ISettingsStore? settings,
@@ -94,7 +102,8 @@ public sealed partial class MainWindow : Window
         Library.LibraryScanCoordinator? scans,
         ShellNotices? notices,
         IVisualizationHost? visualization,
-        Core.Library.IArtCache? art)
+        Core.Library.IArtCache? art,
+        ShellState? shell)
     {
         _forceWarp = forceWarp;
         _settings = settings;
@@ -103,7 +112,15 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = Identity.WindowTitle(null, null);
 
-        _chrome = new ShellChrome(Root, ShellGrid, NowPlayingColumn, SidebarPanel, ControlsPanel);
+        _chrome = new ShellChrome(
+            Root, ShellGrid, NowPlayingColumn, SidebarPanel, ControlsPanel, () => _uiSettings.AnimationsEnabled);
+        _shell = shell;
+        SyncModeSwitcher();
+        if (_shell is not null)
+        {
+            _shell.PropertyChanged += OnShellStateChanged;
+        }
+
         // Before the first frame: the theme a repaint would otherwise arrive one frame late in, and a shape, so
         // the window never draws with all three panels stacked on top of each other in column 0.
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
@@ -182,6 +199,12 @@ public sealed partial class MainWindow : Window
             }
 
             _diagnostics.Dispose();
+            // The state is the container's and outlives this window.
+            if (_shell is not null)
+            {
+                _shell.PropertyChanged -= OnShellStateChanged;
+            }
+
             _artLink?.Dispose();
             _reactiveTheme?.Dispose();
             _accessibility?.Dispose();
@@ -255,8 +278,49 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ApplyShellLayout(double width)
     {
-        _chrome.ApplyLayout(width);
+        _lastWidth = width;
+        _chrome.ApplyLayout(width, CurrentMode);
         SidebarPanel.UseMinimalNavigation(_chrome.Mode == ShellLayoutMode.Compact);
+    }
+
+    /// <summary>The mode the shell is in; Discovery when there is no state to ask.</summary>
+    public ShellMode CurrentMode => _shell?.Mode ?? ShellMode.Discovery;
+
+    /// <summary>A mode change from anywhere - switcher, shortcut or a future caller - re-lays the shell out.</summary>
+    private void OnShellStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ShellState.Mode))
+        {
+            return;
+        }
+
+        ApplyShellLayout(_lastWidth);
+        SyncModeSwitcher();
+    }
+
+    /// <summary>The switcher shows the mode, without its own selection change writing the mode back.</summary>
+    private void SyncModeSwitcher()
+    {
+        _syncingSwitcher = true;
+        try
+        {
+            ModeSwitcher.SelectedIndex = (int)CurrentMode;
+            ModeSwitcher.IsEnabled = _shell is not null;
+        }
+        finally
+        {
+            _syncingSwitcher = false;
+        }
+    }
+
+    private void OnModeSwitcherChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingSwitcher || _shell is null || ModeSwitcher.SelectedIndex < 0)
+        {
+            return;
+        }
+
+        _shell.Select((ShellMode)ModeSwitcher.SelectedIndex);
     }
 
     /// <summary>Whether the window will take a drag (E2-S4), read off the live tree for the spike.</summary>
@@ -317,7 +381,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     internal ShellMeasurement MeasurePanels(int requestedWidth)
     {
-        ShellLayoutState expected = ShellLayout.For(Root.ActualWidth);
+        ShellLayoutState expected = ShellLayout.For(Root.ActualWidth, CurrentMode);
         (bool pass, string note) = ShellSpikeRunner.Judge(
             expected, Root.ActualWidth, NowPlayingColumn.ActualWidth, SidebarPanel.ActualWidth, ControlsPanel.ActualWidth);
         // Two shares, not three (T-182): the controls panel is a bar under Now Playing, not a column beside it.
@@ -415,6 +479,22 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private bool Invoke(ShellShortcut shortcut)
     {
+        switch (shortcut.Command)
+        {
+            case ShellCommand.Discovery:
+                return _shell?.Select(ShellMode.Discovery) ?? false;
+            case ShellCommand.Focus:
+                return _shell?.Select(ShellMode.Focus) ?? false;
+            case ShellCommand.Curation:
+                return _shell?.Select(ShellMode.Curation) ?? false;
+            case ShellCommand.ToggleFocus:
+                return _shell?.ToggleFocus() ?? false;
+            case ShellCommand.LeaveFocus:
+                return _shell?.LeaveFocus() ?? false;
+            default:
+                break;
+        }
+
         if (shortcut.Command == ShellCommand.Diagnostics)
         {
             _diagnostics.Toggle();

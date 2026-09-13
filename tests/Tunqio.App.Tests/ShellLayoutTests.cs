@@ -100,6 +100,79 @@ public class ShellLayoutTests
         ShellLayout.FloorsBind(width).Should().BeFalse("the shares alone keep both panels above their floors at every width");
     }
 
+    // ---- E5-S1: modes ----------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(700)]
+    [InlineData(1000)]
+    [InlineData(1600)]
+    public void Focus_gives_now_playing_the_whole_width_and_hides_the_sidebar(double width)
+    {
+        ShellLayoutState focus = ShellLayout.For(width, ShellMode.Focus);
+
+        focus.SidebarShown.Should().BeFalse();
+        focus.Fractions.NowPlaying.Should().Be(1);
+        focus.Fractions.Sidebar.Should().Be(0);
+        focus.Mode.Should().Be(ShellLayout.For(width).Mode, "Focus changes the shares, not which shape the width is in");
+    }
+
+    [Theory]
+    [InlineData(700)]
+    [InlineData(1000)]
+    [InlineData(1600)]
+    public void Discovery_is_the_width_table(double width)
+    {
+        ShellLayout.For(width, ShellMode.Discovery).Should().Be(ShellLayout.For(width));
+    }
+
+    [Fact]
+    public void Curation_gives_the_library_side_the_larger_share_wherever_the_panels_are_columns()
+    {
+        // Q-67: Phil chose to invert the shares, because the library side is where Curation's dual pane goes.
+        ShellLayoutState full = ShellLayout.For(1600, ShellMode.Curation);
+        full.Fractions.NowPlaying.Should().BeApproximately(0.40, 0.001);
+        full.Fractions.Sidebar.Should().BeApproximately(0.60, 0.001);
+        full.SidebarShown.Should().BeTrue();
+
+        ShellLayoutState medium = ShellLayout.For(1000, ShellMode.Curation);
+        medium.Fractions.NowPlaying.Should().BeApproximately(1.0 / 3.0, 0.001);
+        medium.Fractions.Sidebar.Should().BeApproximately(2.0 / 3.0, 0.001);
+    }
+
+    [Fact]
+    public void Curation_stacked_keeps_the_equal_heights()
+    {
+        ShellLayout.For(700, ShellMode.Curation).Should().Be(ShellLayout.For(700), "Q-67 inverts the columns, not the rows");
+    }
+
+    [Theory]
+    [InlineData(800, true)]
+    [InlineData(1000, true)]
+    [InlineData(1199.9, true)]
+    [InlineData(1200, false)]
+    [InlineData(1600, false)]
+    public void In_curation_now_playings_floor_wins_below_1200_px(double width, bool binds)
+    {
+        // 1 : 2 of 1000 px is 333 px of Now Playing against a floor of 400, which is also the transport bar's.
+        ShellLayout.FloorsBind(width, ShellMode.Curation).Should().Be(binds);
+    }
+
+    [Theory]
+    [InlineData(800)]
+    [InlineData(1600)]
+    public void A_hidden_sidebar_has_no_floor_to_bind(double width)
+    {
+        ShellLayout.FloorsBind(width, ShellMode.Focus).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_mode_transition_takes_between_200_and_300_ms_and_none_under_reduced_motion()
+    {
+        ShellLayout.ModeTransition(animationsEnabled: true).Should()
+            .BeGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(200)).And.BeLessThanOrEqualTo(TimeSpan.FromMilliseconds(300));
+        ShellLayout.ModeTransition(animationsEnabled: false).Should().Be(TimeSpan.Zero, "flow 10: mode transitions become instant");
+    }
+
     [Fact]
     public void The_sidebar_is_never_narrower_than_a_third_of_the_window_in_a_column_shape()
     {

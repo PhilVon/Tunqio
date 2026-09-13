@@ -24,6 +24,21 @@ public enum ShellCommand
 
     /// <summary>Show or hide the diagnostics overlay (E2-S8).</summary>
     Diagnostics,
+
+    /// <summary>Switch to Discovery (E5-S1).</summary>
+    Discovery,
+
+    /// <summary>Switch to Focus.</summary>
+    Focus,
+
+    /// <summary>Switch to Curation.</summary>
+    Curation,
+
+    /// <summary>Into Focus, or back to the mode it was entered from.</summary>
+    ToggleFocus,
+
+    /// <summary>Leave Focus for the mode it was entered from (flow 7); nothing outside Focus.</summary>
+    LeaveFocus,
 }
 
 /// <summary>
@@ -101,9 +116,13 @@ public readonly record struct ShellShortcut(
 /// </para>
 /// <para>
 /// Media keys are not here: they are <c>SystemMediaTransportControls</c> (ADR-006) and belong to E7. Neither are
-/// the shortcuts whose features do not exist yet — the mode switches, the mini player, playlists, tag editing and
-/// visualization presets — because a key that is registered and does nothing is worse than one that is not
-/// registered at all.
+/// the shortcuts whose features do not exist yet — the mini player, playlists, tag editing and visualization presets
+/// — because a key that is registered and does nothing is worse than one that is not registered at all.
+/// </para>
+/// <para>
+/// The mode keys (E5-S1) split the same way. Ctrl+1/2/3 and F11 are taken on the way down, since nothing a control
+/// does with them is worth more than the mode. Esc is the opposite: a search box clears on it, a flyout closes on it
+/// and a dialog cancels on it, so it is an accelerator, and it is handled only while there is a Focus to leave.
 /// </para>
 /// </remarks>
 public static class ShellShortcuts
@@ -126,6 +145,11 @@ public static class ShellShortcuts
         new(VirtualKey.S, VirtualKeyModifiers.None, ShellCommand.Shuffle, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.R, VirtualKeyModifiers.None, ShellCommand.Repeat, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.Q, VirtualKeyModifiers.None, ShellCommand.Queue, 0, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number1, VirtualKeyModifiers.Control, ShellCommand.Discovery, 0, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number2, VirtualKeyModifiers.Control, ShellCommand.Focus, 0, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number3, VirtualKeyModifiers.Control, ShellCommand.Curation, 0, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.F11, VirtualKeyModifiers.None, ShellCommand.ToggleFocus, 0, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Escape, VirtualKeyModifiers.None, ShellCommand.LeaveFocus, 0, ShortcutDelivery.Accelerator),
 
         new(VirtualKey.Right, VirtualKeyModifiers.None, ShellCommand.Seek, 5, ShortcutDelivery.Accelerator),
         new(VirtualKey.Left, VirtualKeyModifiers.None, ShellCommand.Seek, -5, ShortcutDelivery.Accelerator),

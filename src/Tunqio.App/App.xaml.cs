@@ -121,7 +121,9 @@ public partial class App : Application
             _host.Services.GetRequiredService<IVisualizationHost>(),
             // The album art cache (T-147): the same one the panel draws from, so the glow's colours and the
             // picture above it come out of one decode.
-            _host.Services.GetService<IArtCache>());
+            _host.Services.GetService<IArtCache>(),
+            // The mode (E5-S1): the container's one, which reads and writes ui.mode.
+            _host.Services.GetRequiredService<ShellState>());
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
