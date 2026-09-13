@@ -102,6 +102,11 @@
         <ToggleSwitch Header="Write ratings to files" IsOn="{x:Bind ViewModel.WriteRatingsToFiles, Mode=TwoWay}" Margin="0,8,0,0" />
         <TextBlock Text="Ratings stay in the library either way; on, they are also written to each file's tag." Style="{StaticResource Hint}" />
 
+        <!-- Discovery (E5-S5, Q-74). Here until E6-S3 builds the Playback and Appearance pages. -->
+        <TextBlock Text="Discovery" Style="{StaticResource SectionHeader}" />
+        <ToggleSwitch Header="Preview albums on hover" IsOn="{x:Bind ViewModel.HoverPreview, Mode=TwoWay}" />
+        <TextBlock Text="In Discovery, resting the pointer on an album for half a second plays a few seconds of it, quietly, over whatever is playing." Style="{StaticResource Hint}" />
+
         <!-- Maintenance -->
         <TextBlock Text="Maintenance" Style="{StaticResource SectionHeader}" />
         <StackPanel Orientation="Horizontal" Spacing="8">

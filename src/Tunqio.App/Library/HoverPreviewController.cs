@@ -79,18 +79,32 @@ public sealed class HoverPreviewController : IDisposable
     /// <summary>The album being previewed, or null.</summary>
     public AlbumDto? Previewing => _playing;
 
+    /// <summary>
+    /// Raised once, ever, the first time the pointer rests on a tile in Discovery with previews off (Q-74, R-15's
+    /// first-use prompt): the host shows the offer to turn them on. <c>ui.hoverPreviewOffered</c> is set before it is
+    /// raised, so neither a second hover nor a second launch raises it again.
+    /// </summary>
+    public event EventHandler? OfferRequested;
+
     /// <summary>The pointer came to rest on <paramref name="album"/>'s tile.</summary>
     public void Enter(AlbumDto album)
     {
         ArgumentNullException.ThrowIfNull(album);
         CancelTimer();
         _hovered = album;
+        int generation = _generation;
         if (!Enabled)
         {
+            // Off: the same dwell, but what it earns is the one-time offer rather than a preview.
+            if (ShouldOffer())
+            {
+                _timer = _clock.CreateTimer(
+                    _ => Post(() => Offer(generation, album)), null, Dwell, Timeout.InfiniteTimeSpan);
+            }
+
             return;
         }
 
-        int generation = _generation;
         _timer = _clock.CreateTimer(
             _ => Post(() => StartAsync(generation, album).Forget("Hover preview")),
             null,
@@ -148,6 +162,23 @@ public sealed class HoverPreviewController : IDisposable
 
         _playing = album;
         await player.PreviewAsync(first.Id).ConfigureAwait(true);
+    }
+
+    private bool ShouldOffer() =>
+        !_disposed
+        && _shell.Mode == ShellMode.Discovery
+        && !_settings.GetValue(SettingsKeys.UiHoverPreview, SettingsKeys.Defaults.UiHoverPreview)
+        && !_settings.GetValue(SettingsKeys.UiHoverPreviewOffered, SettingsKeys.Defaults.UiHoverPreviewOffered);
+
+    private void Offer(int generation, AlbumDto album)
+    {
+        if (generation != _generation || _hovered?.Id != album.Id || !ShouldOffer())
+        {
+            return;
+        }
+
+        _settings.SetValue(SettingsKeys.UiHoverPreviewOffered, true);
+        OfferRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private bool StillWanted(int generation, AlbumDto album) =>

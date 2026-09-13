@@ -33,13 +33,22 @@ public static class LibraryViewServices
         services.AddSingleton(p =>
         {
             var source = p.GetRequiredService<Playback.IPlaybackSessionSource>();
-            return new HoverPreviewController(
+            var settings = p.GetRequiredService<Core.ISettingsStore>();
+            var controller = new HoverPreviewController(
                 () => source.Session,
                 p.GetRequiredService<Shell.ShellState>(),
-                p.GetRequiredService<Core.ISettingsStore>(),
+                settings,
                 p.GetRequiredService<IAlbumRepository>(),
                 TimeProvider.System,
                 uiContext);
+            // The one-time offer (Q-74) is a notice bar; turning previews on from it is the same setting the
+            // Settings > Library switch writes.
+            controller.OfferRequested += (_, _) => p.GetRequiredService<Shell.ShellNotices>().ShowHoverPreviewOffer(() =>
+            {
+                settings.SetValue(Core.SettingsKeys.UiHoverPreview, true);
+                settings.Flush();
+            });
+            return controller;
         });
         services.AddTransient<AlbumsViewModel>();
         services.AddTransient<AlbumDetailViewModel>();

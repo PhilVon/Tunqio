@@ -274,6 +274,7 @@ Close-to-tray, when enabled, only hides the window.
 | `ui.theme` | `system` \| `light` \| `dark` | `system` |
 | `ui.mode` | `discovery` \| `focus` \| `curation` | `discovery` |
 | `ui.hoverPreview` | bool | false until enabled (Q-8, R-15) |
+| `ui.hoverPreviewOffered` | bool | false; true once the first-hover offer has been made or the user has used the switch (E5-S5, Q-74) |
 | `ui.reactiveTheming` | bool | true |
 | `ui.reactiveSmoothing` | float 0..1 | 0.15 |
 | `ui.closeToTray` / `ui.minimizeToTray` | bool | false / false |

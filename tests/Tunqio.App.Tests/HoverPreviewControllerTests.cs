@@ -207,6 +207,78 @@ public sealed class HoverPreviewControllerTests : IDisposable
         _player.Calls.Should().Equal("preview:11", "stop");
     }
 
+    // ---- Q-74: the first-hover offer -----------------------------------------------------------------------------
+
+    [Fact]
+    public void The_first_hover_with_previews_off_offers_to_turn_them_on_once()
+    {
+        int offers = 0;
+        _controller.OfferRequested += (_, _) => offers++;
+
+        _controller.Enter(Aurora);
+        Wait(499);
+        offers.Should().Be(0, "the offer earns the same dwell a preview would");
+        Wait(2);
+        offers.Should().Be(1);
+        _settings.GetValue(SettingsKeys.UiHoverPreviewOffered, false).Should().BeTrue("so a relaunch does not ask again");
+
+        _controller.Leave(Aurora);
+        _controller.Enter(Harbour);
+        Wait(1000);
+
+        offers.Should().Be(1, "it is offered once, ever");
+        _player.Calls.Should().BeEmpty("an offer is not a preview");
+    }
+
+    [Fact]
+    public void A_pointer_that_moves_on_before_the_dwell_is_not_offered_anything()
+    {
+        int offers = 0;
+        _controller.OfferRequested += (_, _) => offers++;
+
+        _controller.Enter(Aurora);
+        Wait(300);
+        _controller.Leave(Aurora);
+        Wait(1000);
+
+        offers.Should().Be(0);
+        _settings.Contains(SettingsKeys.UiHoverPreviewOffered).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(ShellMode.Focus)]
+    [InlineData(ShellMode.Curation)]
+    public void The_offer_is_made_only_where_previews_happen(ShellMode mode)
+    {
+        int offers = 0;
+        _controller.OfferRequested += (_, _) => offers++;
+        _shell.Select(mode);
+
+        _controller.Enter(Aurora);
+        Wait(1000);
+
+        offers.Should().Be(0);
+    }
+
+    [Fact]
+    public void No_offer_once_previews_are_on_or_the_offer_was_already_made()
+    {
+        int offers = 0;
+        _controller.OfferRequested += (_, _) => offers++;
+
+        _settings.SetValue(SettingsKeys.UiHoverPreviewOffered, true);
+        _controller.Enter(Aurora);
+        Wait(1000);
+        _controller.Leave(Aurora);
+
+        _settings.SetValue(SettingsKeys.UiHoverPreviewOffered, false);
+        TurnOn();
+        _controller.Enter(Harbour);
+        Wait(1000);
+
+        offers.Should().Be(0);
+    }
+
     /// <summary>
     /// The pages resolve the controller rather than being handed it, so the registration is the wiring: an
     /// unregistered or transient one would give each page a controller nobody else is talking to (T-120's shape).

@@ -46,6 +46,27 @@ public sealed class ShellNoticesTests : IAsyncLifetime
 
     private void Unplug() => _engine.Raise(new EngineEvent(EngineEventType.DeviceLost, 3, 0, "usb-dac"));
 
+    // ---- E5-S5, Q-74: the first-hover offer -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_hover_preview_offer_stays_until_answered_and_turning_on_takes_it_down_Async()
+    {
+        bool turnedOn = false;
+        _notices.ShowHoverPreviewOffer(() => turnedOn = true);
+
+        ShellNotice bar = Of(NoticeKind.HoverPreview)!;
+        bar.IsSticky.Should().BeTrue("it is a question, and an unanswered question should not time out");
+        bar.ActionText.Should().Be("Turn on");
+        bar.Message.Should().Contain("Settings › Library", "the user is told where to turn it off again");
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        Of(NoticeKind.HoverPreview).Should().BeSameAs(bar);
+
+        await bar.Action!();
+
+        turnedOn.Should().BeTrue();
+        Of(NoticeKind.HoverPreview).Should().BeNull();
+    }
+
     // ---- AC-79: the sticky bar and its action -----------------------------------------------------------------------
 
     [Fact]

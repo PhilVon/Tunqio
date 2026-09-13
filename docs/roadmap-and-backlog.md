@@ -533,7 +533,7 @@ Source pane (library or playlist) and target playlist pane, drag between panes, 
 - [ ] Dragging 500 selected tracks completes in < 1 s
 
 ### E5-S5 · Hover preview (Discovery) · **M** · `ui` `audio` `native`
-Kept in 1.0 (Q-8). `mp_preview_start/stop` in `mpcore/audio`: second mixer channel at −12 dB, ducking, fade in/out, single-preview rule, bypassed by the analysis tap; C# hover behaviour and the `ui.hoverPreview` opt-in.
+Kept in 1.0 (Q-8). `mp_preview_start/stop` in `mpcore/audio`: second mixer channel at −12 dB, ducking, fade in/out, single-preview rule, bypassed by the analysis tap; C# hover behaviour and the `ui.hoverPreview` opt-in. As built: the preview is a second decode mixer read after the analysis tap rather than a channel on the main mixer (ABI 0.18, design D-32); `PlaybackSession` implements `IPreviewPlayer`; `HoverPreviewController` holds the 500 ms dwell, Discovery-only and opt-in rules; the opt-in is a one-time offer on the first hover plus a Settings › Library switch (Phil, Q-74).
 - [ ] Hovering an album tile for 500 ms starts a preview; leaving fades it in 200 ms; the visualizer keeps following the main track
 - [ ] Preview is off by default on first run until the user enables it (per R-15)
 

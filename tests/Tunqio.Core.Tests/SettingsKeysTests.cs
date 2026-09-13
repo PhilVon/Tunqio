@@ -32,6 +32,14 @@ public class SettingsKeysTests
         constants.Should().Contain("ui.minimizeToTray");
     }
 
+    /// <summary>E5-S5: a hover preview is unexpected sound (R-15), so it and its one-time offer both start off.</summary>
+    [Fact]
+    public void Hover_preview_starts_off_and_not_yet_offered()
+    {
+        SettingsKeys.Defaults.UiHoverPreview.Should().BeFalse();
+        SettingsKeys.Defaults.UiHoverPreviewOffered.Should().BeFalse();
+    }
+
     /// <summary>
     /// E5-S3, Q-72. The mode table asks for Ambient Glow behind the art in Discovery; Phil chose one preset for every
     /// mode, with Ambient Glow as what a first run draws, over a preset each mode would choose or remember.

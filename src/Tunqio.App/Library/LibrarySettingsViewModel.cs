@@ -77,6 +77,10 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
     [ObservableProperty]
     public partial bool WriteRatingsToFiles { get; set; }
 
+    /// <summary><c>ui.hoverPreview</c> (E5-S5): whether resting the pointer on an album in Discovery previews it.</summary>
+    [ObservableProperty]
+    public partial bool HoverPreview { get; set; }
+
     /// <summary>Tracks Purge missing would delete now.</summary>
     [ObservableProperty]
     public partial int MissingCount { get; set; }
@@ -125,6 +129,7 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         _seeding = true;
         SplitArtists = settings.GetValue(SettingsKeys.LibrarySplitArtists, SettingsKeys.Defaults.LibrarySplitArtists);
         WriteRatingsToFiles = settings.GetValue(SettingsKeys.LibraryWriteRatingsToFiles, SettingsKeys.Defaults.LibraryWriteRatingsToFiles);
+        HoverPreview = settings.GetValue(SettingsKeys.UiHoverPreview, SettingsKeys.Defaults.UiHoverPreview);
         _seeding = false;
         ReadScanState();
     }
@@ -143,7 +148,9 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         _attached = true;
         _scans.StateChanged += OnScanStateChanged;
         _scans.LibraryChanged += OnLibraryChanged;
+        _settings.Changed += OnSettingChanged;
         ReadScanState();
+        ReadHoverPreview(); // the first-hover offer may have turned it on while this cached page was away
     }
 
     public void Detach()
@@ -156,6 +163,7 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         _attached = false;
         _scans.StateChanged -= OnScanStateChanged;
         _scans.LibraryChanged -= OnLibraryChanged;
+        _settings.Changed -= OnSettingChanged;
     }
 
     /// <summary>The folder list and the missing count.</summary>
@@ -320,6 +328,45 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         if (!_seeding)
         {
             _settings.SetValue(SettingsKeys.LibraryWriteRatingsToFiles, value);
+        }
+    }
+
+    partial void OnHoverPreviewChanged(bool value)
+    {
+        if (_seeding)
+        {
+            return;
+        }
+
+        _settings.SetValue(SettingsKeys.UiHoverPreview, value);
+        // A choice made here is a choice made: the first-hover offer (Q-74) would only be asking it again.
+        _settings.SetValue(SettingsKeys.UiHoverPreviewOffered, true);
+    }
+
+    private void OnSettingChanged(object? sender, string key)
+    {
+        if (key == SettingsKeys.UiHoverPreview)
+        {
+            ReadHoverPreview();
+        }
+    }
+
+    private void ReadHoverPreview()
+    {
+        bool stored = _settings.GetValue(SettingsKeys.UiHoverPreview, SettingsKeys.Defaults.UiHoverPreview);
+        if (HoverPreview == stored)
+        {
+            return;
+        }
+
+        _seeding = true;
+        try
+        {
+            HoverPreview = stored;
+        }
+        finally
+        {
+            _seeding = false;
         }
     }
 

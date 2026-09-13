@@ -19,6 +19,9 @@ public static class SettingsKeys
     public const string UiTheme = "ui.theme"; // "system" | "light" | "dark"
     public const string UiMode = "ui.mode";   // "discovery" | "focus" | "curation"
     public const string UiHoverPreview = "ui.hoverPreview";
+
+    /// <summary>E5-S5 (Q-74): the first-hover offer to turn previews on has been made, or the user chose on the settings page; it is never made again.</summary>
+    public const string UiHoverPreviewOffered = "ui.hoverPreviewOffered";
     public const string UiReactiveTheming = "ui.reactiveTheming";
     public const string UiReactiveSmoothing = "ui.reactiveSmoothing";
     public const string UiCloseToTray = "ui.closeToTray";
@@ -54,6 +57,7 @@ public static class SettingsKeys
         public const string UiTheme = "system";
         public const string UiMode = "discovery";
         public const bool UiHoverPreview = false;
+        public const bool UiHoverPreviewOffered = false;
         public const bool UiReactiveTheming = true;
         public const float UiReactiveSmoothing = 0.15f;
         public const bool UiCloseToTray = false;

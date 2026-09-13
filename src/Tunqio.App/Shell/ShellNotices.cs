@@ -27,6 +27,9 @@ public enum NoticeKind
 
     /// <summary>The last tag edit, and the offer to undo it (E3-S10, flow 8).</summary>
     TagEdit,
+
+    /// <summary>The one-time offer to turn hover previews on (E5-S5, Q-74).</summary>
+    HoverPreview,
 }
 
 /// <summary>One bar in the shell's notice area.</summary>
@@ -187,6 +190,31 @@ public sealed partial class ShellNotices : ObservableObject, IDisposable
             {
                 await undo().ConfigureAwait(true);
                 Post(() => Remove(NoticeKind.TagEdit));
+            },
+            sticky: true));
+    }
+
+    /// <summary>
+    /// The first-hover offer (E5-S5, Q-74, R-15's first-use prompt): the pointer has rested on an album in Discovery
+    /// with previews off, so the user is told the feature exists where they would use it. Sticky, because it is a
+    /// question rather than a report; it goes when they turn previews on or close the bar, and it is only ever
+    /// raised once.
+    /// </summary>
+    /// <param name="turnOn">Turns previews on; the bar takes itself down afterwards.</param>
+    public void ShowHoverPreviewOffer(Action turnOn)
+    {
+        ArgumentNullException.ThrowIfNull(turnOn);
+        Put(new ShellNotice(
+            NoticeKind.HoverPreview,
+            "Preview albums on hover?",
+            "Rest the pointer on an album for half a second to hear a few seconds of it, quietly. You can turn this off again in Settings › Library.",
+            StartupNoticeSeverity.Informational,
+            "Turn on",
+            () =>
+            {
+                turnOn();
+                Post(() => Remove(NoticeKind.HoverPreview));
+                return Task.CompletedTask;
             },
             sticky: true));
     }

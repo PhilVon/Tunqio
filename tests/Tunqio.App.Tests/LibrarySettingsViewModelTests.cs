@@ -31,6 +31,54 @@ public sealed class LibrarySettingsViewModelTests : IDisposable
     private LibrarySettingsViewModel Create(bool withArt = true) =>
         new(_folders, _tracks, _search, _watcher, _scans, _settings, _picker, withArt ? _art : null, new FixedClock(Now));
 
+    // ---- E5-S5, Q-74: the hover preview switch --------------------------------------------------------------------
+
+    [Fact]
+    public void The_hover_preview_switch_starts_from_the_stored_setting_and_is_off_by_default()
+    {
+        Create().HoverPreview.Should().BeFalse();
+
+        _settings.SetValue(Tunqio.Core.SettingsKeys.UiHoverPreview, true);
+        Create().HoverPreview.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Flipping_the_switch_writes_the_setting_and_retires_the_first_hover_offer()
+    {
+        LibrarySettingsViewModel vm = Create();
+
+        vm.HoverPreview = true;
+
+        _settings.GetValue(Tunqio.Core.SettingsKeys.UiHoverPreview, false).Should().BeTrue();
+        _settings.GetValue(Tunqio.Core.SettingsKeys.UiHoverPreviewOffered, false).Should().BeTrue(
+            "a choice made on the settings page is a choice made; the offer would only ask it again");
+    }
+
+    [Fact]
+    public void Previews_turned_on_from_the_offer_show_on_the_switch_when_the_page_comes_back()
+    {
+        LibrarySettingsViewModel vm = Create();
+        vm.Attach();
+        vm.Detach();
+
+        _settings.SetValue(Tunqio.Core.SettingsKeys.UiHoverPreview, true); // the notice bar's Turn on, while the page was away
+        vm.Attach();
+
+        vm.HoverPreview.Should().BeTrue();
+        vm.Detach();
+    }
+
+    [Fact]
+    public void Seeding_the_switch_from_settings_writes_nothing_back()
+    {
+        _settings.SetValue(Tunqio.Core.SettingsKeys.UiHoverPreview, true);
+
+        _ = Create();
+
+        _settings.Contains(Tunqio.Core.SettingsKeys.UiHoverPreviewOffered).Should().BeFalse(
+            "reading the setting is not the user choosing it");
+    }
+
     [Fact]
     public async Task Load_lists_folders_with_their_last_scan_and_counts_what_purge_would_remove_Async()
     {
