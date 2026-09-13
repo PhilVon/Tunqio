@@ -68,7 +68,9 @@
           <NavigationViewItem.Icon><FontIcon Glyph="&#xE734;" /></NavigationViewItem.Icon>
         </NavigationViewItem>
       </NavigationView.MenuItems>
-      <Grid>
+      <!-- Named so the narrow shell can inset it (T-182): in LeftMinimal the NavigationView draws its Back and menu
+           buttons over the top of its content without reserving room, and they covered every page's title. -->
+      <Grid x:Name="ContentHost">
         <Frame x:Name="PageFrame" Navigated="OnNavigated" Visibility="{x:Bind local:LibraryPane.Unless(Search.IsActive), Mode=OneWay}" />
         <local:SearchResultsView x:Name="Results" ViewModel="{x:Bind Search}" Visibility="{x:Bind Search.IsActive, Mode=OneWay}"
                                  EscapeRequested="OnResultsEscape" BackToSearchRequested="OnResultsBackToSearch" />

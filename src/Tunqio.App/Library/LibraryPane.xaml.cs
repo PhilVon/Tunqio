@@ -115,6 +115,13 @@ public sealed partial class LibraryPane : UserControl
     /// </summary>
     public void UseMinimalNavigation(bool minimal)
     {
+        // In LeftMinimal the NavigationView reserves no room for its own Back and menu buttons: it draws them over
+        // the top of its content, and they covered every page's title (Phil, T-182's second review). Measured at a
+        // 716 px window: the buttons span y 465..501, the content starts at about 459, and the Albums title sat at
+        // 472..496 underneath them. So the content is pushed below the button row in minimal mode only; in
+        // LeftCompact the pane's own column already keeps the buttons beside the page.
+        ContentHost.Margin = minimal ? new Thickness(0, MinimalNavigationInset, 0, 0) : new Thickness(0);
+
         NavigationViewPaneDisplayMode mode = minimal ? NavigationViewPaneDisplayMode.LeftMinimal : NavigationViewPaneDisplayMode.LeftCompact;
         if (Nav.PaneDisplayMode == mode)
         {
@@ -124,6 +131,12 @@ public sealed partial class LibraryPane : UserControl
         Nav.PaneDisplayMode = mode;
         Nav.IsPaneOpen = false;
     }
+
+    /// <summary>
+    /// How far the page is pushed down in minimal navigation: the 42 px from the top of the content to the bottom of
+    /// the Back and menu buttons, measured, plus a little clearance so a title does not sit touching them.
+    /// </summary>
+    private const double MinimalNavigationInset = 44;
 
     private void OnSettingsAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
