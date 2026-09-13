@@ -41,7 +41,10 @@ param(
     [string]$Exe = "$PSScriptRoot\..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe",
     [int]$Seconds = 14,
     [switch]$KeepScratch,
-    [switch]$Force
+    [switch]$Force,
+    # Window widths the open dialog is measured at, comma-separated. A string because under powershell.exe -File an
+    # [int[]] of "1600,640" becomes one integer.
+    [string]$Widths = '1600,1000,640'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +57,9 @@ if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore 
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.
 . (Join-Path $PSScriptRoot 'assert-fresh-build.ps1')
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
+. (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+$dialogWidths = @($Widths -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [int]$_.Trim() })
+if ($dialogWidths.Count -eq 0) { throw "-Widths '$Widths' names no width" }
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 $fixtures = Join-Path $repo 'tests\fixtures\library'
 if (-not (Test-Path $fixtures)) { throw "$fixtures not found." }
@@ -183,9 +189,11 @@ function Get-Placeholder($edit) {
     return $null
 }
 
+# Activated and then CHECKED (tools/uia-geometry.ps1): throws rather than let a keystroke reach another window.
+# This used to be AppActivate and a sleep, which returns having done nothing when someone else holds the foreground,
+# and the F2 or Shift+F10 after it then lands in whatever they are typing into (T-163).
 function Set-Foreground {
-    [Microsoft.VisualBasic.Interaction]::AppActivate($script:processId)
-    Start-Sleep -Milliseconds 300
+    Assert-UiaForeground -ProcessId $script:processId
 }
 
 function Send-Keys([string]$keys) {
@@ -293,6 +301,17 @@ foreach ($file in Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue) {
     Move-Item $file.FullName (Join-Path $parked $file.Name) -Force
 }
 
+# T-183. Parking is the only thing standing between this script and the user's real library, and on 2026-09-12 and
+# 2026-09-13 the app's first launch opened a populated database at the real path anyway. So it is checked rather than
+# assumed. Nothing is deleted or moved back here: this runs before the try, so the finally's restore does not run, and
+# which of the two databases is the user's is exactly what cannot be known from inside the script. Both are named.
+$stillThere = @(Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue)
+if ($stillThere.Count -gt 0) {
+    throw ("parking did not take: $(($stillThere | ForEach-Object { $_.Name }) -join ', ') still in $dataRoot after " +
+           "moving the database to $parked. Nothing has been launched, deleted or moved back. Look at both folders " +
+           'and put the real library database back by hand before running this again (T-183).')
+}
+
 $process = $null
 $logBefore = 0
 try {
@@ -303,12 +322,34 @@ try {
     # Two launches: the schema is the app's to create, and the folder row can only go into a database that exists.
     # The first window is closed rather than killed, so the write-ahead log is checkpointed and the schema is really
     # in the file the second launch opens.
+    # T-183: the boot launch must CREATE the database. If it opened one, something other than this script put a
+    # database at the real path, and seeding a folder row into it would be writing to a library nobody chose.
+    $bootLog = Join-Path $dataRoot ('logs\tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log')
+    $bootLogStart = (Get-Item $bootLog -ErrorAction SilentlyContinue).Length
+    if (-not $bootLogStart) { $bootLogStart = 0 }
+
     $boot = Start-Process $Exe -PassThru
     Wait-For { Test-Path $dbPath } 60 'the app created its library database' | Out-Null
     Start-Sleep -Seconds 6
     $boot.CloseMainWindow() | Out-Null
     if (-not $boot.WaitForExit(20000)) { $boot.Kill() }
     Start-Sleep -Seconds 1
+
+    $bootLines = ''
+    $stream = New-Object System.IO.FileStream($bootLog, 'Open', 'Read', 'ReadWrite')
+    try {
+        $stream.Seek($bootLogStart, 'Begin') | Out-Null
+        $bootLines = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
+    }
+    finally { $stream.Dispose() }
+    $opening = [regex]::Match($bootLines, 'library\.db (created|opened) at schema')
+    if (-not $opening.Success) {
+        throw "the boot launch logged no 'library.db created' or 'opened' line in $bootLog, so whether it made a fresh database cannot be told; nothing has been seeded (T-183)"
+    }
+    if ($opening.Groups[1].Value -ne 'created') {
+        throw "the boot launch OPENED an existing library database instead of creating one, after the real one was parked in $parked. Nothing has been seeded, selected or written (T-183)."
+    }
+
     Invoke-Sql $dbPath ("INSERT INTO library_folder(path, enabled) VALUES ('" + $music.Replace("'", "''") + "', 1);")
     Write-Output 'scratch library seeded; launching the shell over it'
 
@@ -577,6 +618,41 @@ try {
     # the assertion that works compares two boxes against each other instead of against a boundary.
     if ($script:boundsDump -and $script:failures.Count -gt 0) {
         $script:boundsDump | ForEach-Object { Write-Output "        $_" }
+    }
+
+    # T-163. Every on-screen defect this dialog has shipped (T-137, T-138, T-139) was one a wide window hid, so the
+    # open dialog is measured at each width: every box and both buttons on screen, and none narrower than the widest
+    # it measured. Not "inside the dialog": UIA clips a rectangle to what is visible, so a box cut off by its column
+    # or by the window edge reads as inside whatever cut it, and the dialog's own rectangle is the full-window overlay
+    # anyway. Genre is the star column that gives way by design, so it is held to a floor rather than to its widest.
+    Test-Case 'the dialog''s boxes and buttons are whole at every window width' {
+        if (-not $dialog) { return 'no dialog' }
+        $boxes = 'Title', 'Artist', 'Album', 'Album artist', 'Genre', 'Year', 'Track', 'Disc'
+        $readings = @()
+        $problems = @()
+        foreach ($w in $dialogWidths) {
+            Set-UiaWindowSize -ProcessId $script:processId -Width $w -Height 900
+            $open = Get-Dialog
+            if (-not $open) { $problems += "the dialog closed when the window went to ${w}px"; break }
+            $measured = 0
+            $line = @()
+            foreach ($control in @($boxes | ForEach-Object { @{ Name = $_; Type = 'Edit' } }) + @(
+                    @{ Name = 'Confirm'; Type = 'Button' }, @{ Name = 'Cancel'; Type = 'Button' })) {
+                $element = Get-ElementNamed $open $control.Name $control.Type
+                if (-not $element) { $problems += "at ${w}px there is no $($control.Type) '$($control.Name)'"; continue }
+                $rect = Get-UiaRect $element
+                if ($rect.Offscreen) { $problems += "at ${w}px $($control.Type) '$($control.Name)' has nothing on screen"; continue }
+                $measured++
+                $readings += [pscustomobject]@{ Width = $w; Name = $control.Name; Rect = $rect }
+                if ($control.Name -in 'Title', 'Disc', 'Confirm') { $line += "$($control.Name) $($rect.Left)..$($rect.Right)" }
+            }
+            $script:detail += ("{0,5}px  {1} of 10 measured; {2}" -f $w, $measured, ($line -join ', '))
+        }
+        # Back to the widest, so the cases after this one run against the window they were written for.
+        Set-UiaWindowSize -ProcessId $script:processId -Width ($dialogWidths | Measure-Object -Maximum).Maximum -Height 900
+        $problems += @(Get-UiaClippedControls $readings -Stretch @('Genre') -StretchFloor 60)
+        if ($problems.Count -gt 0) { return ($problems -join '; ') }
+        return $null
     }
 
     Test-Case 'Confirm is offered and Cancel is there to leave by' {

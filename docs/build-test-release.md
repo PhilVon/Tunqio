@@ -63,7 +63,19 @@ is the fix, and three things learned the hard way in E4-S9 are worth knowing bef
   that quietly examined six of fourteen controls is how E4-S9's reactive-theming slider, which had the same
   fixed width, went unlooked-at.
 
-Prove such a case the way a golden image is proved: put the bug back, watch it go red, and record the number.
+- **Clipping does leave one signal: a control narrower than it should be.** Measure the same controls at several
+  window widths and compare each reading with the widest that control measured anywhere; a shorter one has been cut
+  off by its column or the window edge. T-168 found this the hard way: an overlay pushed past the window edge was a
+  72 px stub of 540 at a 1000 px window, and "inside the window" passed it.
+- **One fixed-width control moves nothing, so check that it stretches.** A single `Width="360"` slider inside a
+  template is trimmed at its column edge and reads exactly as wide as the column at a narrow window, so no boundary
+  check sees it. It only moved the container in E4-S9 because a second control outside the template had the same
+  width. The wide window gives it away: the slider read 360 px in a 553 px column. Where a page promises that its
+  controls stretch, assert that every one spans its column at every width (T-163).
+
+The readers, the resizer, the checked foreground and that clipping test are in `tools/uia-geometry.ps1`; dot-source
+it rather than writing another copy. Prove such a case the way a golden image is proved: put the bug back, watch it
+go red, and record the number.
 
 ### Performance verification
 

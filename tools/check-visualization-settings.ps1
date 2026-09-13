@@ -33,7 +33,8 @@ param(
     [int]$Seconds = 10,
     [switch]$KeepScratch,
     [switch]$DumpGeometry,
-    [int[]]$Widths = @(1600, 1200, 1000)
+    # Comma-separated. A string because under powershell.exe -File an [int[]] of "1600,1000" becomes one integer.
+    [string]$Widths = '1600,1200,1000'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +50,11 @@ if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore 
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.
 . (Join-Path $PSScriptRoot 'assert-fresh-build.ps1')
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
+
+# T-163: the rectangle reader, the resizer and the checked foreground are shared with the other harnesses.
+. (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+$widthList = @($Widths -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [int]$_.Trim() })
+if ($widthList.Count -eq 0) { throw "-Widths '$Widths' names no width" }
 
 # The scratch preset AC-133 is about. A name nothing else could be, so a folder left behind by a killed run is
 # unmistakable and safe to delete.
@@ -125,32 +131,12 @@ function Get-ListRowNames([string]$listName) {
     return $names
 }
 
-if (-not ('TunqioForeground' -as [type])) {
-    Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public static class TunqioForeground {
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
-    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
-    public static int ForegroundProcess() {
-        int pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid); return pid;
-    }
-}
-"@
-}
-
 # Activated and then CHECKED, rather than activated and hoped for. AppActivate can return having done nothing
 # while the window is still coming up, and a SendKeys after that goes to whichever window does have focus -
-# which is how a run of this script failed every case at once with the app perfectly healthy in the log.
+# which is how a run of this script failed every case at once with the app perfectly healthy in the log. This
+# script had its own copy of that check; since T-163 it is the one in tools/uia-geometry.ps1.
 function Set-Foreground {
-    for ($i = 0; $i -lt 20; $i++) {
-        try { [Microsoft.VisualBasic.Interaction]::AppActivate($script:processId) } catch { }
-        Start-Sleep -Milliseconds 300
-        if ([TunqioForeground]::ForegroundProcess() -eq $script:processId) { return }
-    }
-
-    throw "the shell window never came to the foreground (it is process $script:processId)"
+    Assert-UiaForeground -ProcessId $script:processId
 }
 
 function Send-Keys([string]$keys) {
@@ -224,21 +210,14 @@ function Get-SelectedRow([string]$listName) {
 # the first version of this check silently examined six of the page's fourteen controls - the reactive-theming
 # slider, which had the same fixed width, was never looked at.
 
+# Both from tools/uia-geometry.ps1 (T-163). Get-UiaRect's Offscreen covers what this script used to call Empty:
+# a rectangle with no area, or one UIA reports IsOffscreen.
 function Set-WindowSize([int]$width, [int]$height) {
-    $handle = (Get-Process -Id $script:processId).MainWindowHandle
-    if ($handle -eq [IntPtr]::Zero) { throw 'the shell has no main window handle' }
-    [TunqioForeground]::MoveWindow($handle, 60, 40, $width, $height, $true) | Out-Null
-    Start-Sleep -Milliseconds 900
+    Set-UiaWindowSize -ProcessId $script:processId -Width $width -Height $height
 }
 
 function Get-Rect($element) {
-    $r = $element.Current.BoundingRectangle
-    return [pscustomobject]@{
-        Left = [math]::Round($r.Left); Top = [math]::Round($r.Top)
-        Right = [math]::Round($r.Right); Bottom = [math]::Round($r.Bottom)
-        Width = [math]::Round($r.Width); Height = [math]::Round($r.Height)
-        Empty = ($r.Width -le 0 -or $r.Height -le 0)
-    }
+    Get-UiaRect $element
 }
 
 # Every control a person can point at or type into, on the page. Buttons of the shell outside the settings
@@ -292,6 +271,7 @@ function Test-Geometry([int]$width) {
     $seen = @{}
     $over = @()
     $invisible = @()
+    $narrow = @()
     foreach ($percent in 0, 50, 100) {
         Set-ScrollTo $surface $percent
         $column = Get-ElementNamed 'Visualization settings content'
@@ -303,8 +283,17 @@ function Test-Geometry([int]$width) {
             if ($c.Rect.Right -gt ($panel.Right + 1) -or $c.Rect.Left -lt ($panel.Left - 1)) {
                 $over += "$($c.Type) '$($c.Name)' spans $($c.Rect.Left)..$($c.Rect.Right) against a column of $($panel.Left)..$($panel.Right), $([math]::Round($c.Rect.Right - $panel.Right)) px past its right edge"
             }
+            # T-163. The boundary check above cannot see ONE fixed-width control inside the parameter template: UIA
+            # trims it at the column edge and nothing moves. Measured with the per-parameter Slider back at Width=360
+            # HorizontalAlignment=Left: at a 1000px window every slider read 789..1036, exactly the column, and the
+            # surface stayed put, so the page passed while each slider was cut off. What it cannot hide is the wide
+            # window, where the same sliders read 360 inside a 553 px column. So the page's own promise is asserted
+            # (T-60's AC-307, "everything in it stretches"): a slider or list box spans its column at every width.
+            if ($c.Type -in 'Slider', 'ComboBox' -and $c.Rect.Width -lt ($panel.Width - 2)) {
+                $narrow += "$($c.Type) '$($c.Name)' is $($c.Rect.Width) px wide in a column of $($panel.Width): it is not stretching, which is what a fixed Width looks like"
+            }
             # T-137's shape: present in the tree, on screen, and nothing to see.
-            if ($c.Rect.Empty) { $invisible += "$($c.Type) '$($c.Name)' has an empty rectangle" }
+            if ($c.Rect.Offscreen) { $invisible += "$($c.Type) '$($c.Name)' has an empty rectangle" }
         }
     }
 
@@ -352,6 +341,7 @@ function Test-Geometry([int]$width) {
         return "at ${width}px, $($unique.Count) control(s) overflow the settings column: " + ($unique -join '; ')
     }
     if ($invisible.Count -gt 0) { return "at ${width}px: " + (($invisible | Sort-Object -Unique) -join '; ') }
+    if ($narrow.Count -gt 0) { return "at ${width}px, $(@($narrow | Sort-Object -Unique).Count) control(s) do not fill the settings column: " + (($narrow | Sort-Object -Unique) -join '; ') }
     return $null
 }
 
@@ -621,9 +611,9 @@ try {
 
     # ---- geometry: where the controls ARE, not only that they exist ----------------------------------------
 
-    Test-Case "the page stays inside the sidebar, clear of the controls bar and of the window edge, at $($Widths -join 'px, ')px" {
+    Test-Case "the page stays inside the sidebar, clear of the controls bar and of the window edge, at $($widthList -join 'px, ')px" {
         Select-ListRow 'Presets' 'Spectrum Bars'
-        foreach ($w in $Widths) {
+        foreach ($w in $widthList) {
             $problem = Test-Geometry $w
             if ($problem) { return $problem }
         }
@@ -631,7 +621,7 @@ try {
 
     Test-Case 'nor with the preset that declares the most controls' {
         Select-ListRow 'Presets' 'Ambient Glow'
-        Test-Geometry ($Widths | Measure-Object -Minimum).Minimum
+        Test-Geometry ($widthList | Measure-Object -Minimum).Minimum
     }
 
     # The same invariant pointed the other way, at the panel on the other side of the boundary. Here because the
@@ -640,7 +630,7 @@ try {
     # and this case would not have caught its clipping, since UIA clips a control to its panel; since T-182 it is a
     # bar as wide as Now Playing, and check-transport-automation.ps1 measures its controls for clipping properly.
     Test-Case 'and the controls panel keeps its own controls inside itself' {
-        Set-WindowSize ($Widths | Measure-Object -Minimum).Minimum 900
+        Set-WindowSize ($widthList | Measure-Object -Minimum).Minimum 900
         $controlsPanel = Get-ElementNamed 'Playback controls panel'
         if (-not $controlsPanel) { return 'the playback controls panel is not in the tree' }
         $box = Get-Rect $controlsPanel
