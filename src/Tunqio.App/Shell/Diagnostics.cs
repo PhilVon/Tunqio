@@ -72,10 +72,11 @@ public static class Diagnostics
         string? build = null,
         string? rendererProblem = null,
         ReactiveThemeStatus? theming = null,
-        bool? rendererHasAudioSource = null) =>
+        bool? rendererHasAudioSource = null,
+        PlaybackClock? clock = null) =>
     [
         new("Playback", Playback(snapshot)),
-        new("Output", Output(engine)),
+        new("Output", Output(engine, clock)),
         new("Renderer", Renderer(renderer, rendererProblem, rendererHasAudioSource)),
         new("Reactive theming", Theming(theming)),
         new("Build", [new DiagnosticsRow("Version", build ?? "unknown")]),
@@ -132,7 +133,7 @@ public static class Diagnostics
     private static string Named(OutputStatus status) =>
         string.IsNullOrWhiteSpace(status.DeviceId) ? string.Empty : " (" + status.DeviceId + ")";
 
-    private static IReadOnlyList<DiagnosticsRow> Output(EngineStats? engine)
+    private static IReadOnlyList<DiagnosticsRow> Output(EngineStats? engine, PlaybackClock? clock)
     {
         if (engine is null)
         {
@@ -144,8 +145,10 @@ public static class Diagnostics
             new DiagnosticsRow("Started", engine.OutputStarted ? "yes" : "no"),
             new DiagnosticsRow("Mode", engine.Exclusive ? "exclusive" : "shared"),
             new DiagnosticsRow("Format", Inv($"{engine.OutputSampleRate} Hz · {engine.OutputChannels} ch · {engine.OutputFormat}")),
-            // The buffer is the latency: it is how far ahead of the speakers the mixer is working.
-            new DiagnosticsRow("Latency", Inv($"{engine.OutputBuffer.TotalMilliseconds:F1} ms")),
+            // The latency is what is mixed and not yet heard, read live. The buffer length BASS reports follows the
+            // request and is not it: 40 ms reported against 73-76 ms in flight on a shared-mode device (T-171).
+            new DiagnosticsRow("Latency", clock is { } reading ? Inv($"{engine.BufferedDuration(reading).TotalMilliseconds:F1} ms") : "unknown"),
+            new DiagnosticsRow("Buffer", Inv($"{engine.OutputBuffer.TotalMilliseconds:F1} ms reported")),
             new DiagnosticsRow("Callbacks", engine.Callbacks.ToString(CultureInfo.InvariantCulture)),
             new DiagnosticsRow("Underruns", engine.Underruns.ToString(CultureInfo.InvariantCulture)),
             new DiagnosticsRow("Callback max", Inv($"{engine.CallbackMax.TotalMilliseconds:F2} ms")),

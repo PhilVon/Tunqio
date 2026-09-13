@@ -80,7 +80,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     {
         PlaybackSession? session = _source?.Session;
         IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(
-            session?.Current, ReadEngineStats(session), Read(), _build, RendererProblem, ReadTheming(), ReadAudioSource());
+            session?.Current, ReadEngineStats(session), Read(), _build, RendererProblem, ReadTheming(), ReadAudioSource(), ReadClock(session));
 
         Sections.Clear();
         foreach (DiagnosticsSection section in sections)
@@ -131,6 +131,20 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     /// or a closed handle, and <see cref="Refresh"/> runs from a timer: an exception out of it reaches the XAML
     /// unhandled-exception handler, which logs and does not recover, so an unguarded read here ended the process (T-159).
     /// </summary>
+    /// <summary>The engine's clock, for the live buffer depth; guarded for the same reason as <see cref="ReadEngineStats"/>.</summary>
+    private static PlaybackClock? ReadClock(PlaybackSession? session)
+    {
+        try
+        {
+            return session?.EngineClock;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Serilog.Log.Debug(e, "Diagnostics could not read the engine clock");
+            return null;
+        }
+    }
+
     private static EngineStats? ReadEngineStats(PlaybackSession? session)
     {
         try

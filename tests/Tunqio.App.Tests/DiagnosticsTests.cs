@@ -95,11 +95,37 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         Value(sections, "Playback", "Track").Should().Be("One (id 11)");
         Value(sections, "Playback", "Queue").Should().Be("1 of 2");
         Value(sections, "Playback", "Output health").Should().Be("ok");
-        Value(sections, "Output", "Latency").Should().Be("0.0 ms");
+        Value(sections, "Output", "Latency").Should().Be("unknown", "no clock was given");
+        Value(sections, "Output", "Buffer").Should().Be("0.0 ms reported");
         Value(sections, "Output", "Underruns").Should().Be("0");
         Value(sections, "Renderer", "Frame rate").Should().Be("144.0 fps");
         Value(sections, "Renderer", "Missed refreshes").Should().Be("3");
         Value(sections, "Build", "Version").Should().Be("0.1.0");
+    }
+
+    /// <summary>
+    /// T-171: the latency row is what is in flight, read off the clock, not the buffer length the stats report. On a
+    /// shared-mode device those measured 73-76 ms against 40, and a row labelled Latency showing 40 was 35 ms wrong.
+    /// </summary>
+    [Fact]
+    public void Latency_is_the_live_buffer_depth_and_the_reported_buffer_is_its_own_row()
+    {
+        var stats = new EngineStats(100, 0, TimeSpan.FromMilliseconds(1), 48_000, 2, TimeSpan.FromMilliseconds(40), false, true, "float");
+        long seventyFiveMs = 48_000 * 2 * 4 * 75 / 1000;
+        var clock = new PlaybackClock(TimeSpan.Zero, 1_000_000, TimeSpan.FromMilliseconds(40), 0, seventyFiveMs);
+
+        IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(null, stats, null, clock: clock);
+
+        Value(sections, "Output", "Latency").Should().Be("75.0 ms");
+        Value(sections, "Output", "Buffer").Should().Be("40.0 ms reported");
+    }
+
+    [Fact]
+    public void An_output_with_no_format_has_no_buffered_duration()
+    {
+        var offline = new EngineStats(0, 0, TimeSpan.Zero, 0, 0, TimeSpan.Zero, false, false, "unknown");
+
+        offline.BufferedDuration(new PlaybackClock(TimeSpan.Zero, 0, TimeSpan.Zero, 0, 12_345)).Should().Be(TimeSpan.Zero);
     }
 
     /// <summary>

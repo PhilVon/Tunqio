@@ -68,6 +68,11 @@ public readonly record struct PlaybackClock(TimeSpan Position, long MixerBytePos
 }
 
 /// <summary>Output thread statistics (<c>mp_engine_stats</c>).</summary>
+/// <param name="OutputBuffer">
+/// The buffer length BASS reports for the open device, which follows the length that was requested. It is not how
+/// much audio is mixed and not yet heard: that measured 73-76 ms on a shared-mode device against 40 ms here (T-171).
+/// The live depth is <see cref="PlaybackClock.OutputBufferedBytes"/>; <see cref="BufferedDuration"/> converts it.
+/// </param>
 public sealed record EngineStats(
     long Callbacks,
     long Underruns,
@@ -77,4 +82,15 @@ public sealed record EngineStats(
     TimeSpan OutputBuffer,
     bool Exclusive,
     bool OutputStarted,
-    string OutputFormat);
+    string OutputFormat)
+{
+    /// <summary>
+    /// How much audio is mixed and not yet heard in <paramref name="clock"/>'s reading, in time: its buffered float
+    /// bytes over this output's rate and channels. Zero when the output has no format (offline, or no device).
+    /// </summary>
+    public TimeSpan BufferedDuration(PlaybackClock clock)
+    {
+        long bytesPerSecond = (long)OutputSampleRate * OutputChannels * 4;
+        return bytesPerSecond > 0 ? TimeSpan.FromMilliseconds(clock.OutputBufferedBytes * 1000.0 / bytesPerSecond) : TimeSpan.Zero;
+    }
+}

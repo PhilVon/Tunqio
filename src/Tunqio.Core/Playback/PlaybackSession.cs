@@ -175,6 +175,9 @@ public sealed class PlaybackSession : IPlaybackCommands, IPreviewPlayer, IAsyncD
     /// </summary>
     public EngineStats EngineStats => _engine.Stats;
 
+    /// <summary>The engine's clock right now, for readouts that need the live output buffer depth (T-171).</summary>
+    public PlaybackClock EngineClock => _engine.Clock;
+
     public Task PlayNowAsync(IReadOnlyList<long> trackIds, int startIndex = 0, bool shuffle = false, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(trackIds);

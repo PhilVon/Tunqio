@@ -248,7 +248,7 @@ typedef struct mp_clock {
     uint32_t struct_size;
     int64_t position_ms;           /* audible position of the current track, output latency compensated */
     int64_t mixer_byte_pos;        /* bytes the mixer has produced since it was created (float frames * channels * 4) */
-    uint32_t output_latency_ms;    /* WASAPI buffer length */
+    uint32_t output_latency_ms;    /* WASAPI buffer length as BASS reports it: NOT what is in flight (see below) */
     int64_t qpc_ticks;             /* QueryPerformanceCounter at the time of the reading */
     int64_t output_buffered_bytes; /* float bytes mixed but not yet played (what position_ms was compensated by) */
 } mp_clock;
@@ -260,6 +260,10 @@ typedef struct mp_engine_stats {
     uint32_t callback_max_us;
     uint32_t output_sample_rate;
     uint32_t output_channels;
+    /* The buffer length BASS reports for the open device, which follows the length that was requested. It is NOT
+     * how much audio is mixed and not yet heard: on a shared-mode device that measured 73-76 ms against 40 here
+     * (T-171, docs/spikes/e4-s8-latency-floor.md section 3). For the live depth read mp_clock.output_buffered_bytes
+     * and divide by output_sample_rate * output_channels * 4. */
     uint32_t output_buffer_ms;
     uint8_t exclusive;
     uint8_t output_started;
