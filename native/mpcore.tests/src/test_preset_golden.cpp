@@ -173,7 +173,9 @@ const mp_analysis_frame& fixed_frame() {
 }
 
 // The two extremes of what the analysis stream can carry, for the flash test: digital silence, and full scale
-// everywhere. Any real pair of consecutive frames is inside the change between these two.
+// everywhere. They are NOT the worst pair of frames (T-181): full scale carries a 12 kHz centroid, and a preset
+// coloured by centroid or loudness can paint a brighter field at an input between the two - measured up to 1.9x
+// this pair's change. The centroid sweep beside the flash test is what bounds it.
 mp_analysis_frame silent_frame() {
     mp_analysis_frame f{};
     f.struct_size = sizeof(mp_analysis_frame);
@@ -1196,9 +1198,10 @@ TEST_CASE("a theme too dark to draw with leaves the preset its own palette", "[r
 //
 // docs/ui-screens-and-flows.md: "never flashes above 3 Hz full-field luminance change". The analysis stream runs
 // at ~93 Hz, so a preset absolutely can change faster than 3 Hz - what it must not do is change the *field*
-// that much. Measured between digital silence and full scale in every bin, which bounds any pair of real
-// consecutive frames, against the two thresholds WCAG 2.3.1 states: 10% of maximum relative luminance, over
-// more than 25% of the field.
+// that much. Measured between digital silence and full scale in every bin, against the two thresholds WCAG 2.3.1
+// states: 10% of maximum relative luminance, over more than 25% of the field. That pair is the extremes of the
+// INPUT, not of the picture - T-181 measured inputs between them that change the field up to 1.9x as much - so the
+// centroid sweep below, not this test, is the one that bounds every colour mode.
 
 TEST_CASE("no shipped preset can flash the field", "[render][preset][a11y]") {
     const preset_root_override root{shipped_presets()};
@@ -1217,6 +1220,64 @@ TEST_CASE("no shipped preset can flash the field", "[render][preset][a11y]") {
         WARN(note); // the peak is printed because ambient-glow's area is zero, and a zero needs a reading beside it
         CHECK(m.flashing_area < 0.25);
         CHECK(m.mean_delta < 0.10);
+    }
+}
+
+// T-181. The test above says silence and full scale bound every real pair of frames, and it measures that pair
+// at each preset's DEFAULT parameters. That holds where a preset's luminance only grows with its input, and the
+// `colour` parameter is where it may not: at colour=2 the ramp coordinate is the spectral centroid, log-mapped
+// over 300 Hz - 8.5 kHz, and spectrum-bars' and waveform's brightest stop is the MIDDLE one (aqua). full_scale_frame
+// carries 12 kHz, which samples the end of the ramp, so a full-loudness frame at a centroid near 1.6 kHz - the
+// middle of that log range - may paint a brighter field than the pair above ever measures.
+//
+// So this sweeps instead of trusting the pair: every shipped preset, every colour mode, and a centroid sweep that
+// includes both ends of the map, its middle and the 12 kHz the pair uses, each measured from silence on a fresh
+// renderer. It reports the worst it found and where, beside the default pair, so the two can be compared.
+TEST_CASE("no shipped preset can flash the field at any centroid in any colour mode", "[render][preset][a11y]") {
+    const preset_root_override root{shipped_presets()};
+    constexpr std::array<float, 9> k_centroids{0.0f,    300.0f,  600.0f,  1200.0f, 1600.0f,
+                                               2400.0f, 4800.0f, 8500.0f, 12000.0f};
+
+    for (const char* id : k_shipped_presets) {
+        double worst_area = 0.0;
+        double worst_mean = 0.0;
+        int worst_mean_colour = 0;
+        float worst_mean_centroid = 0.0f;
+        double default_mean = 0.0;
+
+        for (int colour = 0; colour <= 2; ++colour) {
+            for (const float centroid : k_centroids) {
+                const headless_renderer fx{k_golden_width, k_golden_height};
+                REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
+                REQUIRE(mp_renderer_set_param(fx.handle, "colour", static_cast<float>(colour)) == MP_OK);
+                mp_analysis_frame loud_frame = full_scale_frame();
+                loud_frame.spectral_centroid_hz = centroid;
+                const capture quiet = fx.shoot(silent_frame());
+                const capture loud = fx.shoot(loud_frame);
+
+                const flash_measurement m = measure_flash(quiet, loud);
+                worst_area = std::max(worst_area, m.flashing_area);
+                if (m.mean_delta > worst_mean) {
+                    worst_mean = m.mean_delta;
+                    worst_mean_colour = colour;
+                    worst_mean_centroid = centroid;
+                }
+                if (colour == 0 && centroid == 12000.0f) {
+                    default_mean = m.mean_delta;
+                }
+                INFO(id << " at colour=" << colour << ", silence -> full scale at a " << centroid << " Hz centroid");
+                CHECK(m.flashing_area < 0.25);
+                CHECK(m.mean_delta < 0.10);
+            }
+        }
+
+        char note[320];
+        std::snprintf(note, sizeof note,
+                      "%s over 3 colour modes x %zu centroids: worst mean full-field luminance change %.4f (colour=%d, "
+                      "%.0f Hz) against %.4f for the default pair; worst flashing area %.2f%% - against 0.10 and 25%%",
+                      id, k_centroids.size(), worst_mean, worst_mean_colour, worst_mean_centroid, default_mean,
+                      worst_area * 100.0);
+        WARN(note);
     }
 }
 
