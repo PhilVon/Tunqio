@@ -51,12 +51,15 @@ public sealed class VisualizerArtLink : IDisposable
 
     /// <param name="source">Where the session comes from; it may not exist yet, and may never.</param>
     /// <param name="host">The visualizer surface. Held whether or not it is attached; a detached one is skipped.</param>
-    /// <param name="art">The art cache. Null - the spike modes - simply leaves every track without a palette.</param>
+    /// <param name="art">
+    /// The art cache; null simply leaves every track without a palette. Required and positional, with no default
+    /// (T-180): the old doc said the spike modes were the caller that wanted null, and no spike mode builds one.
+    /// </param>
     /// <param name="ui">The XAML thread's context. Null runs updates inline, which is what the tests want.</param>
     public VisualizerArtLink(
         IPlaybackSessionSource source,
         IVisualizationHost host,
-        IArtCache? art = null,
+        IArtCache? art,
         SynchronizationContext? ui = null)
     {
         ArgumentNullException.ThrowIfNull(source);

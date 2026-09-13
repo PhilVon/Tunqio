@@ -76,14 +76,25 @@ public sealed class LibraryScanner : ILibraryScanner
     private readonly int _readDegree;
     private int _scanning;
 
+    /// <param name="artCache">
+    /// ExtractArt's destination; <c>null</c> scans without extracting any album art at all. Required and
+    /// positional, with no default (T-180) — this is a whole stage of the pipeline, and losing it silently is
+    /// the shape of defect T-156 and T-179 both were.
+    /// </param>
+    /// <param name="durationProbe">
+    /// The slow path for a file whose tag carries no duration; <c>null</c> leaves such a track at
+    /// <c>duration_ms = 0</c>. Required and positional for the same reason, and today every caller passes null
+    /// because nothing implements <see cref="IDurationProbe"/> yet — which is now said at each call site rather
+    /// than hidden in a default (T-180).
+    /// </param>
     /// <param name="readDegree">ReadTags workers; <c>null</c> means <see cref="DefaultReadDegree"/>.</param>
     public LibraryScanner(
         ITrackRepository tracks,
         ILibraryFolderRepository folders,
         ITagReader reader,
+        IArtCache? artCache,
+        IDurationProbe? durationProbe,
         TimeProvider? clock = null,
-        IArtCache? artCache = null,
-        IDurationProbe? durationProbe = null,
         ILogger? logger = null,
         int? readDegree = null)
     {

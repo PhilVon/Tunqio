@@ -101,6 +101,9 @@ public partial class App : Application
             return;
         }
 
+        // Every argument below is required (T-180): MainWindow's collaborators carry no defaults, so this - the
+        // single place the application is assembled - cannot drop one and still compile. That is the whole
+        // mechanism behind T-156 and T-179, both of which were one omitted argument on a line like this.
         var window = new MainWindow(
             RenderSpikeRunner.WantsWarp(commandLine),
             settings,

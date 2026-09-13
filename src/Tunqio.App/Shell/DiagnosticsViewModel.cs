@@ -44,7 +44,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     /// the controller does not exist until the audio engine is up, and on a machine with no sound never will.
     /// </param>
     public DiagnosticsViewModel(
-        IPlaybackSessionSource? source = null,
+        IPlaybackSessionSource? source,
         Func<RenderStats?>? renderer = null,
         string? build = null,
         SynchronizationContext? ui = null,

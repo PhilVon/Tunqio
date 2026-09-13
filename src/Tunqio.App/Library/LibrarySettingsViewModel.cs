@@ -103,7 +103,7 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         LibraryScanCoordinator scans,
         ISettingsStore settings,
         ILibraryFolderPicker picker,
-        IArtCache? art = null,
+        IArtCache? art,
         TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(folders);
