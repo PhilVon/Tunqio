@@ -71,6 +71,17 @@ public sealed class FocusChrome : ObservableObject, IDisposable
     /// <summary>Track changes are announced in Focus (accessibility contract), where the metadata may be all that is on screen.</summary>
     public bool AnnouncesTrackChanges => _shell.Mode == ShellMode.Focus;
 
+    /// <summary>
+    /// Whether focus arriving in the controls bar should hold it on screen: keyboard focus only. A click on the mode
+    /// switcher moves focus into the bar too, and a pin taken on that would keep the controls up for as long as the
+    /// switcher kept focus - in the Focus mode that click just entered. The contract this pin exists for is the keyboard
+    /// user's (a focusable transport they are never stranded from), not the pointer's, which has its own pin.
+    /// </summary>
+    public static bool PinsOnFocus(Microsoft.UI.Xaml.FocusState state) => state == Microsoft.UI.Xaml.FocusState.Keyboard;
+
+    /// <summary>When the last input (or a pin letting go) was seen, so a hide can say how long it really waited.</summary>
+    public DateTimeOffset LastActivity => _lastActivity;
+
     /// <summary>True while anything is holding the controls on screen.</summary>
     public bool IsPinned => _pins.Count > 0;
 

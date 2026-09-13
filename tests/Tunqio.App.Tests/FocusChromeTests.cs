@@ -86,6 +86,18 @@ public sealed class FocusChromeTests : IDisposable
         _chrome.ControlsVisible.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(Microsoft.UI.Xaml.FocusState.Keyboard, true)]
+    [InlineData(Microsoft.UI.Xaml.FocusState.Pointer, false)]
+    [InlineData(Microsoft.UI.Xaml.FocusState.Programmatic, false)]
+    [InlineData(Microsoft.UI.Xaml.FocusState.Unfocused, false)]
+    public void Only_keyboard_focus_in_the_bar_holds_it(Microsoft.UI.Xaml.FocusState state, bool pins)
+    {
+        // A click on the mode switcher puts focus in the bar as well; pinned on that, Focus entered by the switcher
+        // would never hide its controls.
+        FocusChrome.PinsOnFocus(state).Should().Be(pins);
+    }
+
     [Fact]
     public void Pins_are_independent()
     {

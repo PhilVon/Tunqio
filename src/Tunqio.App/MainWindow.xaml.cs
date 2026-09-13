@@ -130,8 +130,15 @@ public sealed partial class MainWindow : Window
             Root.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler((_, _) => chrome.Activity()), handledEventsToo: true);
             ControlsPanel.PointerEntered += (_, _) => chrome.Pin(FocusChrome.PointerOverControls, on: true);
             ControlsPanel.PointerExited += (_, _) => chrome.Pin(FocusChrome.PointerOverControls, on: false);
-            // Focus events bubble, so moving between two buttons in the bar is a LostFocus and then a GotFocus.
-            ControlsPanel.GotFocus += (_, _) => chrome.Pin(FocusChrome.KeyboardInControls, on: true);
+            // Focus events bubble, so moving between two buttons in the bar is a LostFocus and then a GotFocus. Only
+            // keyboard focus pins: a click on the switcher also lands focus here (FocusChrome.PinsOnFocus).
+            ControlsPanel.GotFocus += (_, e) =>
+            {
+                FocusState how = (e.OriginalSource as Control)?.FocusState ?? FocusState.Unfocused;
+                bool pins = FocusChrome.PinsOnFocus(how);
+                chrome.Pin(FocusChrome.KeyboardInControls, on: pins);
+                Serilog.Log.Debug("Focus controls got {How} focus; pinned {Pinned}", how, pins);
+            };
             ControlsPanel.LostFocus += (_, _) => chrome.Pin(FocusChrome.KeyboardInControls, on: false);
             QueueButton.Flyout.Opened += (_, _) => chrome.Pin(FocusChrome.FlyoutOpen, on: true);
             QueueButton.Flyout.Closed += (_, _) => chrome.Pin(FocusChrome.FlyoutOpen, on: false);
@@ -345,7 +352,18 @@ public sealed partial class MainWindow : Window
         TimeSpan fade = visible ? TimeSpan.Zero : ShellLayout.ModeTransition(_uiSettings.AnimationsEnabled);
         ControlsPanel.OpacityTransition = fade == TimeSpan.Zero ? null : new ScalarTransition { Duration = fade };
         ControlsPanel.Opacity = visible ? 1 : 0;
-        Serilog.Log.Debug("Focus controls {State}", visible ? "shown" : "hidden");
+        if (visible)
+        {
+            Serilog.Log.Debug("Focus controls shown");
+        }
+        else
+        {
+            // The idle time as this process measured it, so a check reading the log can tell a late hide from input
+            // it did not know had happened.
+            DateTimeOffset now = TimeProvider.System.GetUtcNow();
+            double idle = (now - (_focusChrome?.LastActivity ?? now)).TotalSeconds;
+            Serilog.Log.Debug("Focus controls hidden after {IdleSeconds} s without input", Math.Round(idle, 2));
+        }
     }
 
     /// <summary>The left-edge queue peek exists only in Focus, where the sidebar that would otherwise hold the queue is hidden.</summary>
@@ -364,10 +382,15 @@ public sealed partial class MainWindow : Window
         if (CurrentMode == ShellMode.Focus && _queue is not null)
         {
             QueuePeek.Visibility = Visibility.Visible;
+            Serilog.Log.Debug("Focus queue peek opened");
         }
     }
 
-    private void OnQueuePeekExited(object sender, PointerRoutedEventArgs e) => QueuePeek.Visibility = Visibility.Collapsed;
+    private void OnQueuePeekExited(object sender, PointerRoutedEventArgs e)
+    {
+        QueuePeek.Visibility = Visibility.Collapsed;
+        Serilog.Log.Debug("Focus queue peek closed");
+    }
 
     /// <summary>
     /// Says the new track in Focus (accessibility contract: <c>LiveSetting = Polite</c>). The view model raises
