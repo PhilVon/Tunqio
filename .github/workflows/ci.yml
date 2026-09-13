@@ -119,6 +119,13 @@ jobs:
       - name: Native tests (Release)
         run: artifacts/native/Release/x64/mpcore.tests.exe --reporter console::out=- --reporter JUnit::out=artifacts/test-results/mpcore.release.xml
 
+      # T-144. Every struct_size test above is compiled from the current header, so the layouts it disagrees about
+      # only disagree arithmetically. This binary is compiled against a byte-exact copy of the ABI 0.12 header and
+      # run against the mpcore.dll the solution build just produced: a real older caller, which is what a plugin
+      # built against a header older than the DLL it loads into will be (ADR-009).
+      - name: A caller built against the ABI 0.12 header is served what it declares
+        run: artifacts/native/Release/x64/mpcore_abi_fixture_0_12.exe presets
+
       - name: Native tests (ASan)
         run: artifacts/native/ASan/x64/mpcore.tests.exe --reporter console::out=- --reporter JUnit::out=artifacts/test-results/mpcore.asan.xml
 
