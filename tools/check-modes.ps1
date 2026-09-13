@@ -1,0 +1,236 @@
+<#
+.SYNOPSIS
+  E5-S1: the three modes in a running shell. The switcher changes the mode and shows it, Focus gives Now Playing the
+  whole width and hides the sidebar, Curation gives the library side the larger share (Q-67), leaving Focus shows the
+  sidebar page that was there, playback keeps going across every switch, and ui.mode is written and read back by a
+  relaunch.
+
+  Keystroke-free: every action is a UIA pattern (SelectionItem, Invoke, Toggle, Window), so nothing typed can land in
+  another window. The price is that Ctrl+1/2/3, F11 and Esc are not pressed here; their table is ShellShortcutsTests
+  and what they do is ShellStateTests.
+
+  WHAT IT CHANGES. It launches the app over the user's own library, mutes it, and switches modes, which writes
+  ui.mode. When nothing is loaded it plays the first album tile, which replaces the saved queue with that album. At the end it pauses, restores the mute state it found, and leaves the app
+  in Discovery, which is also the default ui.mode.
+.PARAMETER Exe
+  The built shell. Defaults to the Release x64 output.
+.PARAMETER Seconds
+  How long to give the window to settle after launch.
+#>
+[CmdletBinding()]
+param(
+    [string]$Exe,
+    [int]$Seconds = 10
+)
+
+$ErrorActionPreference = 'Stop'
+# Not $PSScriptRoot in the param default: under powershell.exe -File that default resolved against the drive root.
+if (-not $Exe) { $Exe = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\artifacts\bin\Tunqio.App\release_win-x64\Tunqio.exe' }
+$resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
+if (-not $resolved) { throw "The shell is not built at $Exe." }
+$Exe = $resolved.Path
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+
+if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
+    throw 'Tunqio is already running. This script switches the mode of the instance it launches and plays through it, so it will not touch one somebody is using.'
+}
+
+$A = [System.Windows.Automation.AutomationElement]
+$settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
+$script:failures = @()
+
+function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $value = & $condition
+        if ($value) { return $value }
+        Start-Sleep -Milliseconds 250
+    }
+    throw "waited ${seconds}s and $what never happened"
+}
+
+function Find-By($scope, $property, [string]$value) {
+    $scope.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition($property, $value)))
+}
+
+function Find-Named($scope, [string]$name) { Find-By $scope $A::NameProperty $name }
+function Find-Id($scope, [string]$id) { Find-By $scope $A::AutomationIdProperty $id }
+
+function Get-Selected($element) {
+    $element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Current.IsSelected
+}
+
+function Select-Element($element) {
+    $element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+}
+
+function Get-Position($scrubber) {
+    $scrubber.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).Current.Value
+}
+
+function Get-StoredMode {
+    for ($i = 0; $i -lt 10; $i++) {
+        try { return ((Get-Content $settingsPath -Raw | ConvertFrom-Json).'ui.mode') }
+        catch { Start-Sleep -Milliseconds 200 }
+    }
+    return $null
+}
+
+function Check([string]$what, [bool]$ok, [string]$detail) {
+    if ($ok) { Write-Output "  ok    $what ($detail)" }
+    else { $script:failures += $what; Write-Output "  FAIL  $what ($detail)" }
+}
+
+function Start-Shell {
+    $process = Start-Process $Exe -PassThru
+    $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
+    $window = Wait-Until { $A::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid) } 30 'the shell window appeared'
+    Start-Sleep -Seconds $Seconds
+    Wait-Until { Find-Named $window 'Discovery mode' } 20 'the mode switcher appeared' | Out-Null
+    return @{ Process = $process; Window = $window }
+}
+
+function Stop-Shell($shell) {
+    if (-not $shell) { return }
+    try {
+        $shell.Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
+        if (-not $shell.Process.WaitForExit(15000)) { $shell.Process.Kill() }
+    }
+    catch { if (-not $shell.Process.HasExited) { $shell.Process.Kill() } }
+}
+
+function Select-Mode($window, [string]$mode) {
+    Select-Element (Find-Named $window "$mode mode")
+    Start-Sleep -Milliseconds 1200
+}
+
+$shell = $null
+$mutedAtStart = $null
+$startedPlayback = $false
+try {
+    Write-Output "shell: $Exe"
+    $shell = Start-Shell
+    $window = $shell.Window
+    if (-not (Get-Selected (Find-Named $window 'Discovery mode'))) { Select-Mode $window 'Discovery' }
+
+    $client = $window.Current.BoundingRectangle.Width
+    $controls = Find-Named $window 'Playback controls panel'
+    $discoveryWidth = $controls.Current.BoundingRectangle.Width
+    Write-Output "window $([math]::Round($client)) px; controls bar in Discovery $([math]::Round($discoveryWidth)) px"
+
+    # Playback, muted, so the check is heard by nobody.
+    $mute = Find-Id $window 'MuteButton'
+    $toggle = $mute.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    $mutedAtStart = $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
+    if (-not $mutedAtStart) { $toggle.Toggle() }
+    $playPause = Find-Id $window 'PlayPauseButton'
+    $scrubber = Find-Id $window 'Scrubber'
+    $playing = $false
+    try {
+        # The play button is enabled whenever there is a session, loaded track or not (IsReady, not HasTrack), so
+        # the scrubber is what says a track is loaded. The first run pressed Play on an empty queue and waited.
+        if (-not $scrubber.Current.IsEnabled) {
+            $tile = Wait-Until {
+                $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+                    Where-Object { $_.Current.Name -like 'Album * by *' } | Select-Object -First 1
+            } 20 'an album tile appeared'
+            Write-Output "loading a track from: $($tile.Current.Name)"
+            $tile.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            Start-Sleep -Milliseconds 1500
+            # A tile may open album detail rather than play; that page has a Play album button.
+            if (-not (Find-Id $window 'Scrubber').Current.IsEnabled) {
+                $playAlbum = Wait-Until { Find-Named $window 'Play album' } 10 'album detail offered Play album'
+                $playAlbum.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                $startedPlayback = $true
+            }
+            Wait-Until { (Find-Id $window 'Scrubber').Current.IsEnabled } 10 'a track loaded' | Out-Null
+        }
+
+        $playPause = Find-Id $window 'PlayPauseButton'
+        if ($playPause.Current.Name -notlike 'Pause*') {
+            $playPause.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $startedPlayback = $true
+        }
+        $scrubber = Find-Id $window 'Scrubber'
+        $before = Get-Position $scrubber
+        $playing = [bool](Wait-Until { (Get-Position $scrubber) -gt $before } 10 'the position advanced')
+        $startedPlayback = $true
+    }
+    catch {
+        Write-Output "  note  playback did not start: $($_.Exception.Message)"
+    }
+    if (-not $playing) {
+        $script:failures += 'playback'
+        Write-Output '  FAIL  nothing could be played, so AC-134 is not shown'
+    }
+
+    # A sidebar page that is not the default, so "not reset" means something.
+    $artists = Wait-Until { Find-Named $window 'Artists' } 20 'the sidebar showed its Artists view'
+    Select-Element $artists
+    Start-Sleep -Milliseconds 800
+    Check 'the sidebar is on Artists before any switch' (Get-Selected (Find-Named $window 'Artists')) 'selected'
+
+    foreach ($step in @(
+            @{ Mode = 'Focus'; SidebarShown = $false },
+            @{ Mode = 'Curation'; SidebarShown = $true },
+            @{ Mode = 'Discovery'; SidebarShown = $true })) {
+        $position = if ($playing) { Get-Position $scrubber } else { 0 }
+        Select-Mode $window $step.Mode
+        Check "$($step.Mode) is the selected mode" (Get-Selected (Find-Named $window "$($step.Mode) mode")) 'switcher'
+        Check "ui.mode says $($step.Mode.ToLowerInvariant())" ((Get-StoredMode) -eq $step.Mode.ToLowerInvariant()) "stored '$(Get-StoredMode)'"
+
+        $width = (Find-Named $window 'Playback controls panel').Current.BoundingRectangle.Width
+        $artistsNow = Find-Named $window 'Artists'
+        switch ($step.Mode) {
+            'Focus' {
+                Check 'Focus gives Now Playing the whole width' ($width -ge $client * 0.9) "controls bar $([math]::Round($width)) of $([math]::Round($client)) px"
+                Check 'Focus hides the sidebar' ($null -eq $artistsNow -or $artistsNow.Current.BoundingRectangle.Width -eq 0) 'the Artists view is not on screen'
+            }
+            'Curation' {
+                Check 'Curation gives the library side the larger share' ($width -lt $discoveryWidth - 20) "controls bar $([math]::Round($width)) px against Discovery's $([math]::Round($discoveryWidth))"
+                Check 'leaving Focus shows the sidebar page that was there' ($artistsNow -and (Get-Selected $artistsNow)) 'Artists still selected'
+            }
+            'Discovery' {
+                Check 'Discovery is back to its shares' ([math]::Abs($width - $discoveryWidth) -le 4) "controls bar $([math]::Round($width)) px, $([math]::Round($discoveryWidth)) before"
+                Check 'the sidebar page survived every switch' ($artistsNow -and (Get-Selected $artistsNow)) 'Artists still selected'
+            }
+        }
+
+        if ($playing) {
+            $after = Get-Position $scrubber
+            Check "playback kept going into $($step.Mode)" ($after -gt $position -and (Find-Id $window 'PlayPauseButton').Current.Name -like 'Pause*') "position $position -> $after s"
+        }
+    }
+
+    # AC-408: a relaunch opens in the mode the app was closed in.
+    Select-Mode $window 'Curation'
+    if ($startedPlayback) { (Find-Id $window 'PlayPauseButton').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $startedPlayback = $false }
+    if (-not $mutedAtStart) { (Find-Id $window 'MuteButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle(); $mutedAtStart = $true }
+    Stop-Shell $shell
+    $shell = Start-Shell
+    Check 'a relaunch opens in the mode the app was closed in' (Get-Selected (Find-Named $shell.Window 'Curation mode')) 'Curation selected after relaunch'
+    Select-Mode $shell.Window 'Discovery'
+}
+catch {
+    $script:failures += "the run stopped: $($_.Exception.Message)"
+    Write-Output "  FAIL  the run stopped: $($_.Exception.Message)"
+}
+finally {
+    if ($shell) {
+        try {
+            if ($startedPlayback) { (Find-Id $shell.Window 'PlayPauseButton').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+            if ($mutedAtStart -eq $false) { (Find-Id $shell.Window 'MuteButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle() }
+        }
+        catch { Write-Output "note: could not restore play or mute state: $($_.Exception.Message)" }
+        Stop-Shell $shell
+    }
+}
+
+# Printed on every outcome, so a waiter has something to match either way (T-174).
+if ($script:failures.Count -eq 0) {
+    Write-Output 'check-modes: PASS'
+    exit 0
+}
+Write-Output "check-modes: FAIL ($($script:failures.Count)): $($script:failures -join '; ')"
+exit 1
