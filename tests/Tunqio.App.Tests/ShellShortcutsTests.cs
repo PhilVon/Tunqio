@@ -48,6 +48,8 @@ public class ShellShortcutsTests
         Find(VirtualKey.Number3, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Curation);
         Find(VirtualKey.F11)!.Value.Command.Should().Be(ShellCommand.ToggleFocus);
         Find(VirtualKey.Escape)!.Value.Command.Should().Be(ShellCommand.LeaveFocus);
+        Find(VirtualKey.M, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.MiniPlayer);
+        Find(VirtualKey.M)!.Value.Command.Should().Be(ShellCommand.Mute, "Ctrl+M is the mini player and M on its own is still Mute");
     }
 
     // ---- E5-S1: the mode keys ---------------------------------------------------------------------------------------

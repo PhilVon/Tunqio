@@ -35,6 +35,9 @@ public sealed partial class MainWindow : Window
     private double _lastWidth = ShellLayout.MediumThreshold;
     private bool _syncingSwitcher;
     private FocusChrome? _focusChrome;
+    private readonly IPlaybackSessionSource? _audio;
+    private MiniPlayerWindow? _miniPlayer;
+    private bool _closing;
     private readonly ISettingsStore? _settings;
     private readonly TransportViewModel? _transport;
     private readonly NowPlayingViewModel? _nowPlaying;
@@ -109,6 +112,7 @@ public sealed partial class MainWindow : Window
         _forceWarp = forceWarp;
         _settings = settings;
         _open = open;
+        _audio = audio;
         _visualization = visualization;
         InitializeComponent();
         Title = Identity.WindowTitle(null, null);
@@ -217,6 +221,9 @@ public sealed partial class MainWindow : Window
         VisualizerPanel.CompositionScaleChanged += (_, _) => ForwardPanelSize();
         Closed += (_, _) =>
         {
+            // The mini player goes with the app; its own close must not try to show a window that is closing.
+            _closing = true;
+            _miniPlayer?.Close();
             _transport?.Dispose();
             _nowPlaying?.Dispose();
             _queue?.Dispose();
@@ -328,6 +335,47 @@ public sealed partial class MainWindow : Window
         ApplyShellLayout(_lastWidth);
         SyncModeSwitcher();
         UpdateFocusExtras();
+    }
+
+    // ---- the mini player (E5-S6) -------------------------------------------------------------------------------------
+
+    private void OnMiniPlayerClick(object sender, RoutedEventArgs e) => OpenMiniPlayer();
+
+    /// <summary>
+    /// Opens the mini player and hides this window. Closing the mini player, however it closes, shows this window
+    /// again, so the app is never running with nothing on the screen. False when there is no audio to control, which
+    /// leaves Ctrl+M unhandled.
+    /// </summary>
+    public bool OpenMiniPlayer()
+    {
+        if (_audio is null)
+        {
+            return false;
+        }
+
+        if (_miniPlayer is null)
+        {
+            var mini = new MiniPlayerWindow(_audio);
+            mini.ReturnRequested += (_, _) => mini.Close();
+            mini.Closed += (_, _) =>
+            {
+                _miniPlayer = null;
+                if (_closing)
+                {
+                    return;
+                }
+
+                AppWindow.Show();
+                Activate();
+                Serilog.Log.Debug("Mini player closed; main window shown");
+            };
+            _miniPlayer = mini;
+        }
+
+        _miniPlayer.Activate();
+        AppWindow.Hide();
+        Serilog.Log.Debug("Mini player opened; main window hidden");
+        return true;
     }
 
     // ---- Focus mode (E5-S2) ------------------------------------------------------------------------------------------
@@ -616,6 +664,8 @@ public sealed partial class MainWindow : Window
                 return _shell?.ToggleFocus() ?? false;
             case ShellCommand.LeaveFocus:
                 return _shell?.LeaveFocus() ?? false;
+            case ShellCommand.MiniPlayer:
+                return OpenMiniPlayer();
             default:
                 break;
         }

@@ -538,7 +538,7 @@ Kept in 1.0 (Q-8). `mp_preview_start/stop` in `mpcore/audio`: second mixer chann
 - [ ] Preview is off by default on first run until the user enables it (per R-15)
 
 ### E5-S6 · Mini player window · **M** · `ui` `windows`
-Second window, always-on-top, corner snap, marquee, transport.
+Second window, always-on-top, corner snap, marquee, transport. As built: `MiniPlayerWindow` (Ctrl+M or the Mini button) hides the main window and shows it again on close; keep on top defaults on; corner snap is `MiniPlayerSnap`, applied after the window stops moving; the marquee is not built (title and artist are trimmed).
 - [ ] Mini player controls playback and reflects state; closing it returns to the main window
 
 ---

@@ -67,18 +67,27 @@
             The queue lives in a flyout from this button (docs/ui-screens-and-flows.md, "Navigation map"). The
             sidebar's own Queue page waits for the Playlists section it sits beside there (E6-S1).
           -->
-          <Button x:Name="QueueButton" HorizontalAlignment="Center" Margin="0,0,0,12"
-                  AutomationProperties.Name="Queue" ToolTipService.ToolTip="Queue">
-            <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
-              <FontIcon Glyph="&#xE8FD;" FontSize="14" />
-              <TextBlock Text="Queue" Style="{StaticResource CaptionTextBlockStyle}" />
-            </StackPanel>
-            <Button.Flyout>
-              <Flyout Placement="Top">
-                <shell:QueuePanel x:Name="QueuePanelControl" />
-              </Flyout>
-            </Button.Flyout>
-          </Button>
+          <!-- Queue and the mini player (E5-S6) share a row, so the bar is no taller than it was (T-182 measures it). -->
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,0,0,12">
+            <Button x:Name="QueueButton" AutomationProperties.Name="Queue" ToolTipService.ToolTip="Queue">
+              <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
+                <FontIcon Glyph="&#xE8FD;" FontSize="14" />
+                <TextBlock Text="Queue" Style="{StaticResource CaptionTextBlockStyle}" />
+              </StackPanel>
+              <Button.Flyout>
+                <Flyout Placement="Top">
+                  <shell:QueuePanel x:Name="QueuePanelControl" />
+                </Flyout>
+              </Button.Flyout>
+            </Button>
+            <Button x:Name="MiniPlayerButton" Click="OnMiniPlayerClick"
+                    AutomationProperties.Name="Mini player" ToolTipService.ToolTip="Mini player (Ctrl+M)">
+              <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
+                <FontIcon Glyph="&#xEE47;" FontSize="14" />
+                <TextBlock Text="Mini" Style="{StaticResource CaptionTextBlockStyle}" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
         </StackPanel>
       </Border>
     </Grid>

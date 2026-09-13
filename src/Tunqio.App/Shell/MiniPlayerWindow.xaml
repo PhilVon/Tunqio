@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Tunqio.App.Shell.MiniPlayerWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Tunqio.App.Controls"
+    xmlns:shell="using:Tunqio.App.Shell">
+  <!--
+    The mini player (E5-S6, docs/ui-screens-and-flows.md, "Mini player"): a 360 x 120 window with no title bar.
+    Art on the left, which double-clicked returns to the main window; the title and artist, which are the drag
+    region; the transport and progress; the volume, shown while the pointer is over the window; and on the right,
+    return and keep-on-top. It binds a transport and a now-playing view model of its own over the same session as the
+    main window, so nothing it shows has a second owner.
+  -->
+  <Grid x:Name="Root" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" Padding="10"
+        Background="{ThemeResource LayerFillColorDefaultBrush}"
+        PointerEntered="OnPointerEntered" PointerExited="OnPointerExited"
+        AutomationProperties.Name="Mini player">
+
+    <Grid x:Name="ArtBox" Width="100" Height="100" CornerRadius="6" DoubleTapped="OnArtDoubleTapped"
+          Background="{x:Bind controls:PlaceholderArt.Brush(NowPlaying.ArtTitle), Mode=OneWay}"
+          ToolTipService.ToolTip="Double-click to return to the main window">
+      <TextBlock Text="{x:Bind controls:PlaceholderArt.Initials(NowPlaying.ArtTitle), Mode=OneWay}"
+                 FontSize="32" FontWeight="SemiBold" Foreground="White" Opacity="0.85"
+                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+      <Image Source="{x:Bind controls:AlbumArt.Tile(NowPlaying.ArtHash), Mode=OneWay}" Stretch="UniformToFill"
+             AutomationProperties.AccessibilityView="Raw" />
+    </Grid>
+
+    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*,Auto">
+      <!-- The drag region: the title and artist rows. Their text does not take the pointer, so a drag starts anywhere on them. -->
+      <Border x:Name="DragRegion" Grid.RowSpan="2" Background="Transparent" />
+      <TextBlock Text="{x:Bind NowPlaying.Title, Mode=OneWay}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                 IsHitTestVisible="False" AutomationProperties.Name="Title" />
+      <TextBlock Grid.Row="1" Text="{x:Bind NowPlaying.ArtistNames, Mode=OneWay}" Opacity="0.7" TextTrimming="CharacterEllipsis"
+                 IsHitTestVisible="False" AutomationProperties.Name="Artist" />
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+        <Button Click="OnPrevious" IsEnabled="{x:Bind Transport.IsReady, Mode=OneWay}" Padding="6,4"
+                AutomationProperties.Name="Previous track" ToolTipService.ToolTip="Previous">
+          <FontIcon Glyph="&#xE892;" FontSize="12" />
+        </Button>
+        <Button Click="OnPlayPause" IsEnabled="{x:Bind Transport.IsReady, Mode=OneWay}" Padding="8,4"
+                Style="{StaticResource AccentButtonStyle}"
+                AutomationProperties.Name="{x:Bind Transport.PlayPauseLabel, Mode=OneWay}" ToolTipService.ToolTip="Play/Pause">
+          <FontIcon Glyph="{x:Bind shell:TransportControls.PlayPauseGlyph(Transport.IsPlaying), Mode=OneWay}" FontSize="14" />
+        </Button>
+        <Button Click="OnNext" IsEnabled="{x:Bind Transport.IsReady, Mode=OneWay}" Padding="6,4"
+                AutomationProperties.Name="Next track" ToolTipService.ToolTip="Next">
+          <FontIcon Glyph="&#xE893;" FontSize="12" />
+        </Button>
+        <Slider x:Name="VolumeSlider" Width="64" Minimum="0" Maximum="100" StepFrequency="1" Margin="6,0,0,0"
+                Visibility="Collapsed" VerticalAlignment="Center"
+                Value="{x:Bind shell:TransportControls.VolumePercent(Transport.Volume), Mode=OneWay}"
+                IsEnabled="{x:Bind Transport.IsReady, Mode=OneWay}"
+                AutomationProperties.Name="Volume" ValueChanged="OnVolumeChanged" />
+      </StackPanel>
+
+      <ProgressBar Grid.Row="3" Minimum="0" Maximum="{x:Bind Transport.DurationSeconds, Mode=OneWay}"
+                   Value="{x:Bind Transport.PositionSeconds, Mode=OneWay}"
+                   AutomationProperties.Name="Track progress" />
+    </Grid>
+
+    <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Center">
+      <Button Click="OnReturn" Padding="6,4" AutomationProperties.Name="Return to main window"
+              ToolTipService.ToolTip="Return to the main window">
+        <FontIcon Glyph="&#xE73F;" FontSize="12" />
+      </Button>
+      <ToggleButton x:Name="KeepOnTop" IsChecked="True" Click="OnKeepOnTop" Padding="6,4"
+                    AutomationProperties.Name="Keep on top" ToolTipService.ToolTip="Keep on top">
+        <FontIcon Glyph="&#xE718;" FontSize="12" />
+      </ToggleButton>
+    </StackPanel>
+  </Grid>
+</Window>

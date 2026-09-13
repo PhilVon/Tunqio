@@ -122,6 +122,7 @@ The eight library views and the two detail pages live in `Tunqio.App.Library`: `
 
 ### Mini player
 - 360×120 window: art, title/artist marquee, transport, progress, volume on hover. Always-on-top toggle, snap to corners, double-click returns to main window. Uses a second `Window` with `OverlappedPresenter` (no title bar).
+- As built (E5-S6): `MiniPlayerWindow`, opened by Ctrl+M or the Mini button beside Queue, which hides the main window; closing it by any route (its return button, a double-click on the art, Alt+F4) shows the main window again, so the app is never running with nothing on screen. It owns a `TransportViewModel` and a `NowPlayingViewModel` over the same session. The title and artist rows are the drag region; the art is not, so a double-click on it reaches the window. Keep on top is on by default. A drop whose corner is within 48 px of a work-area corner snaps into it 300 ms after the window stops moving (`MiniPlayerSnap`). The title and artist are trimmed rather than scrolled: the marquee is not built.
 
 ### Tag editor dialog
 - Single: all editable fields, art preview with replace/remove. Batch: fields show "(multiple values)" and only changed fields are written. Preview list of files affected; Confirm writes with progress; Undo available from the sidebar `InfoBar` for the session.

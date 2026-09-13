@@ -39,6 +39,9 @@ public enum ShellCommand
 
     /// <summary>Leave Focus for the mode it was entered from (flow 7); nothing outside Focus.</summary>
     LeaveFocus,
+
+    /// <summary>Open the mini player (E5-S6).</summary>
+    MiniPlayer,
 }
 
 /// <summary>
@@ -116,8 +119,9 @@ public readonly record struct ShellShortcut(
 /// </para>
 /// <para>
 /// Media keys are not here: they are <c>SystemMediaTransportControls</c> (ADR-006) and belong to E7. Neither are
-/// the shortcuts whose features do not exist yet — the mini player, playlists, tag editing and visualization presets
-/// — because a key that is registered and does nothing is worse than one that is not registered at all.
+/// the shortcuts whose features do not exist yet — playlists, tag editing and visualization presets — because a key
+/// that is registered and does nothing is worse than one that is not registered at all. Ctrl+M (E5-S6) is taken on
+/// the way down like the mode keys: it is a chord no control wants, and M on its own is still Mute.
 /// </para>
 /// <para>
 /// The mode keys (E5-S1) split the same way. Ctrl+1/2/3 and F11 are taken on the way down, since nothing a control
@@ -149,6 +153,7 @@ public static class ShellShortcuts
         new(VirtualKey.Number2, VirtualKeyModifiers.Control, ShellCommand.Focus, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.Number3, VirtualKeyModifiers.Control, ShellCommand.Curation, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.F11, VirtualKeyModifiers.None, ShellCommand.ToggleFocus, 0, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.M, VirtualKeyModifiers.Control, ShellCommand.MiniPlayer, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.Escape, VirtualKeyModifiers.None, ShellCommand.LeaveFocus, 0, ShortcutDelivery.Accelerator),
 
         new(VirtualKey.Right, VirtualKeyModifiers.None, ShellCommand.Seek, 5, ShortcutDelivery.Accelerator),
