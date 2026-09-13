@@ -91,7 +91,16 @@ public sealed partial class AlbumsPage : Page, ILibraryRefreshable
         }
     }
 
-    private void OnAlbumAction(object? sender, AlbumActionEventArgs e) => ViewModel.HandleAsync(e.Action, e.Album).Forget("Album " + e.Action);
+    private void OnAlbumAction(object? sender, AlbumActionEventArgs e)
+    {
+        if (e.Action == AlbumAction.AddToPlaylist)
+        {
+            PlaylistDialogs.AddAlbumToPlaylistAsync(XamlRoot, e.Album).Forget("Add album to playlist");
+            return;
+        }
+
+        ViewModel.HandleAsync(e.Action, e.Album).Forget("Album " + e.Action);
+    }
 
     // Hover preview (E5-S5). The controller is the container's one; it decides whether a hover means anything.
     private void OnAlbumHover(object? sender, AlbumHoverEventArgs e) => HoverPreview.Report(e);

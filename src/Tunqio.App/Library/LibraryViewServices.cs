@@ -60,6 +60,8 @@ public static class LibraryViewServices
         services.AddTransient<FoldersViewModel>();
         services.AddTransient<SearchViewModel>();
         services.AddTransient<LibrarySettingsViewModel>();
+        services.AddTransient<PlaylistsViewModel>();
+        services.AddTransient<PlaylistDetailViewModel>();
         return services;
     }
 }

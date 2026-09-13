@@ -58,6 +58,13 @@ public sealed partial class TracksPage : Page, ILibraryRefreshable
             return;
         }
 
+        // Add to playlist (E6-S1) likewise opens a dialog.
+        if (e.Action == TrackAction.AddToPlaylist)
+        {
+            PlaylistDialogs.AddToPlaylistAsync(XamlRoot, [.. e.Tracks.Select(t => t.Id)]).Forget("Add tracks to playlist");
+            return;
+        }
+
         ViewModel.HandleAsync(e.Action, e.Tracks, e.Anchor).Forget("Tracks " + e.Action);
     }
 }

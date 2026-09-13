@@ -39,7 +39,16 @@ public sealed partial class ArtistDetailPage : Page, ILibraryRefreshable
 
     private void OnPlayAll(object sender, RoutedEventArgs e) => ViewModel.PlayAllAsync().Forget("Play artist");
 
-    private void OnAlbumAction(object? sender, AlbumActionEventArgs e) => ViewModel.HandleAsync(e.Action, e.Album).Forget("Album " + e.Action);
+    private void OnAlbumAction(object? sender, AlbumActionEventArgs e)
+    {
+        if (e.Action == AlbumAction.AddToPlaylist)
+        {
+            PlaylistDialogs.AddAlbumToPlaylistAsync(XamlRoot, e.Album).Forget("Add album to playlist");
+            return;
+        }
+
+        ViewModel.HandleAsync(e.Action, e.Album).Forget("Album " + e.Action);
+    }
 
     // Hover preview (E5-S5), for both grids on this page.
     private void OnAlbumHover(object? sender, AlbumHoverEventArgs e) => HoverPreview.Report(e);

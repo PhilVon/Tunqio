@@ -80,6 +80,12 @@ public interface ILibraryNavigator
     void OpenArtist(long artistId);
 
     void OpenTracks(TracksSpec spec);
+
+    /// <summary>A playlist's page (E6-S1).</summary>
+    void OpenPlaylist(long playlistId);
+
+    /// <summary>Library › Playlists, where a deleted playlist's page returns to.</summary>
+    void OpenPlaylists();
 }
 
 /// <summary>
@@ -110,6 +116,10 @@ public sealed class LibraryNavigator : ILibraryNavigator
         ArgumentNullException.ThrowIfNull(spec);
         _frame?.Navigate(typeof(TracksPage), spec, new EntranceNavigationTransitionInfo());
     }
+
+    public void OpenPlaylist(long playlistId) => _frame?.Navigate(typeof(PlaylistDetailPage), playlistId, new EntranceNavigationTransitionInfo());
+
+    public void OpenPlaylists() => _frame?.Navigate(typeof(PlaylistsPage), null, new EntranceNavigationTransitionInfo());
 }
 
 /// <summary>"Show in folder": selects the file in an Explorer window.</summary>

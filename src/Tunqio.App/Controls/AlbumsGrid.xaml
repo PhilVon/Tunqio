@@ -34,8 +34,7 @@
       </MenuFlyoutItem>
       <MenuFlyoutItem Text="Play next" Click="OnMenuPlayNext" />
       <MenuFlyoutItem Text="Add to queue" Click="OnMenuEnqueue" />
-      <!-- Playlists arrive with E6-S1. -->
-      <MenuFlyoutItem Text="Add to playlist" IsEnabled="False" />
+      <MenuFlyoutItem Text="Add to playlist" Click="OnMenuAddToPlaylist" />
       <MenuFlyoutSeparator />
       <MenuFlyoutItem Text="Open album" Click="OnMenuOpen">
         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A7;" /></MenuFlyoutItem.Icon>

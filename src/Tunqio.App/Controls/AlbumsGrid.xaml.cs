@@ -128,6 +128,8 @@ public sealed partial class AlbumsGrid : UserControl
 
     private void OnMenuShowInFolder(object sender, RoutedEventArgs e) => RaiseForMenu(AlbumAction.ShowInFolder);
 
+    private void OnMenuAddToPlaylist(object sender, RoutedEventArgs e) => RaiseForMenu(AlbumAction.AddToPlaylist);
+
     private void RaiseForMenu(AlbumAction action)
     {
         if (_menuAlbum is { } album)

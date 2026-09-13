@@ -260,6 +260,8 @@ public sealed partial class TracksList : UserControl
 
     private void OnMenuEditTags(object sender, RoutedEventArgs e) => Raise(TrackAction.EditTags, _menuAnchor);
 
+    private void OnMenuAddToPlaylist(object sender, RoutedEventArgs e) => Raise(TrackAction.AddToPlaylist, _menuAnchor);
+
     /// <summary>A row acted on outside the selection becomes the selection (the usual list convention).</summary>
     private void EnsureSelected(TrackDto track)
     {

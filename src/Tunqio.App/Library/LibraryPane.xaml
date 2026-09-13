@@ -57,6 +57,9 @@
         <NavigationViewItem Content="Folders" Tag="folders">
           <NavigationViewItem.Icon><FontIcon Glyph="&#xE8B7;" /></NavigationViewItem.Icon>
         </NavigationViewItem>
+        <NavigationViewItem Content="Playlists" Tag="playlists">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE90B;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
         <NavigationViewItemSeparator />
         <NavigationViewItem Content="Recently added" Tag="recent-added">
           <NavigationViewItem.Icon><FontIcon Glyph="&#xE896;" /></NavigationViewItem.Icon>

@@ -19,6 +19,9 @@ public enum TrackAction
     /// has no business holding.
     /// </summary>
     EditTags,
+
+    /// <summary>Add the selection to a playlist (E6-S1). Handled by the page, like <see cref="EditTags"/>: it opens a dialog.</summary>
+    AddToPlaylist,
 }
 
 /// <summary>The tracks an action applies to, in list order, and the row it was invoked on (if any).</summary>
@@ -60,6 +63,12 @@ public enum AlbumAction
     Enqueue,
     Open,
     ShowInFolder,
+
+    /// <summary>
+    /// Add the album's tracks to a playlist (E6-S1). Handled by the page, not <c>AlbumActions</c>: it opens a dialog, and
+    /// a dialog needs a <c>XamlRoot</c>.
+    /// </summary>
+    AddToPlaylist,
 }
 
 public sealed class AlbumActionEventArgs : EventArgs

@@ -41,8 +41,7 @@
       </MenuFlyoutItem>
       <MenuFlyoutItem Text="Play next" Click="OnMenuPlayNext" />
       <MenuFlyoutItem Text="Add to queue" Click="OnMenuEnqueue" />
-      <!-- Playlists (E6-S1) and the tag editor (E3-S10) arrive with their stories. -->
-      <MenuFlyoutItem Text="Add to playlist" IsEnabled="False" />
+      <MenuFlyoutItem Text="Add to playlist" Click="OnMenuAddToPlaylist" />
       <MenuFlyoutItem Text="Edit tags" Click="OnMenuEditTags">
         <MenuFlyoutItem.KeyboardAccelerators>
           <KeyboardAccelerator Key="F2" IsEnabled="False" />

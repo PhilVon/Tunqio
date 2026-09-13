@@ -43,6 +43,7 @@ public static class LibraryServiceCollectionExtensions
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Artists);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Genres);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Folders);
+        services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Playlists);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Search);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().PlayHistory);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().QueueState);

@@ -485,6 +485,10 @@ internal sealed class FakeNavigator : ILibraryNavigator
     public void OpenArtist(long artistId) => Opened.Add(("artist", artistId));
 
     public void OpenTracks(TracksSpec spec) => Opened.Add(spec);
+
+    public void OpenPlaylist(long playlistId) => Opened.Add(("playlist", playlistId));
+
+    public void OpenPlaylists() => Opened.Add("playlists");
 }
 
 internal sealed class FakeRevealer : IFileRevealer

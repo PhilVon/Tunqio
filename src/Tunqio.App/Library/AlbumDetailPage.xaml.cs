@@ -127,6 +127,13 @@ public sealed partial class AlbumDetailPage : Page, ILibraryRefreshable
 
     private void OnMenuShowInFolder(object sender, RoutedEventArgs e) => Raise(TrackAction.ShowInFolder, _menuAnchor);
 
+    // Add to playlist (E6-S1): a dialog, so the page and not the view model opens it.
+    private void OnAddAlbumToPlaylist(object sender, RoutedEventArgs e) =>
+        PlaylistDialogs.AddToPlaylistAsync(XamlRoot, [.. ViewModel.Rows.Select(r => r.Track.Id)]).Forget("Add album to playlist");
+
+    private void OnMenuAddToPlaylist(object sender, RoutedEventArgs e) =>
+        PlaylistDialogs.AddToPlaylistAsync(XamlRoot, [.. SelectedRows(_menuAnchor).Select(r => r.Track.Id)]).Forget("Add tracks to playlist");
+
     private void EnsureSelected(AlbumTrackRow row)
     {
         if (!List.SelectedItems.Contains(row))
@@ -135,7 +142,11 @@ public sealed partial class AlbumDetailPage : Page, ILibraryRefreshable
         }
     }
 
-    private void Raise(TrackAction action, AlbumTrackRow? anchor)
+    private void Raise(TrackAction action, AlbumTrackRow? anchor) =>
+        ViewModel.HandleAsync(action, SelectedRows(anchor), anchor).Forget("Album track " + action);
+
+    /// <summary>The selected rows in list order, or just <paramref name="anchor"/> when nothing is selected.</summary>
+    private List<AlbumTrackRow> SelectedRows(AlbumTrackRow? anchor)
     {
         var rows = new List<AlbumTrackRow>();
         foreach (ItemIndexRange range in List.SelectedRanges)
@@ -154,7 +165,7 @@ public sealed partial class AlbumDetailPage : Page, ILibraryRefreshable
             rows.Add(anchor);
         }
 
-        ViewModel.HandleAsync(action, rows, anchor).Forget("Album track " + action);
+        return rows;
     }
 
     private AlbumTrackRow? RowOf(object? element)

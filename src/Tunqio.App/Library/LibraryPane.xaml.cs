@@ -26,6 +26,7 @@ public sealed partial class LibraryPane : UserControl
         ["tracks"] = (typeof(TracksPage), TracksSpec.All),
         ["genres"] = (typeof(GenresPage), null),
         ["folders"] = (typeof(FoldersPage), null),
+        ["playlists"] = (typeof(PlaylistsPage), null),
         ["recent-added"] = (typeof(TracksPage), TracksSpec.RecentlyAdded),
         ["recent-played"] = (typeof(TracksPage), TracksSpec.RecentlyPlayed),
         ["most-played"] = (typeof(TracksPage), TracksSpec.MostPlayed),

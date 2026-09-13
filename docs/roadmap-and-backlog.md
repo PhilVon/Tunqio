@@ -546,6 +546,7 @@ Second window, always-on-top, corner snap, marquee, transport. As built: `MiniPl
 ## E6 · Playlists, settings and remaining UI (M4)
 
 ### E6-S1 · Playlists CRUD and detail view · **M** · `library` `ui`
+As built: `IPlaylistRepository` / `SqlitePlaylistRepository` over the existing `playlist` and `playlist_item` tables (remove and move rewrite the items in one transaction, since `(playlist_id, position)` is the key), Library › Playlists with New playlist, `PlaylistDetailPage` (play, shuffle, rename, delete with confirm, drag reorder and Move up/down, remove, totals), and an Add to playlist dialog from the album tile, album detail and the Tracks table. Not built here: the queue's "save as playlist". Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Playlist detail", and [library-and-data.md](library-and-data.md), "Repository layer".
 - [ ] Create, rename, delete (with confirm), reorder, add/remove; totals shown
 
 ### E6-S2 · M3U8 import/export and auto-export · **S** · `library`
