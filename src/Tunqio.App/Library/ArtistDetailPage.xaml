@@ -4,7 +4,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:Tunqio.App.Controls"
-    NavigationCacheMode="Disabled">
+    NavigationCacheMode="Disabled"
+    Unloaded="OnUnloaded">
   <!-- Artist detail (docs/ui-screens-and-flows.md): the albums they front, then "Appears on". Tiles behave as in Library › Albums. -->
   <ScrollViewer>
     <StackPanel Padding="0,0,0,16">
@@ -31,10 +32,10 @@
       </Grid>
 
       <TextBlock Text="Albums" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,8,16,0" Visibility="{x:Bind ViewModel.HasAlbums, Mode=OneWay}" />
-      <controls:AlbumsGrid ItemsSource="{x:Bind ViewModel.Albums, Mode=OneWay}" ActionRequested="OnAlbumAction" Visibility="{x:Bind ViewModel.HasAlbums, Mode=OneWay}" />
+      <controls:AlbumsGrid ItemsSource="{x:Bind ViewModel.Albums, Mode=OneWay}" ActionRequested="OnAlbumAction" TileHoverChanged="OnAlbumHover" Visibility="{x:Bind ViewModel.HasAlbums, Mode=OneWay}" />
 
       <TextBlock Text="Appears on" Style="{StaticResource SubtitleTextBlockStyle}" Margin="16,8,16,0" Visibility="{x:Bind ViewModel.HasAppearsOn, Mode=OneWay}" />
-      <controls:AlbumsGrid ItemsSource="{x:Bind ViewModel.AppearsOn, Mode=OneWay}" ActionRequested="OnAlbumAction" Visibility="{x:Bind ViewModel.HasAppearsOn, Mode=OneWay}" />
+      <controls:AlbumsGrid ItemsSource="{x:Bind ViewModel.AppearsOn, Mode=OneWay}" ActionRequested="OnAlbumAction" TileHoverChanged="OnAlbumHover" Visibility="{x:Bind ViewModel.HasAppearsOn, Mode=OneWay}" />
     </StackPanel>
   </ScrollViewer>
 </Page>

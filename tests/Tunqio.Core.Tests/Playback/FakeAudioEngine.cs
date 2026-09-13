@@ -136,9 +136,20 @@ internal sealed class FakeAudioEngine : IAudioEngine
 
     public void SetCrossfade(TimeSpan duration) => Calls.Add("crossfade:" + Ms(duration));
 
-    public Task StartPreviewAsync(TrackHandle track, float gainDb) => throw new NotSupportedException();
+    /// <summary>When set, what <see cref="StartPreviewAsync"/> throws: the native side refusing a preview while the last one fades.</summary>
+    public Exception? PreviewFault { get; set; }
 
-    public Task StopPreviewAsync() => throw new NotSupportedException();
+    public Task StartPreviewAsync(TrackHandle track, float gainDb)
+    {
+        Calls.Add($"preview:{track.Id}:{gainDb.ToString("0.##", CultureInfo.InvariantCulture)}");
+        return PreviewFault is { } fault ? throw fault : Task.CompletedTask;
+    }
+
+    public Task StopPreviewAsync()
+    {
+        Calls.Add("preview-stop");
+        return Task.CompletedTask;
+    }
 
     public IReadOnlyList<OutputDevice> EnumerateDevices() => Devices;
 

@@ -53,6 +53,8 @@
       <ItemsRepeater.ItemTemplate>
         <DataTemplate x:DataType="lib:AlbumDto">
           <Button Style="{StaticResource TileButton}" Click="OnTileClick" ContextFlyout="{StaticResource TileMenu}"
+                  PointerEntered="OnTilePointerEntered" PointerExited="OnTilePointerExited"
+                  PointerCanceled="OnTilePointerExited" PointerCaptureLost="OnTilePointerExited"
                   AutomationProperties.Name="{x:Bind local:Format.AlbumName(Title, AlbumArtist, Year)}">
             <StackPanel Spacing="4">
               <Grid Height="200" CornerRadius="6" Background="{x:Bind local:PlaceholderArt.Brush(Title)}">

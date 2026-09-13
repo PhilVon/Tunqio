@@ -28,6 +28,12 @@ public sealed partial class AlbumsGrid : UserControl
     /// <summary>A tile was clicked, invoked from the keyboard or asked something through its menu.</summary>
     public event EventHandler<AlbumActionEventArgs>? ActionRequested;
 
+    /// <summary>
+    /// The pointer came onto a tile or left it (E5-S5). The grid reports; the page hands it to the hover preview,
+    /// which decides whether that means anything.
+    /// </summary>
+    public event EventHandler<AlbumHoverEventArgs>? TileHoverChanged;
+
     /// <summary>An <see cref="IncrementalItemsSource{T}"/> of <see cref="AlbumDto"/>; any list binds, an incremental one pages.</summary>
     public object? ItemsSource
     {
@@ -67,6 +73,23 @@ public sealed partial class AlbumsGrid : UserControl
         if (AlbumOf(sender) is { } album)
         {
             Raise(AlbumAction.Play, album);
+        }
+    }
+
+    private void OnTilePointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (AlbumOf(sender) is { } album)
+        {
+            TileHoverChanged?.Invoke(this, new AlbumHoverEventArgs(album, entered: true));
+        }
+    }
+
+    // Exited, cancelled and capture lost all mean the pointer is no longer resting on this tile.
+    private void OnTilePointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (AlbumOf(sender) is { } album)
+        {
+            TileHoverChanged?.Invoke(this, new AlbumHoverEventArgs(album, entered: false));
         }
     }
 
@@ -171,4 +194,14 @@ public sealed partial class AlbumsGrid : UserControl
     }
 
     private bool NearEnd() => Scroller.VerticalOffset + 2 * Scroller.ViewportHeight >= Scroller.ExtentHeight;
+}
+
+/// <summary>The pointer came onto (<see cref="Entered"/>) or left an album tile.</summary>
+public sealed class AlbumHoverEventArgs(AlbumDto album, bool entered) : EventArgs
+{
+    /// <summary>The album behind the tile.</summary>
+    public AlbumDto Album { get; } = album;
+
+    /// <summary>True when the pointer came onto the tile, false when it left.</summary>
+    public bool Entered { get; } = entered;
 }

@@ -75,7 +75,7 @@ public sealed record PlaybackSnapshot(
 /// <see cref="PlaybackClock.HasPlayed"/> says the join position has left the output buffer.
 /// </para>
 /// </remarks>
-public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
+public sealed class PlaybackSession : IPlaybackCommands, IPreviewPlayer, IAsyncDisposable
 {
     /// <summary>How often <see cref="Snapshots"/> is published while anything is loaded.</summary>
     public static readonly TimeSpan SnapshotInterval = TimeSpan.FromMilliseconds(100);
@@ -348,6 +348,61 @@ public sealed class PlaybackSession : IPlaybackCommands, IAsyncDisposable
     }
 
     /// <summary>Writes <see cref="Capture"/> to the store. Done on stop and on dispose; callable in between.</summary>
+    /// <summary>The level a hover preview plays at (docs/ui-screens-and-flows.md, mode table: −12 dB).</summary>
+    public const float PreviewGainDb = -12f;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The handle is opened and closed around the start and not kept: the engine plays a preview on a stream of its
+    /// own, opened from the file path (ABI 0.18), so nothing about the preview depends on this handle staying open,
+    /// and a session holding one would be one more thing to close on every path out.
+    /// </remarks>
+    public Task PreviewAsync(long trackId, CancellationToken ct = default) => LockedAsync(async () =>
+    {
+        IReadOnlyList<TrackDto> found = await _tracks.GetByIdsAsync([trackId], ct).ConfigureAwait(false);
+        if (found.Count == 0 || found[0].Missing)
+        {
+            return;
+        }
+
+        TrackHandle handle;
+        try
+        {
+            handle = await _engine.OpenAsync(found[0].Path, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogInformation(ex, "Preview of {Path} could not open the file", found[0].Path);
+            return;
+        }
+
+        try
+        {
+            await _engine.StartPreviewAsync(handle, PreviewGainDb).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogInformation(ex, "Preview of {Path} did not start", found[0].Path);
+        }
+        finally
+        {
+            await _engine.CloseAsync(handle).ConfigureAwait(false);
+        }
+    });
+
+    /// <inheritdoc />
+    public Task StopPreviewAsync() => LockedAsync(async () =>
+    {
+        try
+        {
+            await _engine.StopPreviewAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogInformation(ex, "Stopping the preview failed");
+        }
+    });
+
     public Task SaveAsync(CancellationToken ct = default) => LockedAsync(() => SaveCoreAsync(ct));
 
     /// <summary>

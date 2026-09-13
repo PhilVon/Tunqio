@@ -28,6 +28,19 @@ public static class LibraryViewServices
             p.GetService<ILogger<Tunqio.Library.Tags.TagEditor>>()));
         services.AddTransient<TagEditorViewModel>();
         services.AddTransient<AlbumActions>();
+        // Hover preview (E5-S5). One for the process: every grid page reports to it, so a pointer leaving one page's
+        // tile and the next page's hover are the same controller's to reconcile.
+        services.AddSingleton(p =>
+        {
+            var source = p.GetRequiredService<Playback.IPlaybackSessionSource>();
+            return new HoverPreviewController(
+                () => source.Session,
+                p.GetRequiredService<Shell.ShellState>(),
+                p.GetRequiredService<Core.ISettingsStore>(),
+                p.GetRequiredService<IAlbumRepository>(),
+                TimeProvider.System,
+                uiContext);
+        });
         services.AddTransient<AlbumsViewModel>();
         services.AddTransient<AlbumDetailViewModel>();
         services.AddTransient<ArtistsViewModel>();
