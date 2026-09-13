@@ -10,26 +10,26 @@ namespace Tunqio.App.Tests;
 public class ShellLayoutTests
 {
     [Fact]
-    public void At_1600_px_the_panels_are_the_documented_sixty_twentyfive_fifteen()
+    public void At_1600_px_now_playing_and_the_sidebar_are_seventyfive_twentyfive()
     {
         ShellLayoutState state = ShellLayout.For(1600);
 
         state.Mode.Should().Be(ShellLayoutMode.Full);
         state.Stacked.Should().BeFalse();
-        (double nowPlaying, double sidebar, double controls) = state.Fractions;
-        nowPlaying.Should().BeApproximately(0.60, 0.001);
+        (double nowPlaying, double sidebar) = state.Fractions;
+        // T-182: the controls panel is a bar under Now Playing rather than a 15% column, and the 15% went to Now
+        // Playing, so the sidebar keeps the 25% it has always had.
+        nowPlaying.Should().BeApproximately(0.75, 0.001);
         sidebar.Should().BeApproximately(0.25, 0.001);
-        controls.Should().BeApproximately(0.15, 0.001);
     }
 
     [Fact]
-    public void At_700_px_the_panels_stack_and_the_controls_take_their_own_height()
+    public void At_700_px_the_panels_stack_with_the_music_on_top()
     {
         ShellLayoutState state = ShellLayout.For(700);
 
         state.Mode.Should().Be(ShellLayoutMode.Compact);
         state.Stacked.Should().BeTrue();
-        state.Controls.Should().BeNull("a third of a 700 px window spent on a transport bar is a third not spent on the music");
         state.NowPlaying.Should().BeGreaterThan(state.Sidebar, "the music keeps the larger share when there is least room");
     }
 
@@ -40,7 +40,7 @@ public class ShellLayoutTests
         ShellLayoutState full = ShellLayout.For(1600);
 
         medium.Mode.Should().Be(ShellLayoutMode.Medium);
-        medium.Stacked.Should().BeFalse("three columns survive down to the compact threshold");
+        medium.Stacked.Should().BeFalse("the columns survive down to the compact threshold");
         medium.Fractions.Sidebar.Should().BeLessThan(full.Fractions.Sidebar);
         medium.Fractions.NowPlaying.Should().BeGreaterThan(full.Fractions.NowPlaying);
     }
@@ -65,11 +65,21 @@ public class ShellLayoutTests
     [Fact]
     public void Every_column_shape_leaves_room_for_what_the_panel_has_to_show()
     {
-        double floors = ShellLayout.NowPlayingMinWidth + ShellLayout.SidebarMinWidth + ShellLayout.ControlsMinWidth;
+        double floors = ShellLayout.NowPlayingMinWidth + ShellLayout.SidebarMinWidth;
 
         floors.Should().BeLessThanOrEqualTo(
             ShellLayout.CompactThreshold,
-            "below the compact threshold the panels stack, so the three floors must fit above it or a medium window cannot honour them");
+            "below the compact threshold the panels stack, so both floors must fit above it or a medium window cannot honour them");
+    }
+
+    [Fact]
+    public void The_transport_bar_is_never_narrower_than_the_transport()
+    {
+        // T-182. The bar is as wide as the Now Playing column it sits under, so the narrowest that column can be is
+        // the narrowest the transport will ever get. As a third column it went down to 128 px and clipped Shuffle.
+        ShellLayout.NowPlayingMinWidth.Should().BeGreaterThanOrEqualTo(
+            ShellLayout.TransportMinWidth,
+            "a Now Playing floor under the transport's own width would bring back the clipping T-182 removed");
     }
 
     [Fact]
@@ -83,7 +93,7 @@ public class ShellLayoutTests
     public void Just_above_the_compact_threshold_the_floors_win_and_the_shares_are_not_the_documented_ones()
     {
         ShellLayout.FloorsBind(900).Should().BeTrue(
-            "a sixth of 900 px is 150, and a 150 px sidebar is not a sidebar — the floor takes it to 200 and the shares move");
+            "a fifth of 900 px is 180, and a 180 px sidebar is not a sidebar — the floor takes it to 200 and the shares move");
 
         ShellLayoutState state = ShellLayout.For(900);
         (900 * state.Fractions.Sidebar).Should().BeLessThan(
@@ -94,6 +104,6 @@ public class ShellLayoutTests
     public void The_floors_stop_binding_before_the_full_layout_starts()
     {
         ShellLayout.FloorsBind(ShellLayout.MediumThreshold).Should().BeFalse(
-            "the documented 60/25/15 must be achievable from the moment the full layout applies, or it is not the layout");
+            "the documented 75/25 must be achievable from the moment the full layout applies, or it is not the layout");
     }
 }

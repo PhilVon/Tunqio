@@ -51,11 +51,16 @@ The interface uses a responsive three-panel layout that adapts to window size an
 
 ```xml
 <Grid x:Name="MainLayoutGrid">
+    <!-- T-182: the controls are a bar under Now Playing, not a third column. As a 15% column they measured
+         128 px at a 1000 px window for a transport that needs 242, and Shuffle was clipped to nothing. -->
     <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="3*" MinWidth="400" />  <!-- Now Playing: 60% -->
-        <ColumnDefinition Width="1.25*" MinWidth="200"/> <!-- Sidebar: 25% -->
-        <ColumnDefinition Width="0.75*" MinWidth="120"/> <!-- Controls: 15% -->
+        <ColumnDefinition Width="3*" MinWidth="400" />  <!-- Now Playing and the transport bar: 75% -->
+        <ColumnDefinition Width="1*" MinWidth="200"/>   <!-- Sidebar, full height: 25% -->
     </Grid.ColumnDefinitions>
+    <Grid.RowDefinitions>
+        <RowDefinition Height="*" />                    <!-- Now Playing; the sidebar spans both rows -->
+        <RowDefinition Height="Auto" />                 <!-- Controls: natural height -->
+    </Grid.RowDefinitions>
 
     <!-- Primary Panel: Now Playing Focus -->
     <Border x:Name="NowPlayingPanel" Grid.Column="0"
@@ -109,10 +114,9 @@ public class ResponsiveLayoutManager
         }
         else if (windowWidth < MEDIUM_THRESHOLD)
         {
-            // Medium layout: Reduce sidebar width
+            // Medium layout: Reduce sidebar width (two columns; the controls stay a bar under Now Playing, T-182)
             MainLayoutGrid.ColumnDefinitions[0].Width = new GridLength(4, GridUnitType.Star);
             MainLayoutGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
-            MainLayoutGrid.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
         }
         else
         {

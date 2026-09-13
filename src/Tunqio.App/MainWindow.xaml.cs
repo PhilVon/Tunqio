@@ -309,7 +309,8 @@ public sealed partial class MainWindow : Window
         ShellLayoutState expected = ShellLayout.For(Root.ActualWidth);
         (bool pass, string note) = ShellSpikeRunner.Judge(
             expected, Root.ActualWidth, NowPlayingColumn.ActualWidth, SidebarPanel.ActualWidth, ControlsPanel.ActualWidth);
-        double total = NowPlayingColumn.ActualWidth + SidebarPanel.ActualWidth + ControlsPanel.ActualWidth;
+        // Two shares, not three (T-182): the controls panel is a bar under Now Playing, not a column beside it.
+        double total = NowPlayingColumn.ActualWidth + SidebarPanel.ActualWidth;
         double share(double width) => total <= 0 ? 0 : Math.Round(width / total, 4);
         return new ShellMeasurement(
             requestedWidth,
@@ -320,7 +321,6 @@ public sealed partial class MainWindow : Window
             Math.Round(ControlsPanel.ActualWidth, 1),
             share(NowPlayingColumn.ActualWidth),
             share(SidebarPanel.ActualWidth),
-            share(ControlsPanel.ActualWidth),
             Root.ActualTheme.ToString(),
             pass,
             note);

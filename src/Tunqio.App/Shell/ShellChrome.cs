@@ -82,21 +82,26 @@ public sealed class ShellChrome
         SetBorder(_controls, new Thickness(0, 1, 0, 0));
     }
 
-    /// <summary>Medium and full: three columns, each with the floor below which its content stops working.</summary>
+    /// <summary>
+    /// Medium and full: Now Playing and the sidebar side by side, each with the floor below which its content stops
+    /// working, and the controls as a bar beneath Now Playing at their natural height (T-182). The sidebar spans both
+    /// rows, so browsing keeps the full height of the window. The bar used to be a third column, and at 1000 px that
+    /// column was 128 px for a transport that needs 242.
+    /// </summary>
     private void LayOutInColumns(ShellLayoutState state)
     {
         _grid.RowDefinitions.Add(Star(1));
+        _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _grid.ColumnDefinitions.Add(Star(state.NowPlaying, ShellLayout.NowPlayingMinWidth));
         _grid.ColumnDefinitions.Add(Star(state.Sidebar, ShellLayout.SidebarMinWidth));
-        _grid.ColumnDefinitions.Add(Star(state.Controls ?? 1, ShellLayout.ControlsMinWidth));
         Place(_nowPlaying, row: 0, column: 0);
-        Place(_sidebar, row: 0, column: 1);
-        Place(_controls, row: 0, column: 2);
+        Place(_controls, row: 1, column: 0);
+        Place(_sidebar, row: 0, column: 1, rowSpan: 2);
         _nowPlaying.MinWidth = ShellLayout.NowPlayingMinWidth;
         _sidebar.MinWidth = ShellLayout.SidebarMinWidth;
-        _controls.MinWidth = ShellLayout.ControlsMinWidth;
+        _controls.MinWidth = 0;
         SetBorder(_sidebar, new Thickness(1, 0, 0, 0));
-        SetBorder(_controls, new Thickness(1, 0, 0, 0));
+        SetBorder(_controls, new Thickness(0, 1, 0, 0));
     }
 
     /// <summary>
@@ -117,13 +122,18 @@ public sealed class ShellChrome
     private static ColumnDefinition Star(double weight, double minWidth) =>
         new() { Width = new GridLength(weight, GridUnitType.Star), MinWidth = minWidth };
 
-    private static void Place(FrameworkElement element, int row, int column)
+    /// <summary>
+    /// Row, column and row span together, so a panel that spans rows in one shape does not carry the span into a
+    /// shape where it would reach past the grid.
+    /// </summary>
+    private static void Place(FrameworkElement element, int row, int column, int rowSpan = 1)
     {
         Grid.SetRow(element, row);
         Grid.SetColumn(element, column);
+        Grid.SetRowSpan(element, rowSpan);
     }
 
-    /// <summary>The panel dividers follow the axis: a left edge in columns, a top edge when stacked.</summary>
+    /// <summary>The panel dividers follow the axis: a left edge beside a panel, a top edge beneath one.</summary>
     private static void SetBorder(FrameworkElement element, Thickness thickness)
     {
         switch (element)

@@ -312,18 +312,32 @@ function Test-Geometry([int]$width) {
     $outer = Get-Rect $surface
     $controlsPanel = Get-ElementNamed 'Playback controls panel'
     $neighbour = if ($controlsPanel) { Get-Rect $controlsPanel } else { $null }
-    Write-Host ("        ${width}px window: surface $($outer.Left)..$($outer.Right) ($($outer.Width) px), column $($panel.Left)..$($panel.Right) ($($panel.Width) px), controls panel starts at $(if ($neighbour) { $neighbour.Left } else { '?' }), $($seen.Count) controls measured across three scroll positions")
+    Write-Host ("        ${width}px window: surface $($outer.Left)..$($outer.Right) ($($outer.Width) px), column $($panel.Left)..$($panel.Right) ($($panel.Width) px), controls bar ends at $(if ($neighbour) { $neighbour.Right } else { '?' }), $($seen.Count) controls measured across three scroll positions")
 
-    # THE ONE PHIL FOUND, and the only assertion here that fails on the build he rejected. Over-wide content
-    # does not merely overflow: it pushes the ScrollViewer itself past the column the shell gave the sidebar,
-    # so the whole settings surface grows and runs under the panel next door. Measured on the rejected markup
-    # at a 1200 px window: the surface reached 1162 while the controls panel starts at 1080 - 82 px underneath
-    # it, which is exactly what Phil described. With the fix the surface stops at 1057.
+    # THE ONE PHIL FOUND. Over-wide content does not merely overflow: it pushes the ScrollViewer itself past the
+    # column the shell gave the sidebar. Measured on the rejected markup at a 1200 px window, when the controls
+    # were a third column to the RIGHT of the sidebar: the surface reached 1162 while that panel started at 1080,
+    # 82 px underneath it, which is exactly what Phil described. With the fix the surface stopped at 1057.
     #
-    # This is why containment inside the surface could never catch it: the surface is the thing that moved.
+    # T-182 moved the controls to a bar under Now Playing, so the sidebar is now the right-hand column and that
+    # sibling boundary no longer exists on its right. Two things replace it, both measured on the new layout. On
+    # the LEFT the sidebar's neighbour is the Now Playing column the bar spans, so the surface must start at or
+    # right of the bar's right edge (at 1600 px the bar ends at 1256 and the surface starts at 1305). On the RIGHT
+    # the neighbour is the window's edge, and UIA clips a rectangle there: the surface's right edge reads as the
+    # client's right edge whatever its content does, so "does not cross the edge" cannot fail. What clipping does
+    # leave visible is the content column losing the padding it sits in: at every column width it is 16 px inside
+    # the surface on both sides, and over-wide content would push it out to the clipped edge.
     if (-not $neighbour) { return "the playback controls panel is not in the tree at ${width}px, so the boundary cannot be checked" }
-    if ($outer.Right -gt ($neighbour.Left + 1)) {
-        return "at ${width}px the settings surface reaches $($outer.Right) and the playback controls panel starts at $($neighbour.Left): the page runs $([math]::Round($outer.Right - $neighbour.Left)) px underneath it"
+    # The left edge is shared only in a column shape, where the bar spans Now Playing and stops well short of the
+    # window's right edge (at 1600 px it ends at 1256 in a window ending at 1660). Stacked, the bar spans the
+    # client (852 in a window ending at 860) and sits beneath the sidebar, so it is not beside it at all.
+    $frame = Get-Rect $script:window
+    $barBesideSidebar = $neighbour.Right -lt ($frame.Right - 40)
+    if ($barBesideSidebar -and $outer.Left -lt ($neighbour.Right - 1)) {
+        return "at ${width}px the settings surface starts at $($outer.Left) but the controls bar under Now Playing ends at $($neighbour.Right): the page reaches $([math]::Round($neighbour.Right - $outer.Left)) px over the column beside it"
+    }
+    if ($panel.Right -gt ($outer.Right - 8)) {
+        return "at ${width}px the settings content column reaches $($panel.Right) inside a surface ending at $($outer.Right): it has lost its right padding, which is what over-wide content clipped at the window edge looks like"
     }
     # The column must also USE the panel it is in, or the page is correct and half empty - which is how the
     # fixed widths hid: everything was laid out against a column narrower than the room available.
@@ -607,7 +621,7 @@ try {
 
     # ---- geometry: where the controls ARE, not only that they exist ----------------------------------------
 
-    Test-Case "the page stays inside its panel and off the controls panel at $($Widths -join 'px, ')px" {
+    Test-Case "the page stays inside the sidebar, clear of the controls bar and of the window edge, at $($Widths -join 'px, ')px" {
         Select-ListRow 'Presets' 'Spectrum Bars'
         foreach ($w in $Widths) {
             $problem = Test-Geometry $w
@@ -620,9 +634,11 @@ try {
         Test-Geometry ($Widths | Measure-Object -Minimum).Minimum
     }
 
-    # The same invariant pointed the other way, at the panel this page was running under. Here because the
-    # boundary is only meaningful if both sides hold it, and because the controls panel has a fixed-width
-    # control of its own (TransportControls' 90 px volume slider) inside a panel whose floor is 120 px.
+    # The same invariant pointed the other way, at the panel on the other side of the boundary. Here because the
+    # boundary is only meaningful if both sides hold it, and because the controls panel has a fixed-width control
+    # of its own (TransportControls' 90 px volume slider). Until T-182 that panel was a column with a 120 px floor
+    # and this case would not have caught its clipping, since UIA clips a control to its panel; since T-182 it is a
+    # bar as wide as Now Playing, and check-transport-automation.ps1 measures its controls for clipping properly.
     Test-Case 'and the controls panel keeps its own controls inside itself' {
         Set-WindowSize ($Widths | Measure-Object -Minimum).Minimum 900
         $controlsPanel = Get-ElementNamed 'Playback controls panel'

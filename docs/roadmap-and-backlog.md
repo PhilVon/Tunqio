@@ -191,7 +191,7 @@ Goal: a usable player window over E1.
 
 ### E2-S1 · Shell layout and breakpoints · **M** · `ui`
 Three-panel grid with compact (< 800) and medium (< 1200) breakpoints; Mica on Win11; theme switching.
-- [x] Layout matches user-interface.md proportions at 1600 px and collapses correctly at 700 px (`--shell-spike` measures the live tree: 960/400/240 px at 1600, all three panels spanning the client at 700)
+- [x] Layout matches user-interface.md proportions at 1600 px and collapses correctly at 700 px (`--shell-spike` measures the live tree: 1200/400 px at 1600 with the 1200 px controls bar under Now Playing, all three panels spanning the client at 700. Until T-182 this read 960/400/240, with the controls a third column that clipped the transport; Phil moved it to a bar below the visualizer)
 - [x] Theme follows system and can be overridden; switching is instant with no white flash (measured: every switch applies synchronously and the shell's content object is unchanged, so it is a repaint and not a reload)
 
 Between the breakpoints the per-panel floors (400 / 200 / 120 px) win over the shares — around 900 px a sixth of the
