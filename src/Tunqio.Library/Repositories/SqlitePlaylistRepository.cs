@@ -36,6 +36,8 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
         _clock = clock ?? TimeProvider.System;
     }
 
+    public event EventHandler<long>? Changed;
+
     public async Task<IReadOnlyList<PlaylistDto>> ListAsync(CancellationToken ct = default)
     {
         await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
@@ -83,7 +85,9 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
         command.Add("$now", now);
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
         await reader.ReadAsync(ct).ConfigureAwait(false);
-        return new PlaylistDto(reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4) != 0, 0, 0);
+        var created = new PlaylistDto(reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4) != 0, 0, 0);
+        Changed?.Invoke(this, created.Id);
+        return created;
     }
 
     public async Task RenameAsync(long id, string name, CancellationToken ct = default)
@@ -95,7 +99,10 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
         command.Add("$name", trimmed);
         command.Add("$now", _clock.GetUtcNow().ToUnixTimeMilliseconds());
         command.Add("$id", id);
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0)
+        {
+            Changed?.Invoke(this, id);
+        }
     }
 
     public async Task DeleteAsync(long id, CancellationToken ct = default)
@@ -105,7 +112,10 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
         // playlist_item cascades.
         await using SqliteCommand command = Sql.Command(connection, "DELETE FROM playlist WHERE id = $id");
         command.Add("$id", id);
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0)
+        {
+            Changed?.Invoke(this, id);
+        }
     }
 
     public async Task AddTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default)
@@ -148,6 +158,7 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
 
         await TouchAsync(connection, tx, id, ct).ConfigureAwait(false);
         await transaction.CommitAsync(ct).ConfigureAwait(false);
+        Changed?.Invoke(this, id);
     }
 
     public Task RemoveAtAsync(long id, IReadOnlyList<int> positions, CancellationToken ct = default)
@@ -281,5 +292,6 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
 
         await TouchAsync(connection, tx, id, ct).ConfigureAwait(false);
         await transaction.CommitAsync(ct).ConfigureAwait(false);
+        Changed?.Invoke(this, id);
     }
 }

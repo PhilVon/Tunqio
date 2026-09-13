@@ -29,7 +29,16 @@ public sealed partial class CurationViewModel : ObservableObject, IDisposable
     private readonly IPlaylistRepository _playlists;
     private readonly ITrackRepository _tracks;
     private readonly PlaylistEditor _editor;
+    private readonly IPlaylistFiles _files;
+    private readonly IPlaylistFilePicker _filePicker;
     private long? _pendingEdit;
+
+    /// <summary>What the last export did (flow 6's last step); empty until one has run.</summary>
+    [ObservableProperty]
+    public partial string ExportNotice { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial bool HasExportNotice { get; set; }
     private bool _sourceLoaded;
     private int _sourceVersion;
     private int _sourceSelectionCount;
@@ -63,13 +72,31 @@ public sealed partial class CurationViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string TargetSummary { get; set; } = string.Empty;
 
-    public CurationViewModel(IPlaylistRepository playlists, ITrackRepository tracks)
+    public CurationViewModel(IPlaylistRepository playlists, ITrackRepository tracks, IPlaylistFiles files, IPlaylistFilePicker filePicker)
     {
         ArgumentNullException.ThrowIfNull(playlists);
         ArgumentNullException.ThrowIfNull(tracks);
+        ArgumentNullException.ThrowIfNull(files);
+        ArgumentNullException.ThrowIfNull(filePicker);
         _playlists = playlists;
         _tracks = tracks;
+        _files = files;
+        _filePicker = filePicker;
         _editor = new PlaylistEditor(playlists);
+    }
+
+    /// <summary>Exports the target as M3U8 where the user picks (flow 6: "export M3U8"), paths relative to that folder.</summary>
+    public async Task<bool> ExportAsync(CancellationToken ct = default)
+    {
+        if (Target is not { } target || await _filePicker.PickSaveFileAsync(M3u8.FileNameFor(target.Name), ct) is not { } path)
+        {
+            return false;
+        }
+
+        PlaylistExportResult? result = await _files.ExportAsync(target.Id, path, ct);
+        ExportNotice = result is null ? "This playlist no longer exists." : PlaylistFileText.Exported(result);
+        HasExportNotice = true;
+        return result is not null;
     }
 
     /// <summary>The query the library source pages through: album order, so an album's tracks sit together, filtered by <paramref name="text"/>.</summary>

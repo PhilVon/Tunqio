@@ -8,7 +8,8 @@
   <!--
     Playlist detail (E6-S1, docs/ui-screens-and-flows.md): the name and "12 tracks · 48 min", play, shuffle, rename and
     delete (confirmed), and the tracks in order. Rows reorder by dragging, or by Move up / Move down in the row menu for
-    the keyboard; Delete or Remove from playlist takes the selection out. Export M3U8 is E6-S2 and pin to jump list E7.
+    the keyboard; Delete or Remove from playlist takes the selection out. Export M3U8 (E6-S2) saves it where the user picks,
+    with paths relative to that folder; pin to jump list is E7.
   -->
   <Page.Resources>
     <MenuFlyout x:Name="RowMenu">
@@ -46,7 +47,11 @@
         <!-- The mode table's other way into Curation: "mode switcher, or Edit playlist action" (E5-S4). -->
         <Button Content="Edit in Curation" Click="OnEditInCuration" IsEnabled="{x:Bind local:PlaylistDetailPage.Not(ViewModel.NotFound), Mode=OneWay}"
                 AutomationProperties.Name="Edit in Curation" ToolTipService.ToolTip="Edit this playlist in Curation mode (Ctrl+3)" />
+        <Button Content="Export M3U8…" Click="OnExport" IsEnabled="{x:Bind local:PlaylistDetailPage.Not(ViewModel.NotFound), Mode=OneWay}"
+                AutomationProperties.Name="Export playlist" ToolTipService.ToolTip="Save this playlist as an M3U8 file other players can open" />
       </StackPanel>
+      <InfoBar IsOpen="{x:Bind ViewModel.HasNotice, Mode=OneWay}" Message="{x:Bind ViewModel.Notice, Mode=OneWay}" Severity="Informational"
+               IsClosable="True" Margin="0,8,0,0" AutomationProperties.AutomationId="PlaylistNotice" />
     </StackPanel>
 
     <ListView

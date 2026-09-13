@@ -20,7 +20,10 @@ public sealed class PlaylistViewModelTests
 
     private PlaylistsViewModel List() => new(_playlists, _navigator);
 
-    private PlaylistDetailViewModel Detail() => new(_playlists, _playback, _navigator);
+    private readonly FakePlaylistFiles _files = new();
+    private readonly FakePlaylistFilePicker _filePicker = new();
+
+    private PlaylistDetailViewModel Detail() => new(_playlists, _playback, _navigator, _files, _filePicker);
 
     [Fact]
     public async Task The_list_shows_each_playlist_with_its_totals_Async()
@@ -177,10 +180,41 @@ public sealed class PlaylistViewModelTests
         vm.IsEmpty.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Export_suggests_the_playlists_name_writes_where_the_user_chose_and_says_so_Async()
+    {
+        long id = _playlists.Add("Road/Trip", One, Two);
+        PlaylistDetailViewModel vm = Detail();
+        await vm.LoadAsync(id);
+        _filePicker.SaveAnswer = @"D:\Music\Road Trip.m3u8";
+
+        await vm.ExportAsync();
+
+        _filePicker.Suggested.Should().Equal("Road_Trip.m3u8");
+        _files.Exports.Should().Equal((id, @"D:\Music\Road Trip.m3u8"));
+        vm.HasNotice.Should().BeTrue();
+        vm.Notice.Should().Be(@"Exported 3 tracks to D:\Music\Road Trip.m3u8.");
+    }
+
+    [Fact]
+    public async Task A_cancelled_export_writes_nothing_Async()
+    {
+        long id = _playlists.Add("Mix", One);
+        PlaylistDetailViewModel vm = Detail();
+        await vm.LoadAsync(id);
+
+        await vm.ExportAsync();
+
+        _files.Exports.Should().BeEmpty();
+        vm.HasNotice.Should().BeFalse();
+    }
+
     /// <summary>A playlist store in memory, with the repository's semantics for positions.</summary>
     private sealed class FakePlaylistRepository : IPlaylistRepository
     {
         private long _nextId = 1;
+
+        public event EventHandler<long>? Changed { add { } remove { } }
 
         public List<(long Id, string Name, List<TrackDto> Tracks)> Stored { get; } = [];
 

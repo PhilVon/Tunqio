@@ -286,7 +286,7 @@ A `play_event` is recorded when a track stops being current. `completed = 1` whe
 
 ## Durability
 
-Playlists and ratings are user work that a rescan cannot recreate. On every playlist mutation the playlist is exported to `exports\playlists\<name>.m3u8` (debounced 5 s) with `#EXTINF` lines; ratings are written to the file tag (`RATING` / POPM) when the user enables "write ratings to files" (default off) and are otherwise in the database only. Settings → Library offers "Import playlists from exports" for recovery after a database reset.
+Playlists and ratings are user work that a rescan cannot recreate. On every playlist mutation the playlist is exported to `exports\playlists\<name>.m3u8` with `#PLAYLIST` and `#EXTINF` lines and full paths, within 5 s: the first change opens a 4 s window and every change inside it joins the same write, so a long editing session cannot postpone the export (E6-S2, `Tunqio.Library.Playlists.PlaylistFiles`, following `IPlaylistRepository.Changed`). A renamed or deleted playlist's old file is removed only when this process wrote it, so the first launch after a database reset never deletes the exports it needs; start-up writes every playlist once, catching up a change made in the last window before a crash, and shutdown flushes the window. Exports the user asks for (playlist page, Curation, Settings) are written relative to the file's folder where the track is on the same drive; ratings are written to the file tag (`RATING` / POPM) when the user enables "write ratings to files" (default off) and are otherwise in the database only. Settings → Library offers "Import playlists from exports" for recovery after a database reset.
 
 ## Failure handling
 

@@ -14,6 +14,7 @@ using Tunqio.Core.Playback;
 using Tunqio.Core.Visualization;
 using Tunqio.Library;
 using Tunqio.Library.Database;
+using Tunqio.Library.Playlists;
 
 namespace Tunqio.App;
 
@@ -244,6 +245,17 @@ public partial class App : Application
         {
             logger.LogError(e, "Library watcher did not start; changes on disk need a manual rescan this session");
         }
+
+        try
+        {
+            // Playlist auto-export (E6-S2): after the window is up, like the watcher; it also catches up any change the
+            // last session made inside its final export window.
+            await _host!.Services.GetRequiredService<PlaylistFiles>().StartAsync().ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            logger.LogError(e, "Playlist auto-export did not start; playlist changes this session are not exported");
+        }
     }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
@@ -259,6 +271,7 @@ public partial class App : Application
             // library database and the settings file close under them. Container disposal would reach AudioStartup
             // first anyway, but only because it was created last; saying it here does not leave that to luck.
             _host.Services.GetRequiredService<AudioStartup>().Dispose();
+            FlushPlaylistExports();
             _host.Services.GetRequiredService<ISettingsStore>().Flush();
             _host.Services.GetRequiredService<ILogger<App>>().LogInformation("Session {SessionId} ending", SessionId);
         }
@@ -268,6 +281,30 @@ public partial class App : Application
             _host.Dispose();
             _host = null;
             Log.CloseAndFlush();
+        }
+    }
+
+    /// <summary>
+    /// A playlist changed in the last few seconds is still waiting for its export window; write it before the database
+    /// closes. Bounded, because a stuck disk must not hold the process open; the flush runs on the pool, so blocking the UI
+    /// thread on it cannot deadlock (the same shape as <see cref="AudioStartup"/>'s teardown).
+    /// </summary>
+    private void FlushPlaylistExports()
+    {
+        try
+        {
+            PlaylistFiles files = _host!.Services.GetRequiredService<PlaylistFiles>();
+            Task flush = Task.Run(() => files.FlushAsync());
+#pragma warning disable VSTHRD002 // The window is closing and the container is disposing synchronously; the wait is capped and the work is on the pool.
+            if (!flush.Wait(TimeSpan.FromSeconds(3)))
+#pragma warning restore VSTHRD002
+            {
+                Log.Warning("Playlist exports did not finish writing within 3 s of shutdown");
+            }
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Log.Error(e, "Playlist exports could not be written at shutdown");
         }
     }
 

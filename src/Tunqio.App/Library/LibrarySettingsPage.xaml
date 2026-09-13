@@ -9,8 +9,8 @@
     Settings › Library (docs/ui-screens-and-flows.md; E3-S12): folders (add/remove/enable/rescan), the running
     scan and the last report, the split-artists and write-ratings toggles, purge missing, rebuild the search
     index and regenerate art. Until E6 builds the settings overlay the page lives in the library pane's frame,
-    reached from the NavigationView's settings item or Ctrl+,. Playlist import/export joins with the playlist
-    store (E6-S1, E6-S2).
+    reached from the NavigationView's settings item or Ctrl+,. Playlists (E6-S2): import from the auto-exports,
+    import picked M3U8 files, export every playlist to a folder.
   -->
   <Page.Resources>
     <Style x:Key="SectionHeader" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
@@ -106,6 +106,16 @@
         <TextBlock Text="Discovery" Style="{StaticResource SectionHeader}" />
         <ToggleSwitch Header="Preview albums on hover" IsOn="{x:Bind ViewModel.HoverPreview, Mode=TwoWay}" />
         <TextBlock Text="In Discovery, resting the pointer on an album for half a second plays a few seconds of it, quietly, over whatever is playing." Style="{StaticResource Hint}" />
+
+        <!-- Playlists (E6-S2) -->
+        <TextBlock Text="Playlists" Style="{StaticResource SectionHeader}" />
+        <StackPanel Spacing="8" HorizontalAlignment="Left">
+          <Button Content="Import playlists from exports" Click="OnImportExports" IsEnabled="{x:Bind local:LibrarySettingsPage.Not(ViewModel.IsBusy), Mode=OneWay}" />
+          <Button Content="Import playlist files…" Click="OnImportPlaylistFiles" IsEnabled="{x:Bind local:LibrarySettingsPage.Not(ViewModel.IsBusy), Mode=OneWay}" />
+          <Button Content="Export playlists…" Click="OnExportPlaylists" IsEnabled="{x:Bind local:LibrarySettingsPage.Not(ViewModel.IsBusy), Mode=OneWay}"
+                  ToolTipService.ToolTip="Save every playlist as an M3U8 file in a folder you choose" />
+        </StackPanel>
+        <TextBlock Text="Every playlist is also saved to the app's exports folder a few seconds after it changes. Import from exports brings them back after the library database has been reset: rescan your folders first, so their tracks can be found." Style="{StaticResource Hint}" Margin="0,6,0,0" />
 
         <!-- Maintenance -->
         <TextBlock Text="Maintenance" Style="{StaticResource SectionHeader}" />

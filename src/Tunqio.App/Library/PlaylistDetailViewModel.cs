@@ -22,7 +22,16 @@ public sealed partial class PlaylistDetailViewModel : ObservableObject
     private readonly IPlaylistRepository _playlists;
     private readonly IPlaybackCommands _playback;
     private readonly ILibraryNavigator _navigator;
+    private readonly IPlaylistFiles _files;
+    private readonly IPlaylistFilePicker _filePicker;
     private long _id;
+
+    /// <summary>What the last export did; empty until one has run.</summary>
+    [ObservableProperty]
+    public partial string Notice { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial bool HasNotice { get; set; }
 
     [ObservableProperty]
     public partial string Name { get; set; } = string.Empty;
@@ -40,14 +49,44 @@ public sealed partial class PlaylistDetailViewModel : ObservableObject
     [ObservableProperty]
     public partial bool NotFound { get; set; }
 
-    public PlaylistDetailViewModel(IPlaylistRepository playlists, IPlaybackCommands playback, ILibraryNavigator navigator)
+    public PlaylistDetailViewModel(
+        IPlaylistRepository playlists, IPlaybackCommands playback, ILibraryNavigator navigator, IPlaylistFiles files, IPlaylistFilePicker filePicker)
     {
         ArgumentNullException.ThrowIfNull(playlists);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(files);
+        ArgumentNullException.ThrowIfNull(filePicker);
         _playlists = playlists;
         _playback = playback;
         _navigator = navigator;
+        _files = files;
+        _filePicker = filePicker;
+    }
+
+    /// <summary>Export M3U8 (E6-S2): asks where, suggesting the playlist's name, and writes paths relative to that folder.</summary>
+    public async Task ExportAsync(CancellationToken ct = default)
+    {
+        if (NotFound)
+        {
+            return;
+        }
+
+        if (await _filePicker.PickSaveFileAsync(M3u8.FileNameFor(Name), ct) is not { } path)
+        {
+            return;
+        }
+
+        PlaylistExportResult? result = await _files.ExportAsync(_id, path, ct);
+        SetNotice(result is null ? "This playlist no longer exists." : PlaylistFileText.Exported(result));
+    }
+
+    private void SetNotice(string text)
+    {
+        // Closed then opened, so a second export reopens a bar the user dismissed after the first.
+        HasNotice = false;
+        Notice = text;
+        HasNotice = text.Length > 0;
     }
 
     public bool CanPlay => Rows.Count > 0;

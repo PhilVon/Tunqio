@@ -33,6 +33,8 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
     private readonly LibraryScanCoordinator _scans;
     private readonly ISettingsStore _settings;
     private readonly ILibraryFolderPicker _picker;
+    private readonly IPlaylistFiles _playlistFiles;
+    private readonly IPlaylistFilePicker _playlistPicker;
     private readonly TimeProvider _clock;
     private bool _attached;
 
@@ -107,6 +109,8 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         LibraryScanCoordinator scans,
         ISettingsStore settings,
         ILibraryFolderPicker picker,
+        IPlaylistFiles playlistFiles,
+        IPlaylistFilePicker playlistPicker,
         IArtCache? art,
         TimeProvider? clock = null)
     {
@@ -117,6 +121,8 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(scans);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(picker);
+        ArgumentNullException.ThrowIfNull(playlistFiles);
+        ArgumentNullException.ThrowIfNull(playlistPicker);
         _folders = folders;
         _tracks = tracks;
         _search = search;
@@ -124,6 +130,8 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
         _scans = scans;
         _settings = settings;
         _picker = picker;
+        _playlistFiles = playlistFiles;
+        _playlistPicker = playlistPicker;
         _art = art;
         _clock = clock ?? TimeProvider.System;
         _seeding = true;
@@ -270,6 +278,58 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
             return "Art cache cleared; rescanning to render it again.";
         }, ct);
         await _scans.ScanAsync(new ScanRequest(ForceReread: true), ct);
+    }
+
+    /// <summary>
+    /// Import playlists from exports (E6-S2): the auto-exports in the data folder, for after a database reset. A playlist
+    /// whose name the library already has is left alone, so it is safe to press twice.
+    /// </summary>
+    public Task ImportExportsAsync(CancellationToken ct = default) =>
+        RunBusyAsync(() => PlaylistActionAsync(async () => PlaylistFileText.Imported(await _playlistFiles.ImportExportsAsync(ct))), ct);
+
+    /// <summary>Import playlist files…: M3U8 or M3U files the user picks, each one a new playlist.</summary>
+    public async Task ImportFilesAsync(CancellationToken ct = default)
+    {
+        IReadOnlyList<string> files = await _playlistPicker.PickOpenFilesAsync(ct);
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        await RunBusyAsync(() => PlaylistActionAsync(async () =>
+        {
+            var results = new List<PlaylistImportResult>(files.Count);
+            foreach (string file in files)
+            {
+                results.Add(await _playlistFiles.ImportAsync(file, ct));
+            }
+
+            return PlaylistFileText.Imported(results);
+        }), ct);
+    }
+
+    /// <summary>Export playlists…: every playlist into a folder the user picks, paths relative to it.</summary>
+    public async Task ExportPlaylistsAsync(CancellationToken ct = default)
+    {
+        if (await _picker.PickFolderAsync(ct) is not { } directory)
+        {
+            return;
+        }
+
+        await RunBusyAsync(() => PlaylistActionAsync(async () => PlaylistFileText.ExportedAll(await _playlistFiles.ExportAllAsync(directory, ct), directory)), ct);
+    }
+
+    /// <summary>A file that cannot be read or written ends in a notice saying so, not in an unhandled exception.</summary>
+    private static async Task<string> PlaylistActionAsync(Func<Task<string>> action)
+    {
+        try
+        {
+            return await action();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return "Could not finish: " + e.Message;
+        }
     }
 
     /// <summary>The Unix-millisecond cutoff for <see cref="PurgeAge"/> at <paramref name="now"/>.</summary>

@@ -261,6 +261,8 @@ public sealed partial class CurationPane : UserControl
         await ViewModel.CreatePlaylistAsync(name);
     }
 
+    private void OnExport(object sender, RoutedEventArgs e) => ViewModel.ExportAsync().Forget("Curation export");
+
     private void OnUndo(object sender, RoutedEventArgs e) => Undo();
 
     private void OnRedo(object sender, RoutedEventArgs e) => Redo();

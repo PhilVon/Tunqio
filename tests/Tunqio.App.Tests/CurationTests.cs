@@ -23,7 +23,10 @@ public sealed class CurationTests
         }
     }
 
-    private CurationViewModel Curation() => new(_store, _tracks);
+    private readonly FakePlaylistFiles _files = new();
+    private readonly FakePlaylistFilePicker _filePicker = new();
+
+    private CurationViewModel Curation() => new(_store, _tracks, _files, _filePicker);
 
     // ---- flow 6 and the history --------------------------------------------------------------------------------------
 
@@ -339,11 +342,39 @@ public sealed class CurationTests
         vm.CanUndo.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Flow_6_ends_by_exporting_the_target_playlist_Async()
+    {
+        long sunday = _store.Create("Sunday");
+        using CurationViewModel vm = Curation();
+        await vm.ActivateAsync();
+        _filePicker.SaveAnswer = @"D:\Music\Sunday.m3u8";
+
+        (await vm.ExportAsync()).Should().BeTrue();
+
+        _filePicker.Suggested.Should().Equal("Sunday.m3u8");
+        _files.Exports.Should().Equal((sunday, @"D:\Music\Sunday.m3u8"));
+        vm.HasExportNotice.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task With_no_target_there_is_nothing_to_export_Async()
+    {
+        using CurationViewModel vm = Curation();
+        await vm.ActivateAsync();
+
+        (await vm.ExportAsync()).Should().BeFalse();
+
+        _filePicker.Suggested.Should().BeEmpty();
+    }
+
     /// <summary>Playlists in memory, with the repository's semantics: unknown track ids take no position, names order the list.</summary>
     private sealed class MemoryPlaylists : IPlaylistRepository
     {
         private readonly List<(long Id, string Name, List<long> Items)> _lists = [];
         private long _nextId = 1;
+
+        public event EventHandler<long>? Changed { add { } remove { } }
 
         public Dictionary<long, TrackDto> Library { get; } = [];
 

@@ -114,4 +114,10 @@ public sealed partial class LibrarySettingsPage : Page, ILibraryRefreshable
     private void OnRebuildIndex(object sender, RoutedEventArgs e) => ViewModel.RebuildIndexAsync().Forget("Rebuild search index");
 
     private void OnRegenerateArt(object sender, RoutedEventArgs e) => ViewModel.RegenerateArtAsync().Forget("Regenerate art");
+
+    private void OnImportExports(object sender, RoutedEventArgs e) => ViewModel.ImportExportsAsync().Forget("Import playlists from exports");
+
+    private void OnImportPlaylistFiles(object sender, RoutedEventArgs e) => ViewModel.ImportFilesAsync().Forget("Import playlist files");
+
+    private void OnExportPlaylists(object sender, RoutedEventArgs e) => ViewModel.ExportPlaylistsAsync().Forget("Export playlists");
 }

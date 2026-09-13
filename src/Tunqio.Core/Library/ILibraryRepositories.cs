@@ -115,10 +115,16 @@ public interface ILibraryFolderRepository
 /// Playlists (E6-S1, docs/library-and-data.md, "Repository layer"). A playlist is an ordered list of track ids that
 /// may hold a track more than once. Positions are 0-based and contiguous: an item's position is its index in
 /// <see cref="PlaylistDetailDto.Tracks"/>. A track deleted from the library leaves every playlist with it (the schema
-/// cascades). Every change stamps the playlist's <c>modified_at</c>, which is what E6-S2's auto-export will watch.
+/// cascades). Every change stamps the playlist's <c>modified_at</c> and raises <see cref="Changed"/>.
 /// </summary>
 public interface IPlaylistRepository
 {
+    /// <summary>
+    /// A playlist was created, renamed, deleted or had its items changed; the argument is its id. Raised after the write
+    /// has committed, on the writer's thread, so a handler only notes it (E6-S2's auto-export queues the id).
+    /// </summary>
+    event EventHandler<long>? Changed;
+
     /// <summary>Every playlist, pinned first, then by name (case-insensitive), with its item count and total duration.</summary>
     Task<IReadOnlyList<PlaylistDto>> ListAsync(CancellationToken ct = default);
 

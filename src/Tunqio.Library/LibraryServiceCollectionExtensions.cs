@@ -5,6 +5,7 @@ using Tunqio.Core;
 using Tunqio.Core.Library;
 using Tunqio.Library.Art;
 using Tunqio.Library.Database;
+using Tunqio.Library.Playlists;
 using Tunqio.Library.Repositories;
 using Tunqio.Library.Scanning;
 using Tunqio.Library.Tags;
@@ -49,6 +50,15 @@ public static class LibraryServiceCollectionExtensions
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().QueueState);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Scanner);
         services.TryAddSingleton(provider => provider.GetRequiredService<ILibraryService>().Watcher);
+        // M3U8 import, export and auto-export (E6-S2). The shell starts the auto-export and flushes it on the way out.
+        services.TryAddSingleton(provider => new PlaylistFiles(
+            provider.GetRequiredService<IPlaylistRepository>(),
+            provider.GetRequiredService<ITrackRepository>(),
+            provider.GetRequiredService<IAppPaths>().ExportsDirectory,
+            PlaylistFiles.DefaultExportWindow,
+            provider.GetService<TimeProvider>() ?? TimeProvider.System,
+            provider.GetService<ILogger<PlaylistFiles>>()));
+        services.TryAddSingleton<IPlaylistFiles>(provider => provider.GetRequiredService<PlaylistFiles>());
         services.TryAddSingleton<ITagReader>(provider => new TagLibTagReader(provider.GetRequiredService<ISettingsStore>(), provider.GetService<ILogger<TagLibTagReader>>()));
         // The writer, but not the editor: the editor needs to know which file playback is holding open, which is
         // the shell's business, so the shell registers it (Tunqio.App.Library.LibraryViewServices).

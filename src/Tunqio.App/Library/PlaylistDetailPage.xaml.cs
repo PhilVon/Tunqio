@@ -81,6 +81,8 @@ public sealed partial class PlaylistDetailPage : Page, ILibraryRefreshable
 
     private void OnDelete(object sender, RoutedEventArgs e) => DeleteAsync().Forget("Delete playlist");
 
+    private void OnExport(object sender, RoutedEventArgs e) => ViewModel.ExportAsync().Forget("Export playlist");
+
     /// <summary>Names this playlist as Curation's target, then switches mode; entering Curation opens it (E5-S4).</summary>
     private void OnEditInCuration(object sender, RoutedEventArgs e)
     {

@@ -28,8 +28,11 @@ public sealed class LibrarySettingsViewModelTests : IDisposable
 
     public void Dispose() => _scans.Dispose();
 
+    private readonly FakePlaylistFiles _playlistFiles = new();
+    private readonly FakePlaylistFilePicker _playlistPicker = new();
+
     private LibrarySettingsViewModel Create(bool withArt = true) =>
-        new(_folders, _tracks, _search, _watcher, _scans, _settings, _picker, withArt ? _art : null, new FixedClock(Now));
+        new(_folders, _tracks, _search, _watcher, _scans, _settings, _picker, _playlistFiles, _playlistPicker, withArt ? _art : null, new FixedClock(Now));
 
     // ---- E5-S5, Q-74: the hover preview switch --------------------------------------------------------------------
 

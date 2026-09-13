@@ -105,7 +105,14 @@
                     AutomationProperties.Name="Remove selected from playlist" ToolTipService.ToolTip="Remove (Delete)">
               <FontIcon Glyph="&#xE74D;" FontSize="14" />
             </Button>
+            <AppBarSeparator />
+            <Button Click="OnExport" IsEnabled="{x:Bind ViewModel.HasTarget, Mode=OneWay}"
+                    AutomationProperties.Name="Export playlist" ToolTipService.ToolTip="Export M3U8">
+              <FontIcon Glyph="&#xEDE1;" FontSize="14" />
+            </Button>
           </StackPanel>
+          <TextBlock Text="{x:Bind ViewModel.ExportNotice, Mode=OneWay}" Opacity="0.7" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                     Visibility="{x:Bind ViewModel.HasExportNotice, Mode=OneWay}" AutomationProperties.AutomationId="CurationExportNotice" />
         </StackPanel>
 
         <!-- Background set so the empty part of the list is a drop target too. -->

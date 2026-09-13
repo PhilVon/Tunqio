@@ -162,6 +162,9 @@ public sealed class CompositionRootTests
     [InlineData(typeof(AudioStartup))]
     [InlineData(typeof(ILibraryWatcher))]
     [InlineData(typeof(LibraryDatabase))]
+    [InlineData(typeof(Tunqio.Library.Playlists.PlaylistFiles))]
+    [InlineData(typeof(IPlaylistFiles))]
+    [InlineData(typeof(IPlaylistFilePicker))]
     public void The_composition_root_registers_everything_start_up_resolves(Type service)
     {
         Root().Should().Contain(
