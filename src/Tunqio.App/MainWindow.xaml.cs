@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window
     private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
     private double _lastWidth = ShellLayout.MediumThreshold;
     private bool _syncingSwitcher;
+    private FocusChrome? _focusChrome;
     private readonly ISettingsStore? _settings;
     private readonly TransportViewModel? _transport;
     private readonly NowPlayingViewModel? _nowPlaying;
@@ -119,7 +120,26 @@ public sealed partial class MainWindow : Window
         if (_shell is not null)
         {
             _shell.PropertyChanged += OnShellStateChanged;
+
+            // Focus mode's controls (E5-S2). Pointer movement is listened for with handledEventsToo, because a list
+            // or a slider under the pointer handles its own moves and the controls still have to come back.
+            ShellState state = _shell; // a local, so the lambdas below see it as not null
+            var chrome = new FocusChrome(state, TimeProvider.System, SynchronizationContext.Current);
+            _focusChrome = chrome;
+            chrome.PropertyChanged += OnFocusChromeChanged;
+            Root.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler((_, _) => chrome.Activity()), handledEventsToo: true);
+            ControlsPanel.PointerEntered += (_, _) => chrome.Pin(FocusChrome.PointerOverControls, on: true);
+            ControlsPanel.PointerExited += (_, _) => chrome.Pin(FocusChrome.PointerOverControls, on: false);
+            // Focus events bubble, so moving between two buttons in the bar is a LostFocus and then a GotFocus.
+            ControlsPanel.GotFocus += (_, _) => chrome.Pin(FocusChrome.KeyboardInControls, on: true);
+            ControlsPanel.LostFocus += (_, _) => chrome.Pin(FocusChrome.KeyboardInControls, on: false);
+            QueueButton.Flyout.Opened += (_, _) => chrome.Pin(FocusChrome.FlyoutOpen, on: true);
+            QueueButton.Flyout.Closed += (_, _) => chrome.Pin(FocusChrome.FlyoutOpen, on: false);
+            // Double-clicking the art is one of Focus's documented ways in (mode table, "Entered from").
+            NowPlaying.ArtDoubleTapped += (_, _) => state.Select(ShellMode.Focus);
         }
+
+        UpdateFocusExtras();
 
         // Before the first frame: the theme a repaint would otherwise arrive one frame late in, and a shape, so
         // the window never draws with all three panels stacked on top of each other in column 0.
@@ -156,12 +176,14 @@ public sealed partial class MainWindow : Window
             // the spike modes, and the panel simply leaves them inert when it is missing.
             _nowPlaying = new NowPlayingViewModel(audio, navigator, SynchronizationContext.Current);
             NowPlaying.ViewModel = _nowPlaying;
+            _nowPlaying.PropertyChanged += OnNowPlayingChanged;
             // The queue panel needs the library to turn track ids into rows; without it the button opens an empty
             // panel, which is what the spike modes get and is honest about what they have.
             if (tracks is not null)
             {
                 _queue = new QueueViewModel(audio, tracks, SynchronizationContext.Current);
                 QueuePanelControl.ViewModel = _queue;
+                QueuePeekPanel.ViewModel = _queue;
             }
 
             // Now Playing to the visualizer's colours (T-147). Built here rather than with the renderer because
@@ -204,6 +226,8 @@ public sealed partial class MainWindow : Window
             {
                 _shell.PropertyChanged -= OnShellStateChanged;
             }
+
+            _focusChrome?.Dispose();
 
             _artLink?.Dispose();
             _reactiveTheme?.Dispose();
@@ -296,6 +320,73 @@ public sealed partial class MainWindow : Window
 
         ApplyShellLayout(_lastWidth);
         SyncModeSwitcher();
+        UpdateFocusExtras();
+    }
+
+    // ---- Focus mode (E5-S2) ------------------------------------------------------------------------------------------
+
+    private void OnFocusChromeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FocusChrome.ControlsVisible))
+        {
+            ApplyControlsVisibility();
+        }
+    }
+
+    /// <summary>
+    /// Fades the controls out, or shows them at once. Opacity rather than Visibility: a hidden transport stays in the
+    /// tree and focusable, which is what the accessibility contract asks of Focus. The fade out takes the mode
+    /// transition's length and is instant under reduced motion; the return has no transition, so it lands in the same
+    /// frame as the input that asked for it (AC-136).
+    /// </summary>
+    private void ApplyControlsVisibility()
+    {
+        bool visible = _focusChrome?.ControlsVisible ?? true;
+        TimeSpan fade = visible ? TimeSpan.Zero : ShellLayout.ModeTransition(_uiSettings.AnimationsEnabled);
+        ControlsPanel.OpacityTransition = fade == TimeSpan.Zero ? null : new ScalarTransition { Duration = fade };
+        ControlsPanel.Opacity = visible ? 1 : 0;
+        Serilog.Log.Debug("Focus controls {State}", visible ? "shown" : "hidden");
+    }
+
+    /// <summary>The left-edge queue peek exists only in Focus, where the sidebar that would otherwise hold the queue is hidden.</summary>
+    private void UpdateFocusExtras()
+    {
+        bool focus = CurrentMode == ShellMode.Focus;
+        QueuePeekStrip.Visibility = focus ? Visibility.Visible : Visibility.Collapsed;
+        if (!focus)
+        {
+            QueuePeek.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void OnQueuePeekStripEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (CurrentMode == ShellMode.Focus && _queue is not null)
+        {
+            QueuePeek.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void OnQueuePeekExited(object sender, PointerRoutedEventArgs e) => QueuePeek.Visibility = Visibility.Collapsed;
+
+    /// <summary>
+    /// Says the new track in Focus (accessibility contract: <c>LiveSetting = Polite</c>). The view model raises
+    /// <see cref="NowPlayingViewModel.AutomationName"/> once per real track change and not per snapshot, so this speaks
+    /// once per track rather than ten times a second.
+    /// </summary>
+    private void OnNowPlayingChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(NowPlayingViewModel.AutomationName)
+            || _focusChrome is not { AnnouncesTrackChanges: true }
+            || _nowPlaying is not { HasTrack: true } nowPlaying)
+        {
+            return;
+        }
+
+        TrackAnnouncer.Text = nowPlaying.AutomationName;
+        Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(TrackAnnouncer)
+            ?.RaiseAutomationEvent(Microsoft.UI.Xaml.Automation.Peers.AutomationEvents.LiveRegionChanged);
+        Serilog.Log.Debug("Focus announced a track change");
     }
 
     /// <summary>The switcher shows the mode, without its own selection change writing the mode back.</summary>
@@ -459,6 +550,8 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OnShellKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // Any key is input to Focus's controls (E5-S2), whoever goes on to handle it.
+        _focusChrome?.Activity();
         if (e is null || e.Handled)
         {
             return;

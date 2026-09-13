@@ -88,6 +88,25 @@
       with its recovery action (flow 4), engine errors and scan reports. Hit-testing follows the bars themselves,
       so the empty area over the shell is not a lid on the window.
     -->
+    <!--
+      Focus mode (E5-S2). The announcer is a polite live region carrying the track, told to speak on each change in
+      Focus: invisible, but in the tree, because a collapsed element is not in the automation tree and cannot speak.
+      The strip is the left edge's hit area; the peek is the queue it opens, a second QueuePanel over the same view
+      model, since the button's flyout owns the first. Both are collapsed outside Focus.
+    -->
+    <TextBlock x:Name="TrackAnnouncer" Opacity="0" IsHitTestVisible="False" Width="1" Height="1"
+               HorizontalAlignment="Left" VerticalAlignment="Top"
+               AutomationProperties.LiveSetting="Polite" AutomationProperties.AutomationId="TrackAnnouncer" />
+    <Border x:Name="QueuePeekStrip" Width="8" HorizontalAlignment="Left" Background="Transparent" Visibility="Collapsed"
+            PointerEntered="OnQueuePeekStripEntered" AutomationProperties.AccessibilityView="Raw" />
+    <Border x:Name="QueuePeek" HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0,48,0,48"
+            Visibility="Collapsed" PointerExited="OnQueuePeekExited" CornerRadius="0,8,8,0" BorderThickness="0,1,1,1"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+            AutomationProperties.Name="Queue peek">
+      <shell:QueuePanel x:Name="QueuePeekPanel" />
+    </Border>
+
     <shell:NoticePanel x:Name="Notices" VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="12" MaxWidth="720" />
 
     <!--

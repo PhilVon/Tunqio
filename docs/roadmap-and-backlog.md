@@ -519,7 +519,7 @@ Segmented control, shortcuts, persisted mode, Composition transitions honouring 
 - [ ] Esc leaves Focus to the previous mode with the layout restored (flow 7)
 
 ### E5-S2 · Focus mode · **M** · `ui`
-Full-width Now Playing, controls auto-hide after 3 s, edge-peek queue, live-region announcements.
+Full-width Now Playing, controls auto-hide after 3 s, edge-peek queue, live-region announcements. Built as `FocusChrome` (the idle rule, with pins for the pointer, keyboard focus and the queue flyout), an opacity fade on the controls panel, a left-edge strip opening a second `QueuePanel`, a polite `TrackAnnouncer` live region, and double-click on the art into Focus. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Modes, defined precisely".
 - [ ] Controls reappear on pointer move or any key within 100 ms
 - [ ] Narrator announces track changes politely
 

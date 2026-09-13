@@ -88,6 +88,18 @@ public sealed partial class NowPlayingPanel : UserControl
     /// </summary>
     public event EventHandler<OpenRequest>? OpenRequested;
 
+    /// <summary>
+    /// Raised when the album art is double-clicked, which is one of the documented ways into Focus (E5-S2). An event
+    /// for the same reason <see cref="OpenRequested"/> is one: the panel owns the gesture and the shell owns the mode.
+    /// </summary>
+    public event EventHandler? ArtDoubleTapped;
+
+    private void OnArtDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        ArtDoubleTapped?.Invoke(this, EventArgs.Empty);
+    }
+
     private void OnOpenFiles(object sender, RoutedEventArgs e) => OpenRequested?.Invoke(this, OpenRequest.Files);
 
     private void OnOpenFolder(object sender, RoutedEventArgs e) => OpenRequested?.Invoke(this, OpenRequest.Folder);

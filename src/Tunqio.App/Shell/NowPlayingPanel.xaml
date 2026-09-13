@@ -60,7 +60,7 @@
           MaxWidth="620" VerticalAlignment="Center" HorizontalAlignment="Center">
 
       <Viewbox x:Name="ArtBox" Stretch="Uniform" StretchDirection="DownOnly" MaxWidth="360" MaxHeight="360">
-        <Grid x:Name="ArtFrame" Width="360" Height="360" CornerRadius="10"
+        <Grid x:Name="ArtFrame" Width="360" Height="360" CornerRadius="10" DoubleTapped="OnArtDoubleTapped"
               Background="{x:Bind controls:PlaceholderArt.Brush(ViewModel.ArtTitle), Mode=OneWay}">
           <TextBlock Text="{x:Bind controls:PlaceholderArt.Initials(ViewModel.ArtTitle), Mode=OneWay}"
                      FontSize="96" FontWeight="SemiBold" Opacity="0.85" Foreground="White"
