@@ -51,8 +51,16 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
             return Latest is not null;
         }
 
+        /// <summary>
+        /// The harmonic ratio every published frame carries, named rather than buried in the constructor call (T-178).
+        /// It drives saturation, which nothing in this file asserts on: these are tests of the controller's wiring -
+        /// when it ticks, what it reaches, what stops it - and of the one luminance ordering that the theme's
+        /// lightness decides. A value music has, inside the 0.88..0.99 band, so a palette here is a colour.
+        /// </summary>
+        public const float HarmonicRatio = 0.93f;
+
         public void Publish(uint sequence, float centroidHz = 4000f, float rms = 0.25f) =>
-            Latest = new AnalysisFrame(sequence, 0, 0, Empty, Empty, rms, rms, centroidHz, 0.8f, Empty, false, 0);
+            Latest = new AnalysisFrame(sequence, 0, 0, Empty, Empty, rms, rms, centroidHz, HarmonicRatio, Empty, false, 0);
 
         /// <summary>A frame that is different from the last one, so "it follows the music" has music to follow.</summary>
         public void PublishMoving(uint sequence) =>
