@@ -275,6 +275,26 @@ public sealed class CurationTests
         vm.BatchText.Should().Be("6 selected in Library · 2 selected in Sunday");
     }
 
+    /// <summary>Q-83: one row selected, a different row dragged. The dragged row is what goes.</summary>
+    [Fact]
+    public void A_drag_of_an_unselected_row_carries_that_row_not_the_selection()
+    {
+        TrackDto selected = _store.Library[1];
+        TrackDto dragged = _store.Library[5];
+
+        CurationViewModel.DraggedTracks([dragged], [selected]).Should().Equal(dragged);
+    }
+
+    [Fact]
+    public void A_drag_of_the_selection_carries_it_in_list_order()
+    {
+        TrackDto[] inOrder = [_store.Library[1], _store.Library[2], _store.Library[3]];
+
+        // The ListView hands the dragged items in the order they were selected, not the order of the list.
+        CurationViewModel.DraggedTracks([inOrder[2], inOrder[0], inOrder[1]], inOrder).Should().Equal(inOrder);
+        CurationViewModel.DraggedTracks([inOrder[0], _store.Library[7]], [inOrder[0], inOrder[1]]).Should().Equal(inOrder[0], _store.Library[7]);
+    }
+
     [Fact]
     public async Task A_filter_narrows_the_library_source_and_a_playlist_source_alike_Async()
     {

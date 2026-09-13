@@ -76,6 +76,20 @@ public sealed partial class CurationViewModel : ObservableObject, IDisposable
     public static TrackQuery LibraryQuery(string? text) =>
         new(TrackSort.Album, Text: string.IsNullOrWhiteSpace(text) ? null : text.Trim(), PageSize: 200);
 
+    /// <summary>
+    /// What a source drag carries. The ListView drags the selection when the pointer went down on a selected row, and only
+    /// that row when it went down on an unselected one, so the selection (in list order) is used only when the dragged rows
+    /// are exactly the selected ones. The first cut compared counts, and a drag of one unselected row with one other row
+    /// selected sent the selected row (Phil, Q-83).
+    /// </summary>
+    public static IReadOnlyList<TrackDto> DraggedTracks(IReadOnlyList<TrackDto> dragged, IReadOnlyList<TrackDto> selectedInOrder)
+    {
+        ArgumentNullException.ThrowIfNull(dragged);
+        ArgumentNullException.ThrowIfNull(selectedInOrder);
+        var selected = new HashSet<TrackDto>(selectedInOrder, ReferenceEqualityComparer.Instance);
+        return dragged.Count == selected.Count && dragged.All(selected.Contains) ? selectedInOrder : dragged;
+    }
+
     public bool HasTarget => Target is not null;
 
     public bool NoTarget => Target is null;

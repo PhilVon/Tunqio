@@ -163,8 +163,7 @@ public sealed partial class CurationPane : UserControl
 
     private void OnSourceDragStarting(object sender, DragItemsStartingEventArgs e)
     {
-        // The selection in list order when the drag is the selection; the ListView's own item list otherwise.
-        List<TrackDto> tracks = e.Items.Count == SourceList.SelectedItems.Count ? SelectedSource() : [.. e.Items.OfType<TrackDto>()];
+        IReadOnlyList<TrackDto> tracks = CurationViewModel.DraggedTracks([.. e.Items.OfType<TrackDto>()], SelectedSource());
         if (tracks.Count == 0 || !ViewModel.HasTarget)
         {
             e.Cancel = true;
