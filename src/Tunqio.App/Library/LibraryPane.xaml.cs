@@ -95,6 +95,28 @@ public sealed partial class LibraryPane : UserControl
         }
     }
 
+    /// <summary>
+    /// The pane item that is already selected, chosen again. A detail page leaves the selection where it was, and
+    /// SelectionChanged does not fire for the selected item, so Playlists chosen from an album reached through a
+    /// playlist did nothing (found by tools/check-playlists.ps1, T-67). Any other item is left to SelectionChanged.
+    /// </summary>
+    private void OnItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (!ReferenceEquals(args.InvokedItemContainer, sender.SelectedItem))
+        {
+            return;
+        }
+
+        if (args.IsSettingsInvoked)
+        {
+            OpenSettings();
+        }
+        else if (args.InvokedItemContainer is NavigationViewItem { Tag: string tag })
+        {
+            Navigate(tag);
+        }
+    }
+
     /// <summary>Settings › Library in the frame (E3-S12); already there, it is shown (the search cleared).</summary>
     public void OpenSettings()
     {

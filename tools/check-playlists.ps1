@@ -10,7 +10,8 @@
 
   WHAT IT CHANGES. It writes a playlist called "Tunqio check" into the user's library for the length of the run and
   deletes it at the end, through the app. If the run stops before the delete, the cleanup tries the delete again and
-  says by name if it could not. Nothing is played unless the restored queue is empty, and then the app is muted.
+  says by name if it could not; a later run deletes a playlist left under either of its two names ("Tunqio check",
+  "Tunqio check renamed") before it starts, and touches no other playlist. Nothing is played unless the restored queue is empty, and then the app is muted.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 #>
@@ -71,14 +72,30 @@ function Get-Dialog($window, [string]$titleLike) {
     } 10 "a dialog like '$titleLike' opened"
 }
 
-function Open-Playlists($window) {
-    Select-Element (Wait-Until { Find-Named $window 'Playlists' } 10 'the sidebar showed Playlists')
-    Start-Sleep -Milliseconds 1200
+# A sidebar item by name. Typed as a ListItem because the Playlists page title and its list share the name.
+function Find-SidebarItem($window, [string]$text) {
+    $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.AndCondition(
+            (New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, $text)),
+            (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)))))
 }
 
-# The playlist's row in Library > Playlists, found by its name, or null.
+# After Go to album the sidebar still has Playlists selected (a detail page leaves the selection alone), and selecting
+# the selected item navigates nowhere. A click on it does (LibraryPane.OnItemInvoked), but a NavigationViewItem offers
+# UIA only SelectionItem and ScrollItem, no Invoke (measured), so the check steps through Albums instead.
+function Open-Playlists($window) {
+    $item = Wait-Until { Find-SidebarItem $window 'Playlists' } 10 'the sidebar showed Playlists'
+    if ($item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Current.IsSelected) {
+        Select-Element (Find-SidebarItem $window 'Albums')
+        Start-Sleep -Milliseconds 800
+    }
+    Select-Element (Find-SidebarItem $window 'Playlists')
+    Wait-Until { Find-Named $window 'New playlist' } 10 'Library > Playlists opened' | Out-Null
+    Start-Sleep -Milliseconds 800
+}
+
+# The playlist's row in Library > Playlists, found by its name (the row template's automation name), or null.
 function Find-PlaylistRow($window, [string]$text) {
-    $list = Find-Named $window 'Playlists'
     $rows = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
         Where-Object { $_.Current.ControlType.ProgrammaticName -eq 'ControlType.ListItem' -and $_.Current.Name -eq $text }
     return $rows | Select-Object -First 1
@@ -109,7 +126,18 @@ try {
     if (-not $mutedAtStart) { $toggle.Toggle() }
 
     Open-Playlists $window
-    if (Find-PlaylistRow $window $name) { throw "a playlist called '$name' already exists; delete it before running this check" }
+    # A playlist under one of this check's own two names is what an earlier run failed to delete; it is removed first,
+    # so the checks below start from a library without it.
+    foreach ($leftover in @($name, $renamed)) {
+        $row = Find-PlaylistRow $window $leftover
+        if ($row) {
+            Invoke-Element $row
+            Wait-Until { Find-Id $window 'PlaylistSummary' } 10 "the leftover '$leftover' opened" | Out-Null
+            Delete-OpenPlaylist $window
+            Write-Output "  note  deleted '$leftover', left by an earlier run"
+        }
+    }
+    if ((Find-PlaylistRow $window $name) -or (Find-PlaylistRow $window $renamed)) { throw "a leftover '$name' playlist could not be deleted" }
 
     # ---- create ---------------------------------------------------------------------------------------------------
     Invoke-Element (Wait-Until { Find-Named $window 'New playlist' } 10 'the New playlist button appeared')
@@ -155,7 +183,7 @@ try {
     Invoke-Element $row
     Start-Sleep -Milliseconds 1200
     $summaryText = (Wait-Until { Find-Id $window 'PlaylistSummary' } 10 'the playlist opened').Current.Name
-    Check 'Add to playlist from album detail adds the album, and the totals show it' ($summaryText -match '^\d+ tracks? · .+' -and $summaryText -ne '0 tracks') "summary '$summaryText'"
+    Check 'Add to playlist from album detail adds the album, and the totals show it' ($summaryText -match '^\d+ tracks? \u00B7 .+' -and $summaryText -ne '0 tracks') "summary '$summaryText'"
 
     # ---- rename ---------------------------------------------------------------------------------------------------
     Invoke-Element (Find-Named $window 'Rename playlist')

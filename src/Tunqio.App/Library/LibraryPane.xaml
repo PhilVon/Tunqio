@@ -40,6 +40,7 @@
         IsBackButtonVisible="Visible"
         IsBackEnabled="False"
         BackRequested="OnBackRequested"
+        ItemInvoked="OnItemInvoked"
         SelectionChanged="OnSelectionChanged">
       <NavigationView.MenuItems>
         <NavigationViewItem Content="Albums" Tag="albums">
