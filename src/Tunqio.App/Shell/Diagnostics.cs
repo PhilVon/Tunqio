@@ -71,11 +71,12 @@ public static class Diagnostics
         RenderStats? renderer,
         string? build = null,
         string? rendererProblem = null,
-        ReactiveThemeStatus? theming = null) =>
+        ReactiveThemeStatus? theming = null,
+        bool? rendererHasAudioSource = null) =>
     [
         new("Playback", Playback(snapshot)),
         new("Output", Output(engine)),
-        new("Renderer", Renderer(renderer, rendererProblem)),
+        new("Renderer", Renderer(renderer, rendererProblem, rendererHasAudioSource)),
         new("Reactive theming", Theming(theming)),
         new("Build", [new DiagnosticsRow("Version", build ?? "unknown")]),
     ];
@@ -151,7 +152,13 @@ public static class Diagnostics
         ];
     }
 
-    private static IReadOnlyList<DiagnosticsRow> Renderer(RenderStats? renderer, string? problem)
+    /// <param name="audioSource">
+    /// Whether the renderer was given an engine to draw from, or null when nothing has said. T-179: a renderer
+    /// with no engine is the one failure that looks exactly like success - every preset falls back to its idle
+    /// animation, which moves, so a reviewer watching the panel sees a visualizer apparently working. The row
+    /// exists so that state has to be read rather than inferred from a picture.
+    /// </param>
+    private static IReadOnlyList<DiagnosticsRow> Renderer(RenderStats? renderer, string? problem, bool? audioSource)
     {
         if (renderer is null)
         {
@@ -162,6 +169,12 @@ public static class Diagnostics
         return
         [
             new DiagnosticsRow("Adapter", renderer.Adapter + (renderer.Warp ? " (WARP)" : string.Empty)),
+            new DiagnosticsRow("Audio source", audioSource switch
+            {
+                true => "engine attached",
+                false => "NONE - every preset is drawing its idle animation",
+                null => "unknown",
+            }),
             new DiagnosticsRow("Surface", Inv($"{renderer.Width}×{renderer.Height}{(renderer.Visible ? string.Empty : " (hidden)")}")),
             new DiagnosticsRow("Quality", Quality(renderer)),
             new DiagnosticsRow("Frame cost", FrameCost(renderer)),

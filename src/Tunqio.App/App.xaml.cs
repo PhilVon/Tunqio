@@ -193,9 +193,10 @@ public partial class App : Application
     /// </summary>
     private async Task StartAudioAsync(MainWindow window, ILogger<App> logger)
     {
+        AudioStartup? audio = null;
         try
         {
-            AudioStartup audio = _host!.Services.GetRequiredService<AudioStartup>();
+            audio = _host!.Services.GetRequiredService<AudioStartup>();
             if (await audio.StartAsync().ConfigureAwait(true) is { } notice)
             {
                 window.ShowNotice(notice);
@@ -211,6 +212,14 @@ public partial class App : Application
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             logger.LogError(e, "Audio did not start; this session has no playback");
+        }
+        finally
+        {
+            // ALWAYS, and on every path out including the failures: the visualizer is waiting for this to know
+            // which engine to draw from, and a session with no audio must still get a picture rather than a
+            // black panel (T-179). A zero handle is a visualizer that will only ever draw its idle animation,
+            // which is the honest thing to show when there is nothing to listen to.
+            window.AttachVisualizerAudio(audio?.NativeEngineHandle ?? nint.Zero);
         }
     }
 

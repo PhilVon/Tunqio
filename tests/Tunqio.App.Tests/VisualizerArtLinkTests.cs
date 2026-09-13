@@ -279,6 +279,8 @@ public sealed class VisualizerArtLinkTests : IAsyncLifetime
 
         public bool IsAttached { get; private set; }
 
+        public bool HasAudioSource { get; private set; }
+
         public IReadOnlyList<PresetInfo> Presets => [];
 
         public string? ActivePresetId { get; private set; }
@@ -295,7 +297,7 @@ public sealed class VisualizerArtLinkTests : IAsyncLifetime
             PresetChanged?.Invoke(this, preset);
         }
 
-        public Task AttachAsync(nint swapChainPanelNative, RendererConfig config)
+        public Task AttachAsync(nint swapChainPanelNative, nint audioEngineNative, RendererConfig config)
         {
             Attach("spectrum-bars");
             return Task.CompletedTask;

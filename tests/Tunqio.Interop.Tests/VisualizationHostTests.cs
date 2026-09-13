@@ -35,7 +35,7 @@ public class VisualizationHostTests
         List<string> announced = [];
         host.PresetChanged += (_, id) => announced.Add(id);
 
-        await host.AttachAsync(nint.Zero, Headless);
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
         // Attaching starts a preset, and that is a change: the catalogue's first entry is now drawing.
         announced.Should().Equal(["builtin-bars"]);
 
@@ -52,7 +52,7 @@ public class VisualizationHostTests
     {
         using var root = new PresetRootScope(PresetRootScope.Fixtures);
         using var host = new VisualizationHost();
-        await host.AttachAsync(nint.Zero, Headless);
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
 
         host.IsAttached.Should().BeTrue();
         host.Presets.Select(p => p.Id).Should().Contain(["builtin-bars", "solid-green"]);
@@ -79,7 +79,7 @@ public class VisualizationHostTests
     {
         using var root = new PresetRootScope(PresetRootScope.Fixtures);
         using var host = new VisualizationHost();
-        await host.AttachAsync(nint.Zero, Headless);
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
         await host.SetPresetAsync("solid-green");
 
         PresetCompilationException thrown = (await FluentActions.Awaiting(() => host.SetPresetAsync("broken-shader"))
@@ -107,9 +107,9 @@ public class VisualizationHostTests
     {
         using var root = new PresetRootScope(PresetRootScope.Fixtures);
         using var host = new VisualizationHost();
-        await host.AttachAsync(nint.Zero, Headless);
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
         await host.SetPresetAsync("solid-blue");
-        await host.AttachAsync(nint.Zero, Headless with { Width = 128, Height = 128 });
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless with { Width = 128, Height = 128 });
 
         host.IsAttached.Should().BeTrue();
         host.ActivePresetId.Should().Be("builtin-bars"); // a new renderer starts on the built-in again
@@ -122,12 +122,12 @@ public class VisualizationHostTests
     {
         using var root = new PresetRootScope(PresetRootScope.Fixtures);
         var host = new VisualizationHost();
-        await host.AttachAsync(nint.Zero, Headless);
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
         host.Dispose();
 
         host.IsAttached.Should().BeFalse();
         FluentActions.Invoking(() => host.SetVisible(true)).Should().Throw<ObjectDisposedException>();
-        await FluentActions.Awaiting(() => host.AttachAsync(nint.Zero, Headless)).Should().ThrowAsync<ObjectDisposedException>();
+        await FluentActions.Awaiting(() => host.AttachAsync(nint.Zero, nint.Zero, Headless)).Should().ThrowAsync<ObjectDisposedException>();
         FluentActions.Invoking(host.Dispose).Should().NotThrow();
     }
 
@@ -135,7 +135,7 @@ public class VisualizationHostTests
     public async Task The_theme_and_the_quality_policy_are_both_forwarded_and_taken()
     {
         using var host = new VisualizationHost();
-        await host.AttachAsync(nint.Zero, Headless);
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
 
         // E4-S6: mp_renderer_set_theme is implemented, so what reached MP_E_STATE now reaches b0. What the four
         // colours do to the picture is mpcore.tests [theme]'s to prove; what this proves is that the managed
@@ -180,7 +180,7 @@ public class VisualizationHostTests
         // The join between the two halves of E4-S6: the colours the shell is painting its own gradient from are
         // the ones handed to every preset, through the same record, without a conversion in between.
         using var host = new VisualizationHost();
-        await host.AttachAsync(nint.Zero, Headless);
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
 
         var engine = new ReactiveThemeEngine(true, ReactiveThemeOptions.Default);
         ReactiveThemePalette palette = engine.Advance(

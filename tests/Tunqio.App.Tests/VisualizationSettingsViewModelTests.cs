@@ -335,6 +335,8 @@ public sealed class VisualizationSettingsViewModelTests
     {
         public bool IsAttached { get; set; }
 
+        public bool HasAudioSource { get; set; }
+
         public IReadOnlyList<PresetInfo> PresetList { get; set; } = [];
 
         public Dictionary<string, IReadOnlyList<PresetParameter>> Declared { get; } = new(StringComparer.Ordinal);
@@ -357,9 +359,10 @@ public sealed class VisualizationSettingsViewModelTests
 
         public event EventHandler<string>? PresetChanged;
 
-        public Task AttachAsync(nint swapChainPanelNative, RendererConfig config)
+        public Task AttachAsync(nint swapChainPanelNative, nint audioEngineNative, RendererConfig config)
         {
             IsAttached = true;
+            HasAudioSource = audioEngineNative != nint.Zero;
             return Task.CompletedTask;
         }
 

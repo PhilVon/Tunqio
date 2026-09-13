@@ -133,6 +133,27 @@ public sealed class DiagnosticsTests : IAsyncLifetime
         Value(pinned, "Renderer", "Frame cost").Should().Be("4.10 ms (frame interval)");
     }
 
+    /// <summary>
+    /// T-179: the one renderer failure that looks exactly like success has to be reported in words.
+    /// </summary>
+    /// <remarks>
+    /// A renderer with no engine cannot see a single note, but every shipped preset answers "nothing is
+    /// playing" with an idle animation - a smooth travelling sine - so the panel goes on looking like a working
+    /// visualizer. That is how it survived nine stories: reviewers, including the ones who went looking, saw a
+    /// moving picture and read the movement as reaction. Nothing in the overlay distinguished the two states,
+    /// so this row does.
+    /// </remarks>
+    [Fact]
+    public void A_visualizer_with_no_engine_behind_it_says_so_rather_than_looking_like_one_that_works()
+    {
+        Value(Diagnostics.Describe(null, null, Frames(), rendererHasAudioSource: true), "Renderer", "Audio source")
+            .Should().Be("engine attached");
+        Value(Diagnostics.Describe(null, null, Frames(), rendererHasAudioSource: false), "Renderer", "Audio source")
+            .Should().Be("NONE - every preset is drawing its idle animation");
+        Value(Diagnostics.Describe(null, null, Frames()), "Renderer", "Audio source")
+            .Should().Be("unknown", "nobody has said, which is not the same as no");
+    }
+
     /// <summary>The bare counts mean nothing without the buckets they are counts of, and the last one is open-ended.</summary>
     [Fact]
     public void The_frame_histogram_carries_the_edges_it_counts_between()

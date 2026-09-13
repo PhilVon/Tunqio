@@ -45,6 +45,9 @@ public sealed partial class MainWindow : Window
     private readonly IVisualizationHost? _visualization;
     private readonly VisualizerArtLink? _artLink;
     private bool _rendererAttached;
+    private bool _panelLoaded;
+    private bool _audioSettled;
+    private nint _audioEngineNative;
 
     /// <param name="forceWarp">Render through WARP rather than the adapter (the E0-S5 spike).</param>
     /// <param name="settings">Read for <c>ui.theme</c>; the system theme is used when it is not supplied.</param>
@@ -112,7 +115,8 @@ public sealed partial class MainWindow : Window
         // The diagnostics overlay (E2-S8). It reads the renderer through a delegate rather than being handed one,
         // because the renderer does not exist until the swap-chain panel has loaded and may never exist at all.
         _diagnostics = new DiagnosticsViewModel(
-            audio, RendererStats, DescribeEngine(), SynchronizationContext.Current, theming: ThemingStatus);
+            audio, RendererStats, DescribeEngine(), SynchronizationContext.Current, theming: ThemingStatus,
+            rendererAudioSource: RendererAudioSource);
         Diagnostics.ViewModel = _diagnostics;
 
         if (audio is not null)
@@ -606,7 +610,35 @@ public sealed partial class MainWindow : Window
 
     private void OnPanelLoaded(object sender, RoutedEventArgs e)
     {
-        if (_visualization is null || _rendererAttached)
+        _panelLoaded = true;
+        TryAttachVisualizer();
+    }
+
+    /// <summary>
+    /// The engine the visualizer is to be drawn from, once start-up knows whether there is one (T-179). Called
+    /// on every path out of <see cref="AudioStartup.StartAsync"/> - including the ones that produced no engine,
+    /// where the handle is <see cref="nint.Zero"/> - because the visualizer must not be held hostage to audio
+    /// that never arrives.
+    /// </summary>
+    /// <remarks>
+    /// <b>Why the attach waits for this rather than happening on panel load.</b> <c>mp_renderer_create</c> takes
+    /// the engine and the renderer keeps it for life; there is no export that binds one afterwards. The panel
+    /// loads on the first layout pass and the engine is deliberately built after the first frame
+    /// (docs/solution-structure.md, start-up step 3), so a visualizer attached on panel load is attached before
+    /// any engine exists - which is exactly how T-179 shipped a visualizer that could not react. Waiting costs
+    /// the few hundred milliseconds it takes to load mpcore and open the device, during which nothing is
+    /// playing and the panel would have been showing an idle animation anyway.
+    /// </remarks>
+    public void AttachVisualizerAudio(nint audioEngineNative)
+    {
+        _audioEngineNative = audioEngineNative;
+        _audioSettled = true;
+        TryAttachVisualizer();
+    }
+
+    private void TryAttachVisualizer()
+    {
+        if (_visualization is null || _rendererAttached || !_panelLoaded || !_audioSettled)
         {
             return;
         }
@@ -629,7 +661,7 @@ public sealed partial class MainWindow : Window
             // The panel's IUnknown; the core queries ISwapChainPanelNative and calls SetSwapChain on this (UI) thread.
             nint panelNative = ((IWinRTObject)VisualizerPanel).NativeObject.ThisPtr;
             (int width, int height) = PanelPixelSize();
-            await _visualization.AttachAsync(panelNative, new RendererConfig(
+            await _visualization.AttachAsync(panelNative, _audioEngineNative, new RendererConfig(
                 width, height, VisualizerPanel.CompositionScaleX, VisualizerPanel.CompositionScaleY, _forceWarp, VSync: true))
                 .ConfigureAwait(true);
             _rendererAttached = true;
@@ -697,6 +729,12 @@ public sealed partial class MainWindow : Window
     /// the overlay's own refresh, so nothing here has to marshal.
     /// </summary>
     private RenderStats? RendererStats() => _rendererAttached ? _visualization?.TryGetStats() : null;
+
+    /// <summary>
+    /// Whether the attached visualizer has an engine to draw from (T-179), for the diagnostics overlay. Null
+    /// while nothing is attached, which the overlay reports as "unknown" rather than as "no".
+    /// </summary>
+    private bool? RendererAudioSource() => _rendererAttached ? _visualization?.HasAudioSource : null;
 
     private (int Width, int Height) PanelPixelSize()
     {

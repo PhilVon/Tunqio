@@ -16,7 +16,22 @@ public sealed unsafe class NativeRenderer : IDisposable
     public nint Handle => _handle;
 
     /// <summary>Creates a renderer bound to a SwapChainPanel (<paramref name="swapChainPanelNative"/> is its IUnknown).</summary>
-    public static NativeRenderer Create(nint swapChainPanelNative, RendererConfig config, NativeEngine? engine = null)
+    /// <param name="audioEngineNative">
+    /// The <c>mp_engine</c> the picture is drawn from (<see cref="NativeEngine.Handle"/>), or
+    /// <see cref="nint.Zero"/> for a renderer that is deliberately deaf.
+    /// <para>
+    /// <b>Required, and it used to have a default.</b> The renderer's only source of audio is
+    /// <c>mp_analysis_try_get_latest(engine_, …)</c> in <c>renderer::poll_analysis</c>, which returns on its
+    /// first line when the engine is null. Nothing downstream then looks broken: the constant buffer's
+    /// <c>timing.w</c> is zero, and every shipped preset reads that as "nothing is playing" and draws its idle
+    /// animation. So a renderer built without an engine does not go blank - it draws a plausible, attractive,
+    /// moving picture that has never heard a note, and that is what shipped for nine stories because
+    /// <c>VisualizationHost</c> took this default (T-179). A defaulted parameter is how that happened; making
+    /// the caller say <see cref="nint.Zero"/> out loud is the repair, and it is the third time today the same
+    /// shape - an optional wiring argument defaulting to null - has silently switched a feature off.
+    /// </para>
+    /// </param>
+    public static NativeRenderer Create(nint swapChainPanelNative, nint audioEngineNative, RendererConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         var native = new MpRendererConfig
@@ -32,14 +47,16 @@ public sealed unsafe class NativeRenderer : IDisposable
         };
         nint handle;
         NativeException.ThrowIfFailed(
-            NativeMethods.RendererCreate(engine?.Handle ?? nint.Zero, (void*)swapChainPanelNative, &native, &handle),
+            NativeMethods.RendererCreate(audioEngineNative, (void*)swapChainPanelNative, &native, &handle),
             "mp_renderer_create");
         return new NativeRenderer(handle);
     }
 
     /// <summary>Creates an offscreen renderer (no panel), for tests and benchmarks.</summary>
-    public static NativeRenderer CreateHeadless(RendererConfig config) =>
-        Create(nint.Zero, config with { Headless = true });
+    /// <param name="audioEngineNative">As <see cref="Create"/>: required, and <see cref="nint.Zero"/> is a
+    /// renderer that will only ever draw its presets' idle animation.</param>
+    public static NativeRenderer CreateHeadless(RendererConfig config, nint audioEngineNative) =>
+        Create(nint.Zero, audioEngineNative, config with { Headless = true });
 
     public void Resize(int width, int height, float scaleX, float scaleY) =>
         NativeException.ThrowIfFailed(NativeMethods.RendererResize(RequireHandle(), (uint)Math.Max(1, width), (uint)Math.Max(1, height), scaleX, scaleY), "mp_renderer_resize");

@@ -101,6 +101,8 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
         /// <summary>Settable, because "the renderer went away under a running theming" is a case (T-156).</summary>
         public bool IsAttached { get; set; } = true;
 
+        public bool HasAudioSource { get; set; } = true;
+
         /// <summary>What the next <see cref="SetThemeColors"/> throws, if anything. The detach race, and worse.</summary>
         public Exception? Refuses { get; set; }
 
@@ -114,7 +116,11 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
         public event EventHandler<string>? PresetChanged;
 #pragma warning restore CS0067
 
-        public Task AttachAsync(nint swapChainPanelNative, RendererConfig config) => Task.CompletedTask;
+        public Task AttachAsync(nint swapChainPanelNative, nint audioEngineNative, RendererConfig config)
+        {
+            HasAudioSource = audioEngineNative != nint.Zero;
+            return Task.CompletedTask;
+        }
 
         public void Detach()
         {

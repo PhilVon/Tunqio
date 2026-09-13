@@ -60,7 +60,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
     public void Every_shipped_preset_arrives_with_labels_and_ranges()
     {
         using var scope = new PresetRootScope(RepoPaths.File("presets"));
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
 
         IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
         presets.Should().Contain(p => p.Id == "spectrum-bars");
@@ -89,7 +89,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
     public void Every_shipped_preset_offers_the_theme_opt_out()
     {
         using var scope = new PresetRootScope(RepoPaths.File("presets"));
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
 
         foreach (PresetInfo preset in renderer.EnumeratePresets().Where(p => p.Id != "builtin-bars"))
         {
@@ -108,7 +108,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
     public void Ambient_glows_art_parameters_are_the_only_hidden_ones_and_they_are_all_hidden()
     {
         using var scope = new PresetRootScope(RepoPaths.File("presets"));
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
 
         IReadOnlyList<PresetParameter> glow = renderer.EnumerateParameters("ambient-glow");
         glow.Where(p => p.Hidden).Select(p => p.Name)
@@ -128,7 +128,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
     public void Parameters_can_be_read_for_a_preset_that_is_not_the_one_drawing()
     {
         using var scope = new PresetRootScope(RepoPaths.File("presets"));
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
 
         // The renderer starts on the compiled-in preset, and a settings page describes a preset before it
         // switches to it. Nothing here has switched.
@@ -140,7 +140,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
     public void An_unknown_preset_id_is_an_exception_that_names_it()
     {
         using var scope = new PresetRootScope(PresetRootScope.Fixtures);
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
 
         Action read = () => renderer.EnumerateParameters("no-such-preset");
         read.Should().Throw<NativeException>().WithMessage("*no-such-preset*");
@@ -154,7 +154,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
         try
         {
             using var host = new VisualizationHost();
-            await host.AttachAsync(nint.Zero, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true));
+            await host.AttachAsync(nint.Zero, nint.Zero, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true));
             int shipped = host.Presets.Count;
 
             host.SetUserPresetRoot(userRoot);
@@ -191,7 +191,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
         try
         {
             using var host = new VisualizationHost();
-            await host.AttachAsync(nint.Zero, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true));
+            await host.AttachAsync(nint.Zero, nint.Zero, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true));
             WritePreset(Path.Combine(userRoot, "doomed"), "doomed", "Doomed");
             host.SetUserPresetRoot(userRoot);
             await host.SetPresetAsync("doomed");
@@ -221,7 +221,7 @@ float4 PSMain(VSOut i) : SV_Target { return float4(1.0, 0.0, 0.0, 1.0); }
         try
         {
             using var host = new VisualizationHost();
-            await host.AttachAsync(nint.Zero, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true));
+            await host.AttachAsync(nint.Zero, nint.Zero, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true));
             int shipped = host.Presets.Count;
 
             WritePreset(Path.Combine(userRoot, "impostor"), "spectrum-bars", "Not the real one");

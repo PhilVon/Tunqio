@@ -108,5 +108,5 @@ public class LatencyProbeTests
     }
 
     private static NativeRenderer CreateRenderer(NativeEngine engine) =>
-        NativeRenderer.Create(nint.Zero, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true), engine);
+        NativeRenderer.Create(nint.Zero, engine.Handle, new RendererConfig(64, 64, ForceWarp: true, VSync: false, Headless: true));
 }

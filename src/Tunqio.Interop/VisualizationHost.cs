@@ -44,6 +44,9 @@ public sealed class VisualizationHost : IVisualizationHost
         }
     }
 
+    /// <inheritdoc />
+    public bool HasAudioSource { get; private set; }
+
     public IReadOnlyList<PresetInfo> Presets
     {
         get
@@ -81,15 +84,16 @@ public sealed class VisualizationHost : IVisualizationHost
     /// </summary>
     public Exception? StatsFailure { get; private set; }
 
-    public Task AttachAsync(nint swapChainPanelNative, RendererConfig config)
+    public Task AttachAsync(nint swapChainPanelNative, nint audioEngineNative, RendererConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
+        HasAudioSource = audioEngineNative != nint.Zero;
         // Created outside the lock: it builds a device, a swap chain and a thread, and it can throw.
         NativeRenderer renderer = config.Headless
-            ? NativeRenderer.CreateHeadless(config)
-            : NativeRenderer.Create(swapChainPanelNative, config);
+            ? NativeRenderer.CreateHeadless(config, audioEngineNative)
+            : NativeRenderer.Create(swapChainPanelNative, audioEngineNative, config);
         NativeRenderer? previous;
         string? started;
         try
@@ -131,6 +135,7 @@ public sealed class VisualizationHost : IVisualizationHost
             _renderer = null;
             _presets = [];
             _activePresetId = null;
+            HasAudioSource = false;
         }
 
         renderer?.Dispose();
@@ -237,6 +242,23 @@ public sealed class VisualizationHost : IVisualizationHost
         Detach();
         _stats.OnCompleted();
         _stats.Dispose();
+    }
+
+    /// <summary>
+    /// The renderer this host is currently driving, or null while detached. For the tests that have to assert
+    /// something about the renderer the host BUILT rather than one they built themselves - which is exactly the
+    /// gap T-179 fell through: every renderer test constructed its own with an engine, so nothing noticed that
+    /// the host's own construction was passing none.
+    /// </summary>
+    internal NativeRenderer? AttachedRenderer
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _renderer;
+            }
+        }
     }
 
     private NativeRenderer Require()

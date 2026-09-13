@@ -38,7 +38,11 @@ public class PresetSwitchBenchmarks : IDisposable
     [GlobalSetup]
     public void Setup()
     {
-        _renderer = NativeRenderer.CreateHeadless(new RendererConfig(640, 360, ForceWarp: true, VSync: false));
+        // No engine, deliberately: this benchmark times compiling and swapping a preset, and analysis arriving
+        // from a real engine would put a second, unrelated source of variance on the render thread. The
+        // presets therefore draw their idle animation throughout, which is exactly what is wanted here and is
+        // never what is wanted in the app (T-179).
+        _renderer = NativeRenderer.CreateHeadless(new RendererConfig(640, 360, ForceWarp: true, VSync: false), nint.Zero);
         // The shipped catalogue, minus the compiled-in preset: what a person actually picks between.
         _presets = [.. _renderer.EnumeratePresets().Select(p => p.Id).Where(id => id != "builtin-bars")];
         if (_presets.Length < 2)
