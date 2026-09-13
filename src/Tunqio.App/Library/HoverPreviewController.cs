@@ -161,6 +161,8 @@ public sealed class HoverPreviewController : IDisposable
         }
 
         _playing = album;
+        // Logged at the request, so a check reading the log can time the dwell from the pointer coming to rest.
+        Serilog.Log.Debug("Hover preview of album {AlbumId} starting after the dwell", album.Id);
         await player.PreviewAsync(first.Id).ConfigureAwait(true);
     }
 
@@ -178,6 +180,7 @@ public sealed class HoverPreviewController : IDisposable
         }
 
         _settings.SetValue(SettingsKeys.UiHoverPreviewOffered, true);
+        Serilog.Log.Debug("Hover preview offered");
         OfferRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -192,6 +195,7 @@ public sealed class HoverPreviewController : IDisposable
         }
 
         _playing = null;
+        Serilog.Log.Debug("Hover preview stopped");
         _player()?.StopPreviewAsync().Forget("Stop hover preview");
     }
 

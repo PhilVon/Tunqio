@@ -47,6 +47,7 @@ public static class LibraryViewServices
             {
                 settings.SetValue(Core.SettingsKeys.UiHoverPreview, true);
                 settings.Flush();
+                Serilog.Log.Debug("Hover previews turned on from the offer");
             });
             return controller;
         });
