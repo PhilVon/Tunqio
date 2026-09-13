@@ -133,6 +133,7 @@ $process = $null
 $window = $null
 $startMode = $null
 $playlistExists = $false
+$addDone = $false
 $logDir = Join-Path $env:LOCALAPPDATA 'Tunqio\logs'
 $startedAt = Get-Date
 
@@ -196,10 +197,7 @@ try {
     $redone = @(Get-Rows $window 'Playlist tracks in Curation' | ForEach-Object { $_.Current.Name })
     Check 'Redo puts the move back' (($redone -join '|') -eq ($moved -join '|')) 'the swapped order again'
 
-    # ---- the add's timing, from the log --------------------------------------------------------------------------------
-    $log = Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
-    $line = if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'Curation added 6 track\(s\) by Add in (\d+) ms' } | Select-Object -Last 1 }
-    Check 'The log times the add' ($null -ne $line) "$(if ($line) { $line.Trim() } else { "no line in $logDir" })"
+    $addDone = $true
     Write-Output '  note  dragging and the Ctrl+Z key are not exercised here (UIA has neither); see the board'
 }
 catch {
@@ -219,6 +217,15 @@ finally {
         try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
     }
     if ($process -and -not $process.WaitForExit(15000)) { $process.Kill() }
+}
+
+# ---- the add's timing, from the log ----------------------------------------------------------------------------------
+# Read after the app has exited: the file sink buffers, and the first run of this check read the log while the window was
+# open and found nothing, though the line was there a few seconds later.
+if ($addDone) {
+    $log = Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
+    $line = if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'Curation added 6 track\(s\) by Add in (\d+) ms' } | Select-Object -Last 1 }
+    Check 'The log times the add' ($null -ne $line) "$(if ($line) { $line.Trim() } else { "no line in $logDir" })"
 }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
