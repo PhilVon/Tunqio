@@ -98,6 +98,19 @@ public interface IVisualizationHost : IDisposable
     /// <summary>True between a successful <see cref="AttachAsync"/> and <see cref="Detach"/>.</summary>
     bool IsAttached { get; }
 
+    /// <summary>
+    /// Whether the attached renderer was given an audio engine to draw from. False means every preset is on its
+    /// idle animation for the life of this attachment, whatever is playing.
+    /// </summary>
+    /// <remarks>
+    /// On the interface, and on the diagnostics overlay, because of how T-179 hid: the failure mode of "no
+    /// audio reaches the picture" is a preset drawing a smooth travelling sine rather than a preset drawing
+    /// nothing, so it reads as the product working. Nine stories of review, several of them looking straight at
+    /// the visualizer, took a moving idle animation as evidence that the visualizer was reacting. A state that
+    /// cannot be told apart from success by looking has to be reported in words somewhere.
+    /// </remarks>
+    bool HasAudioSource { get; }
+
     /// <summary>The preset catalogue: the built-in one first, then whatever the preset directory holds. Empty
     /// while detached, because the catalogue is scanned when the renderer is created.</summary>
     IReadOnlyList<PresetInfo> Presets { get; }
@@ -127,7 +140,21 @@ public interface IVisualizationHost : IDisposable
     /// <see cref="RendererConfig.Headless"/> for tests). Must be called on the UI thread, because
     /// <c>ISwapChainPanelNative::SetSwapChain</c> is. Attaching twice detaches the first.
     /// </summary>
-    Task AttachAsync(nint swapChainPanelNative, RendererConfig config);
+    /// <param name="audioEngineNative">
+    /// The <c>mp_engine</c> the presets are drawn from, or <see cref="nint.Zero"/> for a visualizer with no
+    /// audio behind it. It is an <see cref="nint"/> here for the same reason
+    /// <paramref name="swapChainPanelNative"/> is: Core describes the contract and does not reference the
+    /// binding that owns the handle.
+    /// <para>
+    /// <b>It is required, and that is the whole of T-179.</b> The renderer polls the engine for analysis and
+    /// gives up immediately when it has none, which leaves the preset constant buffer's <c>timing.w</c> at zero
+    /// - and every shipped preset reads that as "nothing is playing" and draws its idle animation. So a
+    /// visualizer attached with no engine is not visibly broken, it is visibly *fine*: a smooth travelling sine
+    /// that has never heard the music. It shipped that way because this parameter did not exist and the
+    /// binding's own default filled it in.
+    /// </para>
+    /// </param>
+    Task AttachAsync(nint swapChainPanelNative, nint audioEngineNative, RendererConfig config);
 
     /// <summary>Stops and joins the render thread and releases the device. Safe when not attached.</summary>
     void Detach();

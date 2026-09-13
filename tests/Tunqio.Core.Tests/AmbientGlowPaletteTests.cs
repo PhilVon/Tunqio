@@ -139,6 +139,8 @@ public class AmbientGlowPaletteTests
 
         public bool IsAttached => true;
 
+        public bool HasAudioSource => true;
+
         public IReadOnlyList<PresetInfo> Presets { get; } = [];
 
         public string? ActivePresetId { get; init; }
@@ -149,7 +151,7 @@ public class AmbientGlowPaletteTests
         public event EventHandler<string>? PresetChanged;
 #pragma warning restore CS0067
 
-        public Task AttachAsync(nint swapChainPanelNative, RendererConfig config) => Task.CompletedTask;
+        public Task AttachAsync(nint swapChainPanelNative, nint audioEngineNative, RendererConfig config) => Task.CompletedTask;
 
         public void Detach()
         {

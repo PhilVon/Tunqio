@@ -25,6 +25,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     private readonly IPlaybackSessionSource? _source;
     private readonly Func<RenderStats?> _renderer;
     private readonly Func<ReactiveThemeStatus?> _theming;
+    private readonly Func<bool?> _rendererAudioSource;
     private readonly string? _build;
     private readonly TimeProvider _time;
     private ITimer? _timer;
@@ -48,11 +49,13 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
         string? build = null,
         SynchronizationContext? ui = null,
         TimeProvider? clock = null,
-        Func<ReactiveThemeStatus?>? theming = null)
+        Func<ReactiveThemeStatus?>? theming = null,
+        Func<bool?>? rendererAudioSource = null)
     {
         _source = source;
         _renderer = renderer ?? (() => null);
         _theming = theming ?? (() => null);
+        _rendererAudioSource = rendererAudioSource ?? (() => null);
         _build = build;
         _ui = ui;
         _time = clock ?? TimeProvider.System;
@@ -76,7 +79,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     {
         PlaybackSession? session = _source?.Session;
         IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(
-            session?.Current, session?.EngineStats, Read(), _build, RendererProblem, ReadTheming());
+            session?.Current, session?.EngineStats, Read(), _build, RendererProblem, ReadTheming(), ReadAudioSource());
 
         Sections.Clear();
         foreach (DiagnosticsSection section in sections)
@@ -118,6 +121,20 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             Serilog.Log.Debug(e, "The reactive theming could not be read for the diagnostics overlay");
+            return null;
+        }
+    }
+
+    /// <summary>Whether the visualizer has an engine behind it (T-179); null when nobody can say.</summary>
+    private bool? ReadAudioSource()
+    {
+        try
+        {
+            return _rendererAudioSource();
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Serilog.Log.Debug(e, "The visualizer's audio source could not be read for the diagnostics overlay");
             return null;
         }
     }

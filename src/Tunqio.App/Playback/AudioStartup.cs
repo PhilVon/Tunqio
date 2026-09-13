@@ -79,6 +79,19 @@ public sealed class AudioStartup : IPlaybackSessionSource, IDisposable
     /// </summary>
     public IAnalysisFrameSource? AnalysisFrames { get; private set; }
 
+    /// <summary>
+    /// The <c>mp_engine</c> behind this session, for the one caller that needs the handle itself rather than a
+    /// wrapper: <c>mp_renderer_create</c> takes the engine the visualizer draws from (T-179).
+    /// <see cref="nint.Zero"/> when audio did not start, or when the engine is a test fake.
+    /// </summary>
+    /// <remarks>
+    /// This is deliberately not an <see cref="IAnalysisFrameSource"/>. The theming reads analysis on the managed
+    /// side and can take a stream; the renderer polls the engine itself, on its own thread, and the ABI hands it
+    /// an <c>mp_engine*</c> at creation. Handing the shell an nint is the honest shape of that, and the same
+    /// shape the SwapChainPanel's IUnknown already travels in.
+    /// </remarks>
+    public nint NativeEngineHandle { get; private set; }
+
     /// <inheritdoc />
     public event EventHandler<PlaybackSession>? SessionReady;
 
@@ -125,6 +138,7 @@ public sealed class AudioStartup : IPlaybackSessionSource, IDisposable
         if (engine is NativeAudioEngine native)
         {
             AnalysisFrames = new NativeAnalysisFrameSource(native.Native);
+            NativeEngineHandle = native.Native.Handle;
         }
 
         var session = new PlaybackSession(

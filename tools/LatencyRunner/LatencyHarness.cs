@@ -66,8 +66,8 @@ internal sealed class LatencyHarness : IDisposable
 
         NativeRenderer renderer = NativeRenderer.Create(
             nint.Zero,
-            new RendererConfig(_options.Width, _options.Height, 1f, 1f, _options.ForceWarp, VSync: true, Headless: true),
-            engine);
+            engine.Handle,
+            new RendererConfig(_options.Width, _options.Height, 1f, 1f, _options.ForceWarp, VSync: true, Headless: true));
         _renderer = renderer;
         // High, pinned. The adaptive controller is E4-S7's story and a tier change mid-phase would move the
         // frame rate underneath a measurement whose whole subject is the beat between two rates.

@@ -32,7 +32,7 @@ public class NativeRendererTests
     [Fact]
     public void Headless_warp_renderer_reports_frames_and_adapter()
     {
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(320, 180, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(320, 180, ForceWarp: true, VSync: false), nint.Zero);
         Thread.Sleep(300);
         RenderStats stats = renderer.GetStats();
         stats.Frames.Should().BeGreaterThan(5);
@@ -48,7 +48,7 @@ public class NativeRendererTests
     [Fact]
     public void Resize_storm_and_visibility_toggle_do_not_break_the_renderer()
     {
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(640, 360, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(640, 360, ForceWarp: true, VSync: false), nint.Zero);
         for (int i = 0; i < 100; i++)
         {
             renderer.Resize(320 + (i * 37) % 1600, 180 + (i * 53) % 900, i % 2 == 0 ? 1f : 1.25f, i % 2 == 0 ? 1f : 1.25f);
@@ -72,7 +72,7 @@ public class NativeRendererTests
     public void Catalogue_holds_the_built_in_preset_even_with_no_preset_directory()
     {
         using var root = new PresetRootScope(PresetRootScope.Empty);
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
         IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
         presets.Should().ContainSingle();
         presets[0].Id.Should().Be("builtin-bars");
@@ -83,7 +83,7 @@ public class NativeRendererTests
     public void Presets_on_disk_join_the_catalogue_and_load()
     {
         using var root = new PresetRootScope(PresetRootScope.Fixtures);
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
         IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
         presets.Select(p => p.Id).Should().Contain(["builtin-bars", "solid-green", "solid-blue", "broken-shader"]);
         presets.Select(p => p.Id).Should().NotContain("broken-json");
@@ -101,7 +101,7 @@ public class NativeRendererTests
     public void A_preset_that_does_not_compile_throws_the_compiler_message_and_keeps_rendering()
     {
         using var root = new PresetRootScope(PresetRootScope.Fixtures);
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
         renderer.SetPreset("solid-green");
         long before = renderer.GetStats().Frames;
 
@@ -125,7 +125,7 @@ public class NativeRendererTests
         // What the controller decides is mpcore.tests [quality]'s to prove; what this proves is the binding -
         // the policy goes out, and the 0.16 tail of mp_render_stats comes back into the managed struct at the
         // offsets the header put it at, which is the only thing a hand-written blittable mirror can get wrong.
-        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
         FluentActions.Invoking(() => renderer.SetQuality((int)QualityPolicy.Auto)).Should().NotThrow();
         renderer.GetStats().Policy.Should().Be(QualityPolicy.Auto);
         renderer.GetStats().Tier.Should().Be(QualityTier.High); // nothing has been over budget
@@ -148,7 +148,7 @@ public class NativeRendererTests
     [Fact]
     public void Disposed_renderer_rejects_calls()
     {
-        NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false));
+        NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(64, 64, ForceWarp: true, VSync: false), nint.Zero);
         renderer.Dispose();
         FluentActions.Invoking(renderer.GetStats).Should().Throw<ObjectDisposedException>();
         FluentActions.Invoking(renderer.Dispose).Should().NotThrow();
