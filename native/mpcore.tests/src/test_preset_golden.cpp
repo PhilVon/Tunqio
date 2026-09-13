@@ -58,19 +58,22 @@ constexpr uint32_t k_golden_height = 360;
 // parameter meaning or a changed shape would move; the mean bound is what stops many tiny differences adding up
 // to a different picture that is everywhere-just-inside the per-channel bound.
 constexpr int k_max_channel_delta = 6;
-constexpr double k_max_mean_delta = 0.5;
 
-// ...and why one preset needs a tighter one. ambient-glow is a dark full-field wash: flash safety caps every
-// channel it can emit at 0.28 of full scale, so its whole picture lives in the bottom eighth of the byte range
-// and a change that would be glaring in any of the other three moves each byte by one step. Measured, by
-// perturbing one constant at a time and reading the comparison: a 1% change to its brightness ceiling (PeakGlow
-// 0.28 -> 0.277) moves 146 443 of 230 400 pixels but by a max channel delta of 1, and a 2% shift of one lobe's
-// centre moves 88 294 by 2. Both are inside the general bounds above and both PASSED them - which is the
-// "golden test that cannot fail" this file's header warns about, found the same way E4-S4 found the 320x180 one.
-// The per-channel bound cannot help here (the differences really are one byte); the mean is the bound that sees
-// "many tiny differences adding up to a different picture", and 0.06 catches the smaller of those two by 2.4x
-// while the real comparison reads 0.0000 in Debug, Release and ASan alike.
-constexpr double k_max_mean_delta_ambient_glow = 0.06;
+// The mean bound is NOT a constant, because a constant is wrong for a dark picture. ambient-glow is a full-field
+// wash that flash safety caps at 0.28 of full scale, so its goldens live in the bottom third of the byte range
+// and a change that would be glaring in a bright preset moves each byte by one step. Measured (T-149), one
+// constant perturbed at a time in a scratch copy of the presets: PeakGlow 0.28 -> 0.277 reads a mean of 0.2282
+// with a max channel delta of 1 over 146 443 pixels, and the middle lobe moved 0.02 in y reads 0.1632, or 0.1366
+// on the themed golden. A mean bound of 0.5 passed every one of them - a golden test that could not fail. T-56
+// fixed that instance with a per-preset 0.06, which works until the next dark preset nobody thinks to check.
+//
+// So the bound is derived from the golden itself, from its range: the brightest channel of each lit pixel (any
+// channel above 12), taken at the 99th percentile so a lone highlight cannot loosen a dark preset's bound, as a
+// fraction of 255 and SQUARED. The square is fitted to the measurements rather than derived: the linear rule gives
+// the themed ambient-glow golden 0.135 against its 0.1366 perturbation, a margin of 1.01, while the square gives
+// 0.037 and 0.049 on the two dark goldens (3.7x and 3.3x under their smallest perturbation) and 0.225 to 0.447
+// on the bright four, whose real comparison reads 0.0000. A full-range picture keeps the 0.5 it always had.
+constexpr double k_mean_delta_at_full_range = 0.5;
 
 // The presets in presets/, in the order the four built-ins of ADR-009 are listed there. builtin-bars is not one
 // of them - it is compiled into the core and E4-S3's tests own it.
@@ -452,8 +455,45 @@ bool golden_update_requested() {
     return GetEnvironmentVariableA("MPCORE_GOLDEN_UPDATE", value, sizeof value) > 0 && value[0] != '0';
 }
 
+struct mean_tolerance {
+    int range = 0;      // the lit-pixel 99th-percentile brightest channel the bound was derived from
+    double bound = 0.0; // the mean channel delta a capture may differ from the golden by
+};
+
+// The mean bound for one golden, from its own range (see k_mean_delta_at_full_range for why, and for the numbers).
+mean_tolerance derived_mean_tolerance(const capture& golden) {
+    std::array<size_t, 256> histogram{};
+    size_t lit = 0;
+    for (size_t i = 0; i < golden.bgra.size(); i += 4) {
+        const uint8_t brightest = std::max({golden.bgra[i], golden.bgra[i + 1], golden.bgra[i + 2]});
+        if (brightest > 12) {
+            ++histogram[brightest];
+            ++lit;
+        }
+    }
+    mean_tolerance t;
+    // A golden with nothing lit has no range to be sensitive to; it gets the full-range bound rather than zero,
+    // which a single rounded byte anywhere would fail.
+    if (lit == 0) {
+        t.range = 255;
+    } else {
+        const size_t target = (lit * 99 + 99) / 100;
+        size_t seen = 0;
+        for (int v = 0; v < 256; ++v) {
+            seen += histogram[static_cast<size_t>(v)];
+            if (seen >= target) {
+                t.range = v;
+                break;
+            }
+        }
+    }
+    const double fraction = static_cast<double>(t.range) / 255.0;
+    t.bound = k_mean_delta_at_full_range * fraction * fraction;
+    return t;
+}
+
 // Compares one capture against its checked-in PNG, and says exactly what to look at when it does not match.
-void check_against_golden(const std::string& id, const capture& shot, double max_mean_delta = k_max_mean_delta) {
+void check_against_golden(const std::string& id, const capture& shot) {
     const fs::path golden = golden_dir() / (id + ".png");
 
     if (golden_update_requested()) {
@@ -479,15 +519,16 @@ void check_against_golden(const std::string& id, const capture& shot, double max
     REQUIRE(reference.height == shot.height);
 
     const difference d = compare(shot, reference);
-    char note[320];
+    const mean_tolerance tolerance = derived_mean_tolerance(reference);
+    char note[360];
     std::snprintf(note, sizeof note,
-                  "%s vs golden: max channel delta %d (tolerance %d), mean %.4f (tolerance %.2f), %zu of %zu "
-                  "pixels differ at all",
-                  id.c_str(), d.max_channel, k_max_channel_delta, d.mean_channel, max_mean_delta, d.pixels_differing,
-                  shot.bgra.size() / 4);
+                  "%s vs golden: max channel delta %d (tolerance %d), mean %.4f (tolerance %.3f, from a lit range of "
+                  "%d), %zu of %zu pixels differ at all",
+                  id.c_str(), d.max_channel, k_max_channel_delta, d.mean_channel, tolerance.bound, tolerance.range,
+                  d.pixels_differing, shot.bgra.size() / 4);
     WARN(note); // a comparison that does not print its numbers is not a measurement
 
-    if (d.max_channel > k_max_channel_delta || d.mean_channel > max_mean_delta) {
+    if (d.max_channel > k_max_channel_delta || d.mean_channel > tolerance.bound) {
         const fs::path actual = fs::temp_directory_path() / ("tunqio-golden-" + id + "-actual.png");
         std::string write_error;
         (void)mp::tests::write_png(actual, shot.bgra, shot.width, shot.height, write_error);
@@ -554,7 +595,7 @@ TEST_CASE("Radial Spectrum renders its golden image from a fixed analysis frame"
 // change to the built-in ramp is caught here and a change to the art path is caught by the tests below it.
 TEST_CASE("Ambient Glow renders its golden image from a fixed analysis frame", "[render][preset][golden]") {
     const preset_root_override root{shipped_presets()};
-    check_against_golden("ambient-glow", render_preset("ambient-glow"), k_max_mean_delta_ambient_glow);
+    check_against_golden("ambient-glow", render_preset("ambient-glow"));
 }
 
 // The golden images are only worth having if the same input twice is the same picture twice. If this fails, a
@@ -959,8 +1000,7 @@ TEST_CASE("Spectrum Bars draws with the theme", "[render][preset][golden][theme]
 TEST_CASE("Ambient Glow draws with the theme when there is no album art", "[render][preset][golden][theme]") {
     const preset_root_override root{shipped_presets()};
     const mp_theme_colors theme = theme_of(k_test_theme);
-    check_against_golden("ambient-glow-themed", render_preset("ambient-glow", k_golden_width, k_golden_height, &theme),
-                         k_max_mean_delta_ambient_glow);
+    check_against_golden("ambient-glow-themed", render_preset("ambient-glow", k_golden_width, k_golden_height, &theme));
 }
 
 // The goldens above are two presets. This is the claim for all four, and it is the one T-162 exists to make.
