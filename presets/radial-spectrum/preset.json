@@ -9,7 +9,7 @@
   "clear": [0.02, 0.022, 0.035, 1.0],
   "parameters": [
     { "name": "rays", "label": "Rays", "default": 72.0, "min": 12.0, "max": 128.0, "step": 1.0 },
-    { "name": "smoothing", "label": "Smoothing", "default": 0.35, "min": 0.0, "max": 1.0 },
+    { "name": "smoothing", "label": "Spread", "default": 0.35, "min": 0.0, "max": 1.0 },
     { "name": "colour", "label": "Colour source", "default": 0.0, "min": 0.0, "max": 2.0,
       "choices": ["Position", "Loudness", "Spectral centroid"] },
     { "name": "gain", "label": "Gain", "default": 1.0, "min": 0.25, "max": 4.0 },

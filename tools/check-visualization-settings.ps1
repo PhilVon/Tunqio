@@ -442,7 +442,7 @@ try {
         Select-ListRow 'Presets' 'Spectrum Bars'
         $sliders = Get-NamesOfType 'Slider'
         $combos = Get-NamesOfType 'ComboBox'
-        foreach ($want in 'Bars, 64', 'Smoothing, 0.35', 'Gain, 1') {
+        foreach ($want in 'Bars, 64', 'Spread, 0.35', 'Gain, 1') {
             if (-not ($sliders | Where-Object { $_ -eq $want })) {
                 return "no slider named '$want'; sliders are [$($sliders -join ' | ')]"
             }
