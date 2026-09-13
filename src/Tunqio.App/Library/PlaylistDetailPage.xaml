@@ -43,6 +43,9 @@
         <Button Content="Shuffle" Click="OnShuffle" IsEnabled="{x:Bind ViewModel.CanPlay, Mode=OneWay}" AutomationProperties.Name="Shuffle playlist" />
         <Button Content="Rename" Click="OnRename" IsEnabled="{x:Bind local:PlaylistDetailPage.Not(ViewModel.NotFound), Mode=OneWay}" AutomationProperties.Name="Rename playlist" />
         <Button Content="Delete" Click="OnDelete" IsEnabled="{x:Bind local:PlaylistDetailPage.Not(ViewModel.NotFound), Mode=OneWay}" AutomationProperties.Name="Delete playlist" />
+        <!-- The mode table's other way into Curation: "mode switcher, or Edit playlist action" (E5-S4). -->
+        <Button Content="Edit in Curation" Click="OnEditInCuration" IsEnabled="{x:Bind local:PlaylistDetailPage.Not(ViewModel.NotFound), Mode=OneWay}"
+                AutomationProperties.Name="Edit in Curation" ToolTipService.ToolTip="Edit this playlist in Curation mode (Ctrl+3)" />
       </StackPanel>
     </StackPanel>
 

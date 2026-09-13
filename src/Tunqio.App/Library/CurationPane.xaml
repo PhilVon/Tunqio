@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Tunqio.App.Library.CurationPane"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Tunqio.App.Library"
+    xmlns:core="using:Tunqio.Core.Library">
+  <!--
+    Curation mode's dual pane (E5-S4, flow 6): the source on the left, the library or a playlist, filterable; the target
+    playlist on the right. Tracks reach the target by dragging them across (dropped where they land), by Enter or a
+    double-click on a source row, or by the batch bar's Add. The target reorders by dragging or Alt+Up / Alt+Down,
+    removes with Delete, and every change is one step of undo (Ctrl+Z) and redo (Ctrl+Y). The batch bar appears when
+    more than one row is selected, as the mode table says; the buttons in each pane's header work for one.
+  -->
+  <Grid RowDefinitions="*,Auto">
+    <Grid ColumnDefinitions="*,*">
+
+      <!-- ===== source ===== -->
+      <Grid RowDefinitions="Auto,*" Padding="0,0,0,0">
+        <StackPanel Padding="16,12,8,8" Spacing="8">
+          <TextBlock Text="Source" Style="{StaticResource BodyStrongTextBlockStyle}" />
+          <ComboBox x:Name="SourcePicker" HorizontalAlignment="Stretch" DisplayMemberPath="Name"
+                    ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}"
+                    SelectionChanged="OnSourcePicked" AutomationProperties.Name="Source" />
+          <TextBox x:Name="FilterBox" PlaceholderText="Filter by title, artist or album"
+                   TextChanged="OnFilterChanged" AutomationProperties.Name="Filter source tracks" />
+          <Button Click="OnAddSelected" IsEnabled="{x:Bind ViewModel.CanAddSelection, Mode=OneWay}"
+                  AutomationProperties.Name="Add selected to playlist" ToolTipService.ToolTip="Add the selected tracks (Enter)">
+            <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
+              <FontIcon Glyph="&#xE710;" FontSize="14" />
+              <TextBlock Text="Add to playlist" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+
+        <ListView
+            x:Name="SourceList"
+            Grid.Row="1"
+            SelectionMode="Extended"
+            CanDragItems="True"
+            DragItemsStarting="OnSourceDragStarting"
+            SelectionChanged="OnSourceSelectionChanged"
+            DoubleTapped="OnSourceDoubleTapped"
+            PreviewKeyDown="OnSourceKeyDown"
+            ItemsSource="{x:Bind ViewModel.SourceItems, Mode=OneWay}"
+            AutomationProperties.Name="Source tracks">
+          <ListView.ItemContainerStyle>
+            <Style TargetType="ListViewItem">
+              <Setter Property="MinHeight" Value="36" />
+              <Setter Property="Height" Value="36" />
+              <Setter Property="Padding" Value="16,0,8,0" />
+              <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+          </ListView.ItemContainerStyle>
+          <ListView.ItemTemplate>
+            <DataTemplate x:DataType="core:TrackDto">
+              <Grid ColumnDefinitions="3*,2*,56"
+                    AutomationProperties.Name="{x:Bind local:CurationPane.RowName(Title, ArtistNames, AlbumTitle, DurationMs)}">
+                <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+                <TextBlock Grid.Column="1" Text="{x:Bind ArtistNames}" Opacity="0.7" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+                <TextBlock Grid.Column="2" Text="{x:Bind local:CurationPane.Duration(DurationMs)}" Opacity="0.7" VerticalAlignment="Center" />
+              </Grid>
+            </DataTemplate>
+          </ListView.ItemTemplate>
+        </ListView>
+        <TextBlock Grid.Row="1" Text="No tracks match" Opacity="0.7" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="{x:Bind ViewModel.SourceIsEmpty, Mode=OneWay}" />
+      </Grid>
+
+      <!-- ===== target ===== -->
+      <Grid Grid.Column="1" RowDefinitions="Auto,*" BorderThickness="1,0,0,0"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+        <StackPanel Padding="8,12,16,8" Spacing="8">
+          <TextBlock Text="Playlist" Style="{StaticResource BodyStrongTextBlockStyle}" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <ComboBox x:Name="TargetPicker" HorizontalAlignment="Stretch" DisplayMemberPath="Name"
+                      PlaceholderText="Choose a playlist"
+                      ItemsSource="{x:Bind ViewModel.Playlists, Mode=OneWay}"
+                      SelectionChanged="OnTargetPicked" AutomationProperties.Name="Target playlist" />
+            <Button Grid.Column="1" Click="OnNewPlaylist" AutomationProperties.Name="New playlist" ToolTipService.ToolTip="New playlist">
+              <FontIcon Glyph="&#xE710;" FontSize="14" />
+            </Button>
+          </Grid>
+          <TextBlock Text="{x:Bind ViewModel.TargetSummary, Mode=OneWay}" Opacity="0.7"
+                     AutomationProperties.AutomationId="CurationSummary" />
+          <StackPanel Orientation="Horizontal" Spacing="4">
+            <Button Click="OnUndo" IsEnabled="{x:Bind ViewModel.CanUndo, Mode=OneWay}"
+                    AutomationProperties.Name="{x:Bind ViewModel.UndoName, Mode=OneWay}" ToolTipService.ToolTip="Undo (Ctrl+Z)">
+              <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+            </Button>
+            <Button Click="OnRedo" IsEnabled="{x:Bind ViewModel.CanRedo, Mode=OneWay}"
+                    AutomationProperties.Name="{x:Bind ViewModel.RedoName, Mode=OneWay}" ToolTipService.ToolTip="Redo (Ctrl+Y)">
+              <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+            </Button>
+            <AppBarSeparator />
+            <Button Click="OnMoveUp" IsEnabled="{x:Bind ViewModel.CanEditSelection, Mode=OneWay}"
+                    AutomationProperties.Name="Move selected up" ToolTipService.ToolTip="Move up (Alt+Up)">
+              <FontIcon Glyph="&#xE70E;" FontSize="14" />
+            </Button>
+            <Button Click="OnMoveDown" IsEnabled="{x:Bind ViewModel.CanEditSelection, Mode=OneWay}"
+                    AutomationProperties.Name="Move selected down" ToolTipService.ToolTip="Move down (Alt+Down)">
+              <FontIcon Glyph="&#xE70D;" FontSize="14" />
+            </Button>
+            <Button Click="OnRemoveSelected" IsEnabled="{x:Bind ViewModel.CanEditSelection, Mode=OneWay}"
+                    AutomationProperties.Name="Remove selected from playlist" ToolTipService.ToolTip="Remove (Delete)">
+              <FontIcon Glyph="&#xE74D;" FontSize="14" />
+            </Button>
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Background set so the empty part of the list is a drop target too. -->
+        <ListView
+            x:Name="TargetList"
+            Grid.Row="1"
+            Background="Transparent"
+            SelectionMode="Extended"
+            CanReorderItems="True"
+            CanDragItems="True"
+            AllowDrop="True"
+            DragItemsCompleted="OnTargetDragCompleted"
+            SelectionChanged="OnTargetSelectionChanged"
+            PreviewKeyDown="OnTargetKeyDown"
+            AutomationProperties.Name="Playlist tracks in Curation">
+          <ListView.ItemContainerStyle>
+            <Style TargetType="ListViewItem">
+              <Setter Property="MinHeight" Value="36" />
+              <Setter Property="Height" Value="36" />
+              <Setter Property="Padding" Value="8,0,16,0" />
+              <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+          </ListView.ItemContainerStyle>
+          <ListView.ItemTemplate>
+            <DataTemplate x:DataType="local:PlaylistTrackRow">
+              <Grid ColumnDefinitions="3*,2*,56" AutomationProperties.Name="{x:Bind AutomationName}">
+                <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+                <TextBlock Grid.Column="1" Text="{x:Bind Artists}" Opacity="0.7" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+                <TextBlock Grid.Column="2" Text="{x:Bind Duration}" Opacity="0.7" VerticalAlignment="Center" />
+              </Grid>
+            </DataTemplate>
+          </ListView.ItemTemplate>
+        </ListView>
+        <TextBlock Grid.Row="1" Text="Drag tracks here from the source" Opacity="0.7" IsHitTestVisible="False"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="{x:Bind ViewModel.TargetIsEmpty, Mode=OneWay}" />
+        <TextBlock Grid.Row="1" Text="Choose a playlist, or make one with +" Opacity="0.7" IsHitTestVisible="False"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Margin="16"
+                   Visibility="{x:Bind ViewModel.NoTarget, Mode=OneWay}" />
+      </Grid>
+    </Grid>
+
+    <!-- The batch action bar (mode table: "when selection > 1"). -->
+    <Border Grid.Row="1" Padding="16,8" BorderThickness="0,1,0,0"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}"
+            Visibility="{x:Bind ViewModel.BatchBarVisible, Mode=OneWay}"
+            AutomationProperties.Name="Batch actions">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <TextBlock Text="{x:Bind ViewModel.BatchText, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                   AutomationProperties.AutomationId="CurationBatchText" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+          <Button Content="Add to playlist" Click="OnAddSelected" IsEnabled="{x:Bind ViewModel.CanAddSelection, Mode=OneWay}"
+                  Style="{StaticResource AccentButtonStyle}" AutomationProperties.Name="Batch add to playlist" />
+          <Button Content="Remove" Click="OnRemoveSelected" IsEnabled="{x:Bind ViewModel.CanEditSelection, Mode=OneWay}"
+                  AutomationProperties.Name="Batch remove from playlist" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

@@ -180,6 +180,16 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
         items.Insert(toPosition, moved);
     }, ct);
 
+    public Task ReplaceTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(trackIds);
+        return RewriteAsync(id, items =>
+        {
+            items.Clear();
+            items.AddRange(trackIds);
+        }, ct);
+    }
+
     private const string SelectPlaylists = """
         SELECT p.id, p.name, p.created_at, p.modified_at, p.pinned, COUNT(t.id), COALESCE(SUM(t.duration_ms), 0)
         FROM playlist p
@@ -247,16 +257,25 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
             await clear.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
-        await using (SqliteCommand insert = Sql.Command(connection, "INSERT INTO playlist_item(playlist_id, position, track_id) VALUES ($playlist, $position, $track)", tx))
+        // Selected from track rather than inserted as values: a replacement written by undo can name a track that has
+        // left the library since the edit it undoes, and it takes no position instead of failing the whole write.
+        await using (SqliteCommand insert = Sql.Command(connection, """
+            INSERT INTO playlist_item(playlist_id, position, track_id)
+            SELECT $playlist, $position, id FROM track WHERE id = $track
+            """, tx))
         {
             insert.Add("$playlist", id);
             insert.Add("$position", 0L);
             insert.Add("$track", 0L);
-            for (int i = 0; i < items.Count; i++)
+            long position = 0;
+            foreach (long trackId in items)
             {
-                insert.Set("$position", (long)i);
-                insert.Set("$track", items[i]);
-                await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                insert.Set("$position", position);
+                insert.Set("$track", trackId);
+                if (await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1)
+                {
+                    position++;
+                }
             }
         }
 

@@ -50,6 +50,16 @@ public class ShellShortcutsTests
         Find(VirtualKey.Escape)!.Value.Command.Should().Be(ShellCommand.LeaveFocus);
         Find(VirtualKey.M, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.MiniPlayer);
         Find(VirtualKey.M)!.Value.Command.Should().Be(ShellCommand.Mute, "Ctrl+M is the mini player and M on its own is still Mute");
+        Find(VirtualKey.Z, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Undo);
+        Find(VirtualKey.Y, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Redo);
+    }
+
+    /// <summary>E5-S4: a text box has an undo of its own, so Curation's only fires on a Ctrl+Z nothing else took.</summary>
+    [Fact]
+    public void Undo_and_redo_leave_a_text_box_its_own()
+    {
+        Find(VirtualKey.Z, VirtualKeyModifiers.Control)!.Value.Delivery.Should().Be(ShortcutDelivery.Accelerator);
+        Find(VirtualKey.Y, VirtualKeyModifiers.Control)!.Value.Delivery.Should().Be(ShortcutDelivery.Accelerator);
     }
 
     // ---- E5-S1: the mode keys ---------------------------------------------------------------------------------------

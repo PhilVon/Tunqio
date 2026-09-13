@@ -17,6 +17,7 @@ public sealed class ShellChrome
     private readonly FrameworkElement _root;
     private readonly FrameworkElement _nowPlaying;
     private readonly FrameworkElement _sidebar;
+    private readonly FrameworkElement _curation;
     private readonly FrameworkElement _controls;
     private readonly Func<bool> _animationsEnabled;
     private ShellLayoutMode? _applied;
@@ -24,6 +25,7 @@ public sealed class ShellChrome
 
     /// <param name="root">The element the theme is set on; everything else must be inside it.</param>
     /// <param name="grid">The grid whose rows and columns the three panels sit in.</param>
+    /// <param name="curation">Curation's dual pane (E5-S4), which takes the sidebar's place in that mode.</param>
     /// <param name="animationsEnabled">
     /// Windows' "Show animations" switch, read at each mode change so a transition is instant the moment reduced
     /// motion is turned on (flow 10).
@@ -33,6 +35,7 @@ public sealed class ShellChrome
         Grid grid,
         FrameworkElement nowPlaying,
         FrameworkElement sidebar,
+        FrameworkElement curation,
         FrameworkElement controls,
         Func<bool> animationsEnabled)
     {
@@ -40,12 +43,14 @@ public sealed class ShellChrome
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentNullException.ThrowIfNull(nowPlaying);
         ArgumentNullException.ThrowIfNull(sidebar);
+        ArgumentNullException.ThrowIfNull(curation);
         ArgumentNullException.ThrowIfNull(controls);
         ArgumentNullException.ThrowIfNull(animationsEnabled);
         _root = root;
         _grid = grid;
         _nowPlaying = nowPlaying;
         _sidebar = sidebar;
+        _curation = curation;
         _controls = controls;
         _animationsEnabled = animationsEnabled;
     }
@@ -88,7 +93,15 @@ public sealed class ShellChrome
             LayOutInColumns(state);
         }
 
-        _sidebar.Visibility = state.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
+        // Curation's editor sits in the sidebar's cell, on the same floor and divider. The library pane is collapsed
+        // under it rather than removed, for the reason Focus collapses it.
+        Grid.SetRow(_curation, Grid.GetRow(_sidebar));
+        Grid.SetColumn(_curation, Grid.GetColumn(_sidebar));
+        Grid.SetRowSpan(_curation, Grid.GetRowSpan(_sidebar));
+        _curation.MinWidth = _sidebar.MinWidth;
+        SetBorder(_curation, (_sidebar as Control)?.BorderThickness ?? default);
+        _sidebar.Visibility = state.SidebarShown && !state.CurationEditor ? Visibility.Visible : Visibility.Collapsed;
+        _curation.Visibility = state.CurationEditor ? Visibility.Visible : Visibility.Collapsed;
         if (modeChanged)
         {
             AnimateModeChange(state);
@@ -153,7 +166,11 @@ public sealed class ShellChrome
         }
 
         FadeIn(_nowPlaying, duration);
-        if (state.SidebarShown)
+        if (state.CurationEditor)
+        {
+            FadeIn(_curation, duration);
+        }
+        else if (state.SidebarShown)
         {
             FadeIn(_sidebar, duration);
         }

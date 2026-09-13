@@ -62,6 +62,8 @@ public static class LibraryViewServices
         services.AddTransient<LibrarySettingsViewModel>();
         services.AddTransient<PlaylistsViewModel>();
         services.AddTransient<PlaylistDetailViewModel>();
+        // Curation's dual pane (E5-S4). One for the process: a playlist page names its playlist here before the mode changes.
+        services.AddSingleton<CurationViewModel>();
         return services;
     }
 }

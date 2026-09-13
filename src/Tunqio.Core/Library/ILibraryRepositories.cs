@@ -146,6 +146,13 @@ public interface IPlaylistRepository
 
     /// <summary>Moves the item at <paramref name="fromPosition"/> to <paramref name="toPosition"/>, shifting the items between. Out of range is refused.</summary>
     Task MoveAsync(long id, int fromPosition, int toPosition, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces every item with <paramref name="trackIds"/>, in the order given, in one transaction. An id the library
+    /// no longer has is skipped. Nothing happens for an unknown playlist. The Curation editor's undo and redo (E5-S4)
+    /// are this: each edit keeps the list before and after it, and stepping back or forward writes one of them.
+    /// </summary>
+    Task ReplaceTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default);
 }
 
 /// <summary>

@@ -528,7 +528,7 @@ Albums grid default, Ambient Glow behind art. As built: one preset for every mod
 - [ ] Discovery matches the mode table in ui-screens-and-flows.md
 
 ### E5-S4 · Curation mode dual pane · **L** · `ui`
-Source pane (library or playlist) and target playlist pane, drag between panes, batch action bar, undo/redo stack in `PlaylistEditor`.
+Source pane (library or playlist) and target playlist pane, drag between panes, batch action bar, undo/redo stack in `PlaylistEditor`. As built: `CurationPane` over `CurationViewModel` in the sidebar's cell (`ShellLayoutState.CurationEditor`); `PlaylistEditor` in Tunqio.Core keeps snapshot undo/redo over the new `IPlaylistRepository.ReplaceTracksAsync`; Ctrl+Z / Ctrl+Y in `ShellShortcuts`; Edit in Curation from playlist detail. Flow 6's export step belongs to E6-S2 (T-68). The 500-track criterion is gated by `Tunqio.Benchmarks.CurationBenchmarks`. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Modes, defined precisely".
 - [ ] Flow 6 passes end to end including Ctrl+Z
 - [ ] Dragging 500 selected tracks completes in < 1 s
 

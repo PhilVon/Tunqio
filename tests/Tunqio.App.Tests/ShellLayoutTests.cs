@@ -142,7 +142,20 @@ public class ShellLayoutTests
     [Fact]
     public void Curation_stacked_keeps_the_equal_heights()
     {
-        ShellLayout.For(700, ShellMode.Curation).Should().Be(ShellLayout.For(700), "Q-67 inverts the columns, not the rows");
+        ShellLayout.For(700, ShellMode.Curation).Should().Be(ShellLayout.For(700) with { CurationEditor = true }, "Q-67 inverts the columns, not the rows");
+    }
+
+    /// <summary>E5-S4: the mode table's Curation sidebar is the dual pane, in the sidebar's place at every width.</summary>
+    [Theory]
+    [InlineData(700)]
+    [InlineData(1000)]
+    [InlineData(1600)]
+    public void Only_curation_puts_the_editor_in_the_sidebars_place(double width)
+    {
+        ShellLayout.For(width, ShellMode.Curation).CurationEditor.Should().BeTrue();
+        ShellLayout.For(width, ShellMode.Curation).SidebarShown.Should().BeTrue("the place is shown; what fills it changes");
+        ShellLayout.For(width, ShellMode.Discovery).CurationEditor.Should().BeFalse();
+        ShellLayout.For(width, ShellMode.Focus).CurationEditor.Should().BeFalse();
     }
 
     [Theory]

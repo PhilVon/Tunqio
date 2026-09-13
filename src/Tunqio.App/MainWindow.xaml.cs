@@ -118,7 +118,7 @@ public sealed partial class MainWindow : Window
         Title = Identity.WindowTitle(null, null);
 
         _chrome = new ShellChrome(
-            Root, ShellGrid, NowPlayingColumn, SidebarPanel, ControlsPanel, () => _uiSettings.AnimationsEnabled);
+            Root, ShellGrid, NowPlayingColumn, SidebarPanel, CurationEditor, ControlsPanel, () => _uiSettings.AnimationsEnabled);
         _shell = shell;
         SyncModeSwitcher();
         if (_shell is not null)
@@ -157,6 +157,10 @@ public sealed partial class MainWindow : Window
         _chrome.ApplyTheme(settings is null ? ThemePreference.System : ThemePolicy.Read(settings));
         ApplyShellLayout(ShellLayout.MediumThreshold);
         Root.SizeChanged += (_, e) => ApplyShellLayout(e.NewSize.Width);
+        if (CurrentMode == ShellMode.Curation)
+        {
+            CurationEditor.Activate(); // a launch that opens in Curation, where no mode change will ask
+        }
         // Which theme is on screen decides which text the reactive contrast guarantee is made against, and the
         // theming ticks on a timer thread where ActualTheme cannot be read at all. So it is cached here, on the
         // thread that owns it, and the theming reads the cache.
@@ -335,6 +339,10 @@ public sealed partial class MainWindow : Window
         ApplyShellLayout(_lastWidth);
         SyncModeSwitcher();
         UpdateFocusExtras();
+        if (CurrentMode == ShellMode.Curation)
+        {
+            CurationEditor.Activate();
+        }
     }
 
     // ---- the mini player (E5-S6) -------------------------------------------------------------------------------------
@@ -671,6 +679,12 @@ public sealed partial class MainWindow : Window
                 return _shell?.LeaveFocus() ?? false;
             case ShellCommand.MiniPlayer:
                 return OpenMiniPlayer();
+            // Curation's history (E5-S4). Outside Curation, or with nothing to undo, the key stays unhandled; a text box
+            // takes Ctrl+Z before an accelerator sees it, and the typing check is for anything that does not.
+            case ShellCommand.Undo:
+                return CurrentMode == ShellMode.Curation && !IsTypingSomewhere() && CurationEditor.Undo();
+            case ShellCommand.Redo:
+                return CurrentMode == ShellMode.Curation && !IsTypingSomewhere() && CurationEditor.Redo();
             default:
                 break;
         }

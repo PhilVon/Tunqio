@@ -30,12 +30,17 @@ public enum ShellLayoutMode
 /// <param name="Sidebar">The sidebar's star weight.</param>
 /// <param name="Stacked">True when the panels are rows rather than columns.</param>
 /// <param name="SidebarShown">False in Focus, where Now Playing takes the whole width (E5-S1).</param>
+/// <param name="CurationEditor">
+/// True in Curation, where the sidebar's place holds the dual-pane editor instead of the library pane (E5-S4). The library
+/// pane is collapsed rather than removed, as in Focus, so its page and back stack are there when Curation is left.
+/// </param>
 public readonly record struct ShellLayoutState(
     ShellLayoutMode Mode,
     double NowPlaying,
     double Sidebar,
     bool Stacked,
-    bool SidebarShown = true)
+    bool SidebarShown = true,
+    bool CurationEditor = false)
 {
     /// <summary>The two shares as fractions of the space the panels divide, which is what "60 / 40" means.</summary>
     public (double NowPlaying, double Sidebar) Fractions
@@ -103,7 +108,8 @@ public static class ShellLayout
         return mode switch
         {
             ShellMode.Focus => shape with { NowPlaying = 1, Sidebar = 0, SidebarShown = false },
-            ShellMode.Curation when !shape.Stacked => shape with { NowPlaying = shape.Sidebar, Sidebar = shape.NowPlaying },
+            ShellMode.Curation when !shape.Stacked => shape with { NowPlaying = shape.Sidebar, Sidebar = shape.NowPlaying, CurationEditor = true },
+            ShellMode.Curation => shape with { CurationEditor = true },
             _ => shape,
         };
     }

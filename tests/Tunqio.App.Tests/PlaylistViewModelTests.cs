@@ -221,6 +221,8 @@ public sealed class PlaylistViewModelTests
 
         public Task AddTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task ReplaceTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task RemoveAtAsync(long id, IReadOnlyList<int> positions, CancellationToken ct = default)
         {
             List<TrackDto> tracks = Stored.Single(p => p.Id == id).Tracks;

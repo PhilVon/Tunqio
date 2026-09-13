@@ -134,6 +134,13 @@ internal sealed class FakeTrackRepository : ITrackRepository
             rows = rows.Where(t => t.FolderId == folder);
         }
 
+        if (query.Text is { } text)
+        {
+            rows = rows.Where(t => t.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
+                || (t.AlbumTitle ?? string.Empty).Contains(text, StringComparison.OrdinalIgnoreCase)
+                || t.Artists.Any(a => a.Name.Contains(text, StringComparison.OrdinalIgnoreCase)));
+        }
+
         List<TrackDto> ordered = rows.OrderBy(t => t, new KeyComparer<TrackDto>(query.SortKeysOf, t => t.Id)).ToList();
         if (query.Descending)
         {

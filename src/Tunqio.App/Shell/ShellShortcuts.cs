@@ -42,6 +42,12 @@ public enum ShellCommand
 
     /// <summary>Open the mini player (E5-S6).</summary>
     MiniPlayer,
+
+    /// <summary>Undo the Curation editor's last edit (E5-S4); nothing outside Curation.</summary>
+    Undo,
+
+    /// <summary>Redo the Curation editor's last undone edit.</summary>
+    Redo,
 }
 
 /// <summary>
@@ -155,6 +161,10 @@ public static class ShellShortcuts
         new(VirtualKey.F11, VirtualKeyModifiers.None, ShellCommand.ToggleFocus, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.M, VirtualKeyModifiers.Control, ShellCommand.MiniPlayer, 0, ShortcutDelivery.PreEmpt),
         new(VirtualKey.Escape, VirtualKeyModifiers.None, ShellCommand.LeaveFocus, 0, ShortcutDelivery.Accelerator),
+
+        // Curation's undo and redo (E5-S4). Accelerators, like Esc: a text box has an undo of its own and keeps it.
+        new(VirtualKey.Z, VirtualKeyModifiers.Control, ShellCommand.Undo, 0, ShortcutDelivery.Accelerator),
+        new(VirtualKey.Y, VirtualKeyModifiers.Control, ShellCommand.Redo, 0, ShortcutDelivery.Accelerator),
 
         new(VirtualKey.Right, VirtualKeyModifiers.None, ShellCommand.Seek, 5, ShortcutDelivery.Accelerator),
         new(VirtualKey.Left, VirtualKeyModifiers.None, ShellCommand.Seek, -5, ShortcutDelivery.Accelerator),

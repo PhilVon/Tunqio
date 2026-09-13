@@ -141,6 +141,33 @@ public sealed class PlaylistRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Replace_writes_exactly_the_list_given_duplicates_kept_and_unknown_ids_skipped_Async()
+    {
+        PlaylistDto list = await Playlists.CreateAsync("Replace");
+        await Playlists.AddTracksAsync(list.Id, [Id(0), Id(1), Id(2)]);
+
+        await Playlists.ReplaceTracksAsync(list.Id, [Id(2), 999_999, Id(2), Id(4)]);
+        await Playlists.MoveAsync(list.Id, 2, 0); // positions stayed contiguous past the skipped id
+
+        (await ItemsOfAsync(list.Id)).Should().Equal(Id(4), Id(2), Id(2));
+        await Playlists.ReplaceTracksAsync(list.Id, []);
+        (await ItemsOfAsync(list.Id)).Should().BeEmpty();
+        await Playlists.ReplaceTracksAsync(12345, [Id(0)]); // an unknown playlist: nothing, and no throw
+    }
+
+    [Fact]
+    public async Task Replacing_with_500_tracks_stores_all_of_them_in_order_Async()
+    {
+        TrackDto[] library = [.. await _seed.Tracks.ListAsync(new TrackQuery(PageSize: 50))];
+        long[] ids = [.. Enumerable.Range(0, 500).Select(i => library[i % library.Length].Id)];
+        PlaylistDto list = await Playlists.CreateAsync("Big");
+
+        await Playlists.ReplaceTracksAsync(list.Id, ids);
+
+        (await ItemsOfAsync(list.Id)).Should().Equal(ids);
+    }
+
+    [Fact]
     public async Task Delete_removes_the_playlist_and_its_items_Async()
     {
         PlaylistDto keep = await Playlists.CreateAsync("Keep");
