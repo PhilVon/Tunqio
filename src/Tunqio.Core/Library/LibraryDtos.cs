@@ -73,6 +73,19 @@ public sealed record AlbumFacets(IReadOnlyList<int> Decades, IReadOnlyList<strin
 /// <summary>Album detail: tracks in disc/track order (the UI groups by <see cref="TrackDto.DiscNo"/>).</summary>
 public sealed record AlbumDetailDto(AlbumDto Album, IReadOnlyList<TrackDto> Tracks, IReadOnlyList<string> Genres);
 
+/// <summary>A row of the Playlists list (E6-S1). Times are Unix milliseconds UTC; the totals count every item, a track twice counting twice.</summary>
+public sealed record PlaylistDto(
+    long Id,
+    string Name,
+    long CreatedAt,
+    long ModifiedAt,
+    bool Pinned,
+    int TrackCount,
+    long TotalDurationMs);
+
+/// <summary>A playlist and its items in playlist order; an item's position is its index in <see cref="Tracks"/>.</summary>
+public sealed record PlaylistDetailDto(PlaylistDto Playlist, IReadOnlyList<TrackDto> Tracks);
+
 /// <summary>An Artists-list row.</summary>
 public sealed record ArtistDto(long Id, string Name, string SortName, string? Mbid, int AlbumCount, int TrackCount, string? ArtHash);
 

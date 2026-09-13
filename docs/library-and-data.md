@@ -205,9 +205,9 @@ public interface IAlbumRepository { /* Get, GetDetail (tracks in disc/track orde
 public interface IArtistRepository { /* Get, GetDetail (own albums + "appears on"), List(ArtistQuery), Count */ }
 public interface IGenreRepository { /* List: every genre with its present-track count */ }
 public interface ILibraryFolderRepository { /* List, Add (normalised path, idempotent), SetEnabled, Remove (cascades tracks), RecordScan */ }
-public interface ILibraryService { ITrackRepository Tracks; IAlbumRepository Albums; IArtistRepository Artists; IGenreRepository Genres; ILibraryFolderRepository Folders; ISearchService Search; ILibraryScanner Scanner; }
+public interface ILibraryService { ITrackRepository Tracks; IAlbumRepository Albums; IArtistRepository Artists; IGenreRepository Genres; ILibraryFolderRepository Folders; IPlaylistRepository Playlists; ISearchService Search; ILibraryScanner Scanner; }
 public interface ILibraryScanner { bool IsScanning; Task<ScanReport> ScanAsync(ScanRequest request, IProgress<ScanProgress>? progress, CancellationToken ct); }   // E3-S5
-public interface IPlaylistRepository { /* CRUD, reorder as (from, to) moves, bulk add (E6-S1) */ }
+public interface IPlaylistRepository { /* E6-S1: List (pinned first, then name, with item count and total duration), GetDetail (tracks in playlist order; a track may appear twice), Create / Rename (trimmed, blank refused), Delete (items cascade), AddTracks (appended in order, unknown ids skipped), RemoveAt(positions), Move(fromPosition, toPosition); positions 0-based and contiguous, rewritten in one transaction because (playlist_id, position) is the key; every change stamps modified_at */ }
 public interface IPlayHistoryRepository { /* record event, recently played, most played, per-track stats (E3-S11) */ }
 public interface ISearchService { Task<SearchResults> SearchAsync(string text, SearchLimits limits, CancellationToken ct); Task<int> RebuildIndexAsync(CancellationToken ct); }   // E3-S9: groups of tracks, albums and artists with a more-flag each
 ```

@@ -112,6 +112,43 @@ public interface ILibraryFolderRepository
 }
 
 /// <summary>
+/// Playlists (E6-S1, docs/library-and-data.md, "Repository layer"). A playlist is an ordered list of track ids that
+/// may hold a track more than once. Positions are 0-based and contiguous: an item's position is its index in
+/// <see cref="PlaylistDetailDto.Tracks"/>. A track deleted from the library leaves every playlist with it (the schema
+/// cascades). Every change stamps the playlist's <c>modified_at</c>, which is what E6-S2's auto-export will watch.
+/// </summary>
+public interface IPlaylistRepository
+{
+    /// <summary>Every playlist, pinned first, then by name (case-insensitive), with its item count and total duration.</summary>
+    Task<IReadOnlyList<PlaylistDto>> ListAsync(CancellationToken ct = default);
+
+    /// <summary>The playlist and its tracks in playlist order, or null when there is no such playlist.</summary>
+    Task<PlaylistDetailDto?> GetDetailAsync(long id, CancellationToken ct = default);
+
+    /// <summary>Creates an empty playlist. The name is trimmed; a blank name is refused with <see cref="ArgumentException"/>.</summary>
+    Task<PlaylistDto> CreateAsync(string name, CancellationToken ct = default);
+
+    /// <summary>Renames the playlist (trimmed; blank refused). Nothing happens for an unknown id.</summary>
+    Task RenameAsync(long id, string name, CancellationToken ct = default);
+
+    /// <summary>Deletes the playlist and its items. Nothing happens for an unknown id.</summary>
+    Task DeleteAsync(long id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Appends <paramref name="trackIds"/> in the order given. A track already in the playlist is added again, because
+    /// a playlist can play a track twice; an id the library does not have is skipped. Nothing happens for an unknown
+    /// playlist.
+    /// </summary>
+    Task AddTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default);
+
+    /// <summary>Removes the items at <paramref name="positions"/>; the rest close up. A position out of range is refused.</summary>
+    Task RemoveAtAsync(long id, IReadOnlyList<int> positions, CancellationToken ct = default);
+
+    /// <summary>Moves the item at <paramref name="fromPosition"/> to <paramref name="toPosition"/>, shifting the items between. Out of range is refused.</summary>
+    Task MoveAsync(long id, int fromPosition, int toPosition, CancellationToken ct = default);
+}
+
+/// <summary>
 /// Play history (E3-S11, docs/library-and-data.md, "Play history rules"): the write side of the counts that
 /// "Recently played" and "Most played" (E3-S8) sort by. <c>PlaybackSession</c> (E1-S10) is the only caller.
 /// </summary>
@@ -139,6 +176,9 @@ public interface ILibraryService
     IGenreRepository Genres { get; }
 
     ILibraryFolderRepository Folders { get; }
+
+    /// <summary>Playlists (E6-S1).</summary>
+    IPlaylistRepository Playlists { get; }
 
     /// <summary>As-you-type search over the FTS index the track repository maintains (E3-S9).</summary>
     ISearchService Search { get; }

@@ -34,6 +34,7 @@ public sealed class LibraryService : ILibraryService
         Artists = new SqliteArtistRepository(db, albums);
         Genres = new SqliteGenreRepository(db);
         Folders = folders;
+        Playlists = new SqlitePlaylistRepository(db, tracks, clock);
         Search = new SqliteSearchService(db);
         PlayHistory = new SqlitePlayHistoryRepository(db);
         QueueState = new SqliteQueueStateRepository(db);
@@ -57,6 +58,8 @@ public sealed class LibraryService : ILibraryService
     public IGenreRepository Genres { get; }
 
     public ILibraryFolderRepository Folders { get; }
+
+    public IPlaylistRepository Playlists { get; }
 
     public ISearchService Search { get; }
 
