@@ -291,6 +291,21 @@ if ($running.Count -gt 0 -and -not $Force) {
            'Close the app and run again, or pass -Force if that instance is yours to discard.')
 }
 
+# T-183. %LOCALAPPDATA% is not one folder when this runs under a packaged app (the Claude desktop app, for one):
+# Windows redirects writes into the package's LocalCache and shows a merged view, so library.db can exist here and
+# not in the real folder, and a launched app may see a different layer from this script. Parking a file out of one
+# layer while the app opens the other is the likeliest cause of the boot that opened a populated library after the
+# real one had been parked. Refuse rather than guess which layer is the user's. Phil chose to leave the database where
+# it is (Q-65), so this is checked, not fixed.
+$redirected = @(Get-ChildItem $dataRoot -Force -ErrorAction SilentlyContinue |
+    Where-Object { ($_.Target -join ';') -match '\\Packages\\' })
+if ($redirected.Count -gt 0) {
+    throw ("$dataRoot is redirected: $(($redirected | ForEach-Object { $_.Name + ' -> ' + ($_.Target -join ';') }) -join ' | '). " +
+           'This shell sees a package-virtualized copy of the data root, so parking library.db here may not be what the ' +
+           'launched app sees. Nothing has been stopped, moved or launched. Run this from a shell that is not started by ' +
+           'a packaged app (T-183).')
+}
+
 Stop-Shell
 if (Restore-Database) { Write-Output 'note: a previous run had left the real library database parked; it has been put back.' }
 Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue
