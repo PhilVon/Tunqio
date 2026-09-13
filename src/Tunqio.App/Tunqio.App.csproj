@@ -46,6 +46,10 @@
     <AppxPackageName>Tunqio</AppxPackageName>
     <GenerateTestArtifacts>false</GenerateTestArtifacts>
     <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+    <!-- T-131: both shapes defaulted to the <config>_<rid> pivot, so each built into the other's OutDir and left
+         its files behind. The SDK fills ArtifactsPivots only when it is empty, after this file, so the packaged
+         shape gets its own bin and obj. The unpackaged path is unchanged: tests and tools/check-*.ps1 use it. -->
+    <ArtifactsPivots>$(Configuration.ToLowerInvariant())_$(RuntimeIdentifier)_msix</ArtifactsPivots>
   </PropertyGroup>
 
   <ItemGroup>

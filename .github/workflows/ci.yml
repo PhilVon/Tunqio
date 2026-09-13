@@ -167,16 +167,16 @@ jobs:
       # here opened: every MSIX uploaded before this step existed had no audio engine in it. Both checks run
       # over the .msix itself, which is a zip, so what is asserted is what a user would unpack - not what the
       # build log claims it placed. The unsigned package is checked rather than a layout folder for the same
-      # reason. This runs after the package step and therefore over the packaged shape of $(OutDir); the
-      # unpackaged assertions are the two steps up near the solution build.
+      # reason. The packaged shape builds into its own release_win-x64_msix pivot (T-131), so -Root here is that
+      # shape's OutDir alone; the unpackaged assertions are the two steps up near the solution build.
       - name: The package is a real Tunqio (engine, BASS, licences, presets)
         shell: pwsh
         run: |
           $msix = Get-ChildItem artifacts/msix -Recurse -Filter *.msix | Select-Object -First 1
           if (-not $msix) { throw 'The package step produced no .msix.' }
-          ./tools/check-package.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64 -Msix $msix.FullName
+          ./tools/check-package.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64_msix -Msix $msix.FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          ./tools/check-presets.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64 -Msix $msix.FullName
+          ./tools/check-presets.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64_msix -Msix $msix.FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - uses: actions/upload-artifact@v4
