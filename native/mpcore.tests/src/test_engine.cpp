@@ -211,11 +211,10 @@ TEST_CASE("device enumeration honours the count protocol", "[engine][device]") {
     }
 }
 
-TEST_CASE("unimplemented exports say which story implements them", "[engine][abi]") {
+TEST_CASE("the preview pair needs an output to start and is idle-safe to stop", "[engine][abi]") {
     engine_fixture fx;
-    // mp_analysis_try_get_latest was here until E4-S1 implemented it; the preview pair is what is left.
-    CHECK(mp_preview_stop(fx.engine) == MP_E_STATE);
-    CHECK(last_error().find("E5-S5") != std::string::npos);
+    // This case asserted the pair was unimplemented until E5-S5 implemented it, the last exports that were.
+    CHECK(mp_preview_stop(fx.engine) == MP_OK); // nothing is previewing
 }
 
 TEST_CASE("tracks die with their engine and a destroyed engine frees the process slot", "[engine]") {

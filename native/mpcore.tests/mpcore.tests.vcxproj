@@ -88,6 +88,7 @@
     <ClCompile Include="src\test_transport.cpp" />
     <ClCompile Include="src\test_preset.cpp" />
     <ClCompile Include="src\test_preset_golden.cpp" />
+    <ClCompile Include="src\test_preview.cpp" />
     <ClCompile Include="src\test_quality.cpp" />
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_replaygain.cpp" />

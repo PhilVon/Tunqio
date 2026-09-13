@@ -91,7 +91,7 @@ public class NativeEngineTests
     }
 
     [Fact]
-    public void Unimplemented_exports_name_their_story()
+    public void Exports_that_were_once_stubs_now_work()
     {
         using NativeEngine engine = Create();
         using NativeTrack track = engine.OpenTrack(WavFixture.WriteSine("stubs"));
@@ -99,8 +99,11 @@ public class NativeEngineTests
         FluentActions.Invoking(() => engine.PreloadNext(track)).Should().NotThrow("the gapless join landed with E1-S2");
         FluentActions.Invoking(() => engine.SetReplayGain(track, -6f, 1f)).Should().NotThrow("ReplayGain landed with E1-S5");
         FluentActions.Invoking(() => engine.SetCrossfade(TimeSpan.FromSeconds(1))).Should().NotThrow("the crossfade landed with E1-S4");
-        FluentActions.Invoking(() => engine.StartPreview(track, -6f)).Should().Throw<NativeException>().WithMessage("*E5-S5*");
-        FluentActions.Invoking(engine.StopPreview).Should().Throw<NativeException>().WithMessage("*E5-S5*");
+        // Hover preview landed with E5-S5. With no output open it has nowhere to be heard, which is a state error
+        // like Play's, not a missing export.
+        FluentActions.Invoking(() => engine.StartPreview(track, -6f)).Should().Throw<NativeException>()
+            .Where(e => e.Result == MpResult.State && e.NativeMessage.Contains("no output"));
+        FluentActions.Invoking(engine.StopPreview).Should().NotThrow("stopping with nothing previewing is idle");
 
         var frame = default(MpAnalysisFrameBuffer);
         engine.TryGetLatestAnalysis(ref frame).Should().BeFalse("nothing has pulled the mixer, so no hop has been analysed yet");

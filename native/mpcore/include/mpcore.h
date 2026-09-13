@@ -120,6 +120,10 @@
  * listener is HEARING rather than the newest one published, which on a real output device is a deliberate
  * delay of about the WASAPI buffer. See mp_av_sync_mode for why that is a fix and not a regression, and
  * MP_AV_SYNC_NEWEST for how to have the old behaviour back.
+ * 0.18 hover preview (E5-S5): mp_preview_start and mp_preview_stop, declared since 0.1 and failing with MP_E_STATE
+ * until now, begin to work. An export that was never implemented beginning to work is new function, and new
+ * function is a minor; neither signature moved. The preview is mixed after the analysis tap, so an engine that
+ * previews still analyses only the main track.
  */
 #pragma once
 
@@ -142,7 +146,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 17u
+#define MP_ABI_MINOR 18u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -365,9 +369,15 @@ MP_API mp_result MP_CALL mp_engine_get_stats(mp_engine* engine, mp_engine_stats*
  * thread would, volume and fades applied. Only with MP_DEVICE_NONE; MP_E_STATE when a device is open. */
 MP_API mp_result MP_CALL mp_engine_render(mp_engine* engine, float* out_interleaved, uint32_t frames);
 
-MP_API mp_result MP_CALL mp_preview_start(mp_engine* engine, mp_track* track,
-                                          float gain_db);    /* not implemented until E5-S5 */
-MP_API mp_result MP_CALL mp_preview_stop(mp_engine* engine); /* not implemented until E5-S5 */
+/* Hover preview (E5-S5, ABI 0.18). A second stream mixed AFTER the analysis tap, so a visualizer keeps following
+ * the main track. Plays `track`'s file on a stream of its own, starting 30% in (at 0 when it is under 60 s), ramps
+ * it to gain_db (never above full scale) over 200 ms, ducks the main mix by 6 dB while it sounds, and fades it out
+ * by itself after 15 s. The volume slider applies to it; the pause envelope does not, so it plays over paused music.
+ * One preview at a time: MP_E_STATE while an earlier one is still audible, its fade-out included. MP_E_STATE with no
+ * output open. */
+MP_API mp_result MP_CALL mp_preview_start(mp_engine* engine, mp_track* track, float gain_db);
+/* Fades the preview out over 200 ms. MP_OK when nothing is previewing. */
+MP_API mp_result MP_CALL mp_preview_stop(mp_engine* engine);
 
 /* ---- analysis (ABI 0.2 draft; the tap that feeds it is E1-S8, the frame itself ABI 0.8 / E4-S1) -- */
 

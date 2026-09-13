@@ -338,6 +338,21 @@ mp_result engine::create_mixer(uint32_t rate, uint32_t channels) {
     mixer_rate_ = rate;
     mixer_channels_ = channels;
     fade_frames_.store(std::max(1u, rate * k_guard_fade_ms / 1000u), std::memory_order_relaxed);
+    // The hover preview's own mixer (E5-S5), rebuilt with this one so it is always at the output's rate and channels.
+    // A preview sounding across a format change is dropped rather than carried: it is seconds of a sample, and the
+    // next hover starts another. No tap on it, which is the whole point of it being a separate mixer.
+    release_preview_source();
+    if (preview_mixer_ != 0) {
+        BASS_StreamFree(preview_mixer_);
+        preview_mixer_ = 0;
+    }
+    const HSTREAM preview =
+        BASS_Mixer_StreamCreate(rate, channels, BASS_SAMPLE_FLOAT | BASS_STREAM_DECODE | BASS_MIXER_NONSTOP);
+    if (preview == 0) {
+        return bass_fail("BASS_Mixer_StreamCreate (preview)");
+    }
+    preview_mixer_ = preview;
+    preview_ramp_frames_.store(std::max(1u, rate * k_preview_ramp_ms / 1000u), std::memory_order_relaxed);
     // The tap belongs to this mixer: its byte counter is the new mixer's position, and whatever the old one
     // published is about audio that is no longer being made. The DSP went with the old mixer's handle.
     tap_.reset(channels);
@@ -371,6 +386,11 @@ engine::~engine() {
             free_track_streams(*t);
         }
         tracks_.clear();
+        release_preview_source();
+        if (preview_mixer_ != 0) {
+            BASS_StreamFree(preview_mixer_);
+            preview_mixer_ = 0;
+        }
         if (mixer_ != 0) {
             BASS_StreamFree(mixer_);
             mixer_ = 0;
@@ -1340,8 +1360,14 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
         const float vol0 = volume_current_;
         const float vol1 = volume_target_.load(std::memory_order_acquire);
         const float vol_step = frames != 0 ? (vol1 - vol0) / static_cast<float>(frames) : 0.0f;
-        const bool flat = env == target && vol0 == vol1;
-        if (!(flat && env == 1.0f && vol1 == 1.0f)) {
+        // Duck (E5-S5): the main mix runs down by k_preview_duck_db while a preview is wanted and back up after it,
+        // over the preview's own ramp, so the two cross rather than step.
+        static const float k_duck_linear = std::pow(10.0f, k_preview_duck_db / 20.0f);
+        const float duck_target = preview_gain_target_.load(std::memory_order_acquire) > 0.0f ? k_duck_linear : 1.0f;
+        const float duck_step = (1.0f - k_duck_linear) /
+                                static_cast<float>(std::max(1u, preview_ramp_frames_.load(std::memory_order_relaxed)));
+        const bool flat = env == target && vol0 == vol1 && duck_ == duck_target;
+        if (!(flat && env == 1.0f && vol1 == 1.0f && duck_ == 1.0f)) {
             float vol = vol0;
             for (uint32_t f = 0; f < frames; ++f) {
                 if (env < target) {
@@ -1349,8 +1375,13 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
                 } else if (env > target) {
                     env = std::max(target, env - step);
                 }
+                if (duck_ < duck_target) {
+                    duck_ = std::min(duck_target, duck_ + duck_step);
+                } else if (duck_ > duck_target) {
+                    duck_ = std::max(duck_target, duck_ - duck_step);
+                }
                 vol += vol_step;
-                const float g = env * vol;
+                const float g = env * vol * duck_;
                 float* frame = samples + static_cast<size_t>(f) * channels;
                 for (uint32_t c = 0; c < channels; ++c) {
                     frame[c] *= g;
@@ -1364,6 +1395,9 @@ void engine::pull(void* buffer, uint32_t bytes) noexcept {
             hold_.store(true, std::memory_order_release);
         }
     }
+
+    // After the main stage, held or not: a preview plays over paused music, and it never reaches the tap.
+    mix_preview(samples, frames, channels);
 
     callbacks_.fetch_add(1, std::memory_order_relaxed);
     const auto us = static_cast<uint32_t>((qpc_now() - t0) * 1'000'000 / qpc_frequency());
@@ -1504,6 +1538,134 @@ mp_result engine::render(float* out_interleaved, uint32_t frames) {
     }
     pull(out_interleaved, frames * static_cast<uint32_t>(sizeof(float)) * mixer_channels_);
     return MP_OK;
+}
+
+// ---- hover preview (E5-S5) ------------------------------------------------------------------------------
+
+namespace {
+constexpr uint32_t k_preview_chunk_frames = 512;
+constexpr uint32_t k_preview_max_channels = 8;
+} // namespace
+
+mp_result engine::preview_start(track* t, float gain_db) {
+    std::lock_guard lock{control_};
+    if (!std::isfinite(gain_db)) {
+        mp::abi::set_last_error("mp_preview_start: gain_db is not a finite number");
+        return MP_E_INVALID_ARG;
+    }
+    if (!output_open_ || preview_mixer_ == 0) {
+        return state_fail("mp_preview_start: no output is open");
+    }
+    if (mixer_channels_ > k_preview_max_channels) {
+        return state_fail("mp_preview_start: the preview mixes at most 8 channels");
+    }
+    // The single-preview rule. A preview still fading out counts: the caller waits out k_preview_ramp_ms and asks
+    // again, which is how moving between tiles queues the next preview after the current one's fade.
+    if (preview_active_.load(std::memory_order_acquire) &&
+        (preview_gain_target_.load(std::memory_order_acquire) > 0.0f ||
+         preview_gain_level_.load(std::memory_order_acquire) > 0.0f)) {
+        return state_fail("mp_preview_start: a preview is still playing or fading out; stop it and wait for the fade "
+                          "(one preview at a time)");
+    }
+    release_preview_source();
+
+    // A stream of its own, not t->stream: the track may be the one the main mixer is playing. No PRESCAN either: a
+    // hover has 500 ms of patience, and a sample does not need an exact seek.
+    const HSTREAM source = BASS_StreamCreateFile(FALSE, t->path.c_str(), 0, 0, BASS_STREAM_DECODE | BASS_SAMPLE_FLOAT);
+    if (source == 0) {
+        return bass_fail("BASS_StreamCreateFile (preview)");
+    }
+    const QWORD length = BASS_ChannelGetLength(source, BASS_POS_BYTE);
+    const double seconds = length != static_cast<QWORD>(-1) ? BASS_ChannelBytes2Seconds(source, length) : 0.0;
+    if (seconds >= 60.0) {
+        BASS_ChannelSetPosition(source, BASS_ChannelSeconds2Bytes(source, seconds * 0.3), BASS_POS_BYTE);
+    }
+    if (!BASS_Mixer_StreamAddChannel(preview_mixer_, source, BASS_MIXER_CHAN_NORAMPIN)) {
+        const mp_result r = bass_fail("BASS_Mixer_StreamAddChannel (preview)");
+        BASS_StreamFree(source);
+        return r;
+    }
+    preview_source_ = source;
+    const float full = std::clamp(std::pow(10.0f, gain_db / 20.0f), 0.0f, 1.0f); // never louder than full scale
+    preview_full_gain_.store(full, std::memory_order_relaxed);
+    preview_frames_.store(0, std::memory_order_relaxed);
+    preview_limit_frames_.store(static_cast<uint64_t>(mixer_rate_) * k_preview_max_ms / 1000u,
+                                std::memory_order_relaxed);
+    preview_gain_target_.store(full, std::memory_order_release);
+    preview_active_.store(true, std::memory_order_release);
+    return MP_OK;
+}
+
+mp_result engine::preview_stop() {
+    std::lock_guard lock{control_};
+    preview_gain_target_.store(0.0f, std::memory_order_release);
+    // Already silent: let the file go now. Still fading: the next start, or the engine going, frees it.
+    if (preview_gain_level_.load(std::memory_order_acquire) <= 0.0f) {
+        release_preview_source();
+    }
+    return MP_OK;
+}
+
+void engine::release_preview_source() noexcept {
+    preview_active_.store(false, std::memory_order_release);
+    preview_gain_target_.store(0.0f, std::memory_order_release);
+    if (preview_source_ != 0) {
+        BASS_Mixer_ChannelRemove(preview_source_);
+        BASS_StreamFree(preview_source_);
+        preview_source_ = 0;
+    }
+}
+
+void engine::mix_preview(float* samples, uint32_t frames, uint32_t channels) noexcept {
+    if (!preview_active_.load(std::memory_order_acquire) || preview_mixer_ == 0 || channels > k_preview_max_channels) {
+        preview_gain_ = 0.0f;
+        preview_gain_level_.store(0.0f, std::memory_order_release);
+        return;
+    }
+    float target = preview_gain_target_.load(std::memory_order_acquire);
+    if (target <= 0.0f && preview_gain_ <= 0.0f) {
+        preview_gain_level_.store(0.0f, std::memory_order_release);
+        return; // silent and staying silent: do not advance the source
+    }
+    const float full = std::max(preview_full_gain_.load(std::memory_order_relaxed), 1e-6f);
+    const float step = full / static_cast<float>(std::max(1u, preview_ramp_frames_.load(std::memory_order_relaxed)));
+    // The volume slider applies to a preview; the pause envelope does not.
+    const float vol = volume_target_.load(std::memory_order_acquire);
+    const uint64_t limit = preview_limit_frames_.load(std::memory_order_relaxed);
+    uint64_t done = preview_frames_.load(std::memory_order_relaxed);
+
+    float chunk[k_preview_chunk_frames * k_preview_max_channels];
+    for (uint32_t f = 0; f < frames;) {
+        const uint32_t n = std::min(k_preview_chunk_frames, frames - f);
+        DWORD got = BASS_ChannelGetData(preview_mixer_, chunk, n * channels * static_cast<DWORD>(sizeof(float)));
+        if (got == static_cast<DWORD>(-1)) {
+            got = 0;
+        }
+        const uint32_t got_frames = got / (channels * static_cast<uint32_t>(sizeof(float)));
+        for (uint32_t i = 0; i < n; ++i) {
+            if (target > 0.0f && done >= limit) {
+                target = 0.0f; // the 15 s limit: the same fade a stop would start
+                preview_gain_target_.store(0.0f, std::memory_order_release);
+            }
+            if (preview_gain_ < target) {
+                preview_gain_ = std::min(target, preview_gain_ + step);
+            } else if (preview_gain_ > target) {
+                preview_gain_ = std::max(target, preview_gain_ - step);
+            }
+            if (i < got_frames && preview_gain_ > 0.0f) {
+                const float g = preview_gain_ * vol;
+                const float* in = chunk + static_cast<size_t>(i) * channels;
+                float* out = samples + static_cast<size_t>(f + i) * channels;
+                for (uint32_t c = 0; c < channels; ++c) {
+                    out[c] += in[c] * g;
+                }
+            }
+            ++done;
+        }
+        f += n;
+    }
+    preview_frames_.store(done, std::memory_order_relaxed);
+    preview_gain_level_.store(preview_gain_, std::memory_order_release);
 }
 
 // Mix-time END sync, called by BASSmix from inside the BASS_ChannelGetData in pull() when `channel` runs out.

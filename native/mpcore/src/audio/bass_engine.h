@@ -136,6 +136,17 @@ public:
     // MP_DEVICE_NONE only: what the output thread would have pulled. `frames` interleaved float frames.
     mp_result render(float* out_interleaved, uint32_t frames);
 
+    // Hover preview (E5-S5). A second decode mixer read in pull() AFTER the analysis tap, so a visualizer keeps
+    // following the main track. preview_start opens `t`'s file on a stream of its own 30% in (at 0 under 60 s), ramps
+    // it to gain_db over k_preview_ramp_ms, ducks the main mix by k_preview_duck_db, and fades it out by itself after
+    // k_preview_max_ms. One preview at a time: MP_E_STATE while an earlier one is still audible, fade-out included.
+    static constexpr uint32_t k_preview_ramp_ms = 200;
+    static constexpr uint32_t k_preview_max_ms = 15000;
+    static constexpr float k_preview_duck_db = -6.0f;
+    mp_result preview_start(track* t, float gain_db);
+    // Fades the preview out over k_preview_ramp_ms. MP_OK when nothing is previewing.
+    mp_result preview_stop();
+
     // Slider position to gain (audio taper, see mp_engine_set_volume). Exposed for the tests.
     static float volume_taper(float slider) noexcept;
 
@@ -193,6 +204,11 @@ private:
 
     // The pull stage shared by the WASAPI callback and render(): mixer -> envelope -> volume. Real-time.
     void pull(void* buffer, uint32_t bytes) noexcept;
+    // The hover preview's half of the pull stage: reads preview_mixer_ and adds it to what the main stage made, with
+    // its ramp and the 15 s limit. Real-time. Runs whether or not the main output is held.
+    void mix_preview(float* samples, uint32_t frames, uint32_t channels) noexcept;
+    // Detaches and frees the preview source. Control thread only (a free is not real-time safe).
+    void release_preview_source() noexcept;
 
     static unsigned long __stdcall output_proc(void* buffer, unsigned long length, void* user);
     static unsigned long __stdcall trim_proc(unsigned long handle, void* buffer, unsigned long length, void* user);
@@ -257,6 +273,20 @@ private:
     std::atomic<bool> hold_{false};          // paused: the pull stage emits silence and leaves the mixer alone
     std::atomic<float> volume_target_{1.0f}; // taper applied
     float volume_current_ = 1.0f;            // audio thread only
+
+    // Hover preview (E5-S5). The control thread owns the mixer, the source and the targets; the audio thread owns
+    // the running gains and publishes the preview's level so the control thread can tell when it has gone quiet.
+    uint32_t preview_mixer_ = 0;  // HSTREAM (decode, nonstop), rebuilt with mixer_ at its rate and channels
+    uint32_t preview_source_ = 0; // HSTREAM of the file being previewed; control thread only
+    std::atomic<bool> preview_active_{false};
+    std::atomic<float> preview_gain_target_{0.0f}; // linear; 0 fades it out
+    std::atomic<float> preview_full_gain_{0.0f};   // linear gain_db of the current preview
+    std::atomic<float> preview_gain_level_{0.0f};  // published by the audio thread after each pull
+    std::atomic<uint64_t> preview_frames_{0};      // frames mixed since the start; audio thread writes
+    std::atomic<uint64_t> preview_limit_frames_{0};
+    std::atomic<uint32_t> preview_ramp_frames_{9600};
+    float preview_gain_ = 0.0f; // audio thread only
+    float duck_ = 1.0f;         // audio thread only: the main mix's gain under a preview
 
     // The output the caller last asked for (E1-S7): a migration reopens this rather than guessing, so the mode, the
     // buffer and the event-driven choice survive the device moving underneath it.

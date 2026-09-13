@@ -46,13 +46,6 @@ mp_result invalid(const char* what) {
     return MP_E_INVALID_ARG;
 }
 
-mp_result not_implemented(const char* export_name, const char* story) {
-    char text[128];
-    std::snprintf(text, sizeof text, "%s is not implemented yet (lands with %s)", export_name, story);
-    mp::abi::set_last_error(text);
-    return MP_E_STATE;
-}
-
 } // namespace
 
 extern "C" {
@@ -328,12 +321,15 @@ MP_API mp_result MP_CALL mp_engine_render(mp_engine* e, float* out_interleaved, 
     });
 }
 
-MP_API mp_result MP_CALL mp_preview_start(mp_engine* e, mp_track* /*track*/, float /*gain_db*/) {
+MP_API mp_result MP_CALL mp_preview_start(mp_engine* e, mp_track* t, float gain_db) {
     return mp::abi::guard([&]() -> mp_result {
-        if (e == nullptr) {
-            return invalid("mp_preview_start: NULL engine");
+        if (e == nullptr || t == nullptr) {
+            return invalid("mp_preview_start: NULL engine or track");
         }
-        return not_implemented("mp_preview_start", "E5-S5");
+        if (!as_engine(e)->owns(as_track(t))) {
+            return invalid("mp_preview_start: track does not belong to this engine");
+        }
+        return as_engine(e)->preview_start(as_track(t), gain_db);
     });
 }
 
@@ -342,7 +338,7 @@ MP_API mp_result MP_CALL mp_preview_stop(mp_engine* e) {
         if (e == nullptr) {
             return invalid("mp_preview_stop: NULL engine");
         }
-        return not_implemented("mp_preview_stop", "E5-S5");
+        return as_engine(e)->preview_stop();
     });
 }
 
