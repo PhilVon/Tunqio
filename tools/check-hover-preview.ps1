@@ -254,7 +254,10 @@ finally {
             $json = Get-Content $settingsPath -Raw | ConvertFrom-Json
             if ($null -eq $offeredBefore) { $json.PSObject.Properties.Remove('ui.hoverPreviewOffered') }
             else { $json.'ui.hoverPreviewOffered' = $offeredBefore }
-            ($json | ConvertTo-Json -Depth 10) | Set-Content -Path $settingsPath -Encoding utf8
+            # UTF-8 WITHOUT a byte-order mark. Windows PowerShell's Set-Content -Encoding utf8 writes one, and the first
+            # run of this script left settings.json starting EF BB BF: the file the app reads every launch, and throws
+            # away as unreadable if its parser ever refuses it.
+            [System.IO.File]::WriteAllText($settingsPath, ($json | ConvertTo-Json -Depth 10), (New-Object System.Text.UTF8Encoding($false)))
             Write-Output "reset ui.hoverPreviewOffered to its value before the run ($offeredBefore)"
         }
         catch { Write-Output "WARNING: could not reset ui.hoverPreviewOffered: $($_.Exception.Message)" }
