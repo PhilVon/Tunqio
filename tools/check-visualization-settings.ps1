@@ -263,6 +263,13 @@ function Set-ScrollTo($surface, [double]$percent) {
 # The one case behind the geometry criterion. Returns a problem string, or $null.
 function Test-Geometry([int]$width) {
     Set-WindowSize $width 900
+    # T-203. A ComboBox draws its focus highlight 4 epx outside its layout slot on each side (HighlightBackground,
+    # Margin="-4" in WinUI's ComboBox template), and UIA's rectangle for the column takes in what its children draw.
+    # So wherever the ScrollViewer's clip leaves room for it (a wide window, where the column is centred under its
+    # 720 cap), the column reads 8 epx wider than the sliders that fill it: measured at 1600 px, Colour source
+    # 520..1248 and the column the same, every slider and the preset list 524..1244. Both width assertions allow it.
+    $scale = Get-UiaWindowScale $script:processId
+    $overhang = [math]::Ceiling(8 * $scale) + 2
     $surface = Get-ElementNamed 'Visualization settings surface'
     if (-not $surface) { return "no settings surface in the tree at ${width}px" }
     $column = Get-ElementNamed 'Visualization settings content'
@@ -306,7 +313,9 @@ function Test-Geometry([int]$width) {
             # surface stayed put, so the page passed while each slider was cut off. What it cannot hide is the wide
             # window, where the same sliders read 360 inside a 553 px column. So the page's own promise is asserted
             # (T-60's AC-307, "everything in it stretches"): a slider or list box spans its column at every width.
-            if ($c.Type -in 'Slider', 'ComboBox' -and $c.Rect.Width -lt ($panel.Width - 2)) {
+            # The allowance is the ComboBox's drawn overhang (see $overhang above), not room for a fixed width: a 360 px
+            # slider in a 720 column is hundreds of pixels short of it.
+            if ($c.Type -in 'Slider', 'ComboBox' -and $c.Rect.Width -lt ($panel.Width - $overhang)) {
                 $narrow += "$($c.Type) '$($c.Name)' is $($c.Rect.Width) px wide in a column of $($panel.Width): it is not stretching, which is what a fixed Width looks like"
             }
             # T-137's shape: present in the tree, on screen, and nothing to see.
@@ -345,10 +354,24 @@ function Test-Geometry([int]$width) {
     if ($panel.Right -gt ($outer.Right - 8)) {
         return "at ${width}px the settings content column reaches $($panel.Right) inside a surface ending at $($outer.Right): it has lost its right padding, which is what over-wide content clipped at the window edge looks like"
     }
-    # The column must also USE the panel it is in, or the page is correct and half empty - which is how the
+    # The column must also USE the room it has, or the page is correct and half empty - which is how the
     # fixed widths hid: everything was laid out against a column narrower than the room available.
-    if ($panel.Width -lt ($outer.Width - 40)) {
-        return "at ${width}px the content column is $($panel.Width) px inside a $($outer.Width) px panel, so the page is using less than the room it has"
+    #
+    # T-203: that room is capped. When this was written the page lived in the library pane's sidebar, where the
+    # column's MaxWidth of 720 never engaged, so "the column is nearly as wide as its surface" was the whole rule.
+    # Settings have opened as a full-panel overlay since E6-S3 (T-69), and every page in it keeps a readable column
+    # of at most 720 epx centred in its surface: Playback, Output, Appearance, Shortcuts and About carry the same
+    # MaxWidth, and check-about.ps1 asserts the same thing of its page. Measured on the overlay at 1600 px, before
+    # this change: every one of those columns 720 px in a 1535 px surface, and this page's 728 (720 and the
+    # overhang). The old rule failed that as "using less than the room it has" (T-199's live run). So the column
+    # is held to min(surface less its 16 epx padding each side, 720 epx): not narrower, which is still the
+    # half-empty page, and not wider than that and the ComboBox overhang, which is a cap that stopped holding.
+    $room = [math]::Round([math]::Min($outer.Width - 32 * $scale, 720 * $scale))
+    if ($panel.Width -lt ($room - 2)) {
+        return "at ${width}px the content column is $($panel.Width) px where it has $room px (a $($outer.Width) px surface less its padding, capped at 720 epx), so the page is using less than the room it has"
+    }
+    if ($panel.Width -gt ($room + $overhang)) {
+        return "at ${width}px the content column is $($panel.Width) px, wider than the $room px it is given (a $($outer.Width) px surface less its padding, capped at 720 epx): the column's cap is not holding"
     }
     # A check that measured nothing passes for the wrong reason. Fourteen is what this page has; eight is a
     # floor low enough to survive a preset with few parameters and high enough to catch a broken walk.
@@ -853,7 +876,7 @@ try {
 
     # ---- geometry: where the controls ARE, not only that they exist ----------------------------------------
 
-    Test-Case "the page stays inside the sidebar, clear of the controls bar and of the window edge, at $($widthList -join 'px, ')px" {
+    Test-Case "the page keeps a stretched column inside its settings surface, clear of the controls bar and of the window edge, at $($widthList -join 'px, ')px" {
         Select-ListRow 'Presets' 'Spectrum Bars'
         foreach ($w in $widthList) {
             $problem = Test-Geometry $w
