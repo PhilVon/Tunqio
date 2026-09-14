@@ -31,6 +31,7 @@ public partial class App : Application
 
     private IHost? _host;
     private Window? _window;
+    private SmtcBridge? _mediaControls;
     private static nint _mainWindowHandle;
 
     public App()
@@ -143,6 +144,7 @@ public partial class App : Application
             _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRater>());
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        _mediaControls = StartMediaControls(logger);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
         _window.Closed += OnWindowClosed;
         if (databaseNotice is not null)
@@ -284,6 +286,36 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// The system media transport controls (E7-S2, ADR-006): the volume flyout, the lock screen and the hardware media
+    /// keys, for the main window. Built on the XAML thread as soon as the window has a handle, and before audio: the
+    /// bridge waits for the session like the transport panel does, and keeps the media session disabled until then.
+    /// The route is <c>SystemMediaTransportControlsInterop.GetForWindow</c>; <see cref="WindowsMediaControls"/> says
+    /// why. A machine that will not give a media session costs the flyout and the media keys, not the launch.
+    /// </summary>
+    private SmtcBridge? StartMediaControls(ILogger<App> logger)
+    {
+        ISystemMediaControls? controls = null;
+        try
+        {
+            controls = WindowsMediaControls.ForWindow(_mainWindowHandle, _host!.Services.GetRequiredService<ILogger<WindowsMediaControls>>());
+            var bridge = new SmtcBridge(
+                _host.Services.GetRequiredService<IPlaybackSessionSource>(),
+                controls,
+                _host.Services.GetService<IArtCache>(),
+                TimeProvider.System,
+                _host.Services.GetRequiredService<ILogger<SmtcBridge>>());
+            logger.LogInformation("Media controls: SMTC through SystemMediaTransportControlsInterop.GetForWindow");
+            return bridge;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            controls?.Dispose();
+            logger.LogError(e, "Media controls unavailable; the volume flyout and media keys will not reach this session");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Live library updates (E3-S6) start once the window is up, and the launch scan (E3-S12) follows after the
     /// coordinator's delay so the UI is interactive first (docs/library-and-data.md, "Scheduling"). Stopping is
     /// part of host disposal.
@@ -324,6 +356,9 @@ public partial class App : Application
             // Shutdown step 1-3: the queue and position are written back, and the device released, before the
             // library database and the settings file close under them. Container disposal would reach AudioStartup
             // first anyway, but only because it was created last; saying it here does not leave that to luck.
+            // The media session goes first of all (E7-S2): a flyout press must not reach a session being torn down.
+            _mediaControls?.Dispose();
+            _mediaControls = null;
             _host.Services.GetRequiredService<AudioStartup>().Dispose();
             FlushPlaylistExports();
             _host.Services.GetRequiredService<ISettingsStore>().Flush();
