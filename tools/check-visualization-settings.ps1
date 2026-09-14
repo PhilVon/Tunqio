@@ -13,22 +13,25 @@
   without a harness like this one, and a WinUI window captures BLACK in a screenshot, so a screenshot is not an
   alternative.
 
-  WHAT IT TOUCHES. Nothing of the user's music and nothing in the library database: this page reads neither. It
-  does write one directory - a scratch preset named below, inside the real user preset root
-  (%LocalAppData%\Tunqio\presets), because that literal path is what AC-133 is about - and deletes it in the
-  finally. Nothing else in the data root is touched; the launch count and the log grow, as they would for any
-  launch. If the script is killed between those points, delete the named folder by hand.
+  WHAT IT TOUCHES. Nothing of the user's: every launch, in every mode, is on a scratch profile made by
+  tools/scratch-profile.ps1 (T-199) and passed as --data-root, and the real %LOCALAPPDATA%\Tunqio is never opened (a
+  data root inside it, or inside a package's redirected LocalCache, is refused before anything is created). Two
+  profiles, each fresh: artifacts\check-visualization-settings\<stamp> for the relaunch phase, and
+  artifacts\check-visualization-settings-full\<stamp> for the rest, so the full phase starts on default parameters.
+  The data root moves the user preset root with it (AppPaths.PresetsDirectory is <data root>\presets, which the app
+  gives the renderer through mp_renderer_set_user_preset_root and reads back for Refresh), so the scratch preset
+  AC-133 is about is written into <data root>\presets and nowhere else. Both stamp folders are deleted at the end
+  unless -KeepScratch; a run killed in between can only leave them behind.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output (T-196).
 .PARAMETER Seconds
   How long to give the window before reading the tree. The renderer is created when the SwapChainPanel loads.
-  T-157 adds a first phase that needs neither the keyboard nor the real profile: on a scratch data root
-  (artifacts\check-visualization-settings\<stamp>\data, passed as --data-root on every launch) it moves a slider
-  through UIA RangeValue, closes the app, relaunches, and reads the same value back; then Reset, another relaunch,
-  and the default read back. -PersistenceOnly runs that phase alone. Like check-first-run.ps1, the script refuses
-  to start while any Tunqio process is running, checking once a minute for at most -WaitMinutes.
+  T-157 adds a first phase that needs no keyboard: it moves a slider through UIA RangeValue, closes the app,
+  relaunches, and reads the same value back; then Reset, another relaunch, and the default read back.
+  -PersistenceOnly runs that phase alone. Like check-first-run.ps1, the script refuses to start while any Tunqio
+  process is running, checking once a minute for at most -WaitMinutes.
 .PARAMETER KeepScratch
-  Leave the scratch preset (and the T-157 scratch data root) behind, for looking at what the page did with it.
+  Leave both scratch profiles (and the scratch preset inside the second) behind, for looking at what the page did.
 .PARAMETER PersistenceOnly
   Run only the T-157 relaunch phase: keystroke-free, and nothing outside the scratch data root is touched.
 .PARAMETER WaitMinutes
@@ -65,14 +68,16 @@ if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 
 # T-163: the rectangle reader, the resizer and the checked foreground are shared with the other harnesses.
 . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+# T-199: every launch in every mode is on a scratch profile (New-TunqioScratchProfile, Start-TunqioOnScratch).
+. (Join-Path $PSScriptRoot 'scratch-profile.ps1')
 $widthList = @($Widths -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [int]$_.Trim() })
 if ($widthList.Count -eq 0) { throw "-Widths '$Widths' names no width" }
 
-# The scratch preset AC-133 is about. A name nothing else could be, so a folder left behind by a killed run is
-# unmistakable and safe to delete.
+# The scratch preset AC-133 is about. A name nothing else could be. Its folder is set once the full phase's scratch
+# profile exists: <data root>\presets\<id>, the user preset root the app derives from --data-root.
 $scratchId = 'tunqio-check-e4s9'
-$userPresets = Join-Path $env:LOCALAPPDATA 'Tunqio\presets'
-$scratchDir = Join-Path $userPresets $scratchId
+$userPresets = $null
+$scratchDir = $null
 
 $scratchShader = @'
 struct VSOut { float4 pos : SV_Position; };
@@ -391,13 +396,9 @@ function Wait-For([scriptblock]$condition, [int]$seconds) {
     return $null
 }
 
-function Start-ScratchShell([string]$root) {
-    $full = [System.IO.Path]::GetFullPath($root)
-    $real = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Tunqio'))
-    if ($full.StartsWith($real, [System.StringComparison]::OrdinalIgnoreCase) -or $full -like '*\Packages\*\LocalCache\*') {
-        throw "refusing data root ${full}: it is (or is a redirected copy of) the real profile"
-    }
-    $p = Start-Process $Exe -ArgumentList @('--data-root', "`"$full`"") -PassThru
+# On a scratch profile only: Start-TunqioOnScratch refuses the real profile or a redirected copy of it (T-199).
+function Start-ScratchShell($scratchProfile) {
+    $p = Start-TunqioOnScratch $Exe $scratchProfile
     $byPid = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $p.Id)
     $w = Wait-For { [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid) } 30
@@ -452,12 +453,9 @@ function Set-SliderNamed([string]$sliderName, [double]$to) {
 }
 
 function Invoke-PersistencePhase {
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $scratchRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\artifacts\check-visualization-settings\$stamp"))
-    $root = Join-Path $scratchRoot 'data'
-    New-Item -ItemType Directory -Force -Path $root | Out-Null
-    # A profile that has settled its welcome (E6-S6) and starts on Spectrum Bars. WriteAllText: no BOM.
-    [System.IO.File]::WriteAllText((Join-Path $root 'settings.json'), '{ "ui.welcomeShown": false, "viz.preset": "spectrum-bars" }')
+    # A profile that has settled its welcome (E6-S6) and starts on Spectrum Bars (T-199: through scratch-profile.ps1).
+    $scratch = New-TunqioScratchProfile -Name 'check-visualization-settings' -Settings '{ "ui.welcomeShown": false, "viz.preset": "spectrum-bars" }'
+    $root = $scratch.DataRoot
     Write-Output ''
     Write-Output 'Preset parameters survive a relaunch (T-157), keystroke-free, on a scratch data root'
     Write-Output "  data root       $root"
@@ -465,7 +463,7 @@ function Invoke-PersistencePhase {
     $p = $null
     try {
         # ---- launch 1: move a slider on two presets
-        $p = Start-ScratchShell $root
+        $p = Start-ScratchShell $scratch
         Start-Sleep -Seconds $Seconds
         Test-Case 'launch 1: Settings > Visualization opens by UIA alone' { Open-VisualizationPage }
         Test-Case 'launch 1: Bars moved from 64 to 96 on Spectrum Bars' {
@@ -511,7 +509,7 @@ function Invoke-PersistencePhase {
         Stop-ScratchShell $p
 
         # ---- launch 2: read both back, then Reset one preset
-        $p = Start-ScratchShell $root
+        $p = Start-ScratchShell $scratch
         Start-Sleep -Seconds $Seconds
         Test-Case 'launch 2: the page opens on Spectrum Bars' {
             $problem = Open-VisualizationPage
@@ -547,7 +545,7 @@ function Invoke-PersistencePhase {
         Stop-ScratchShell $p
 
         # ---- launch 3: the reset survives a relaunch too
-        $p = Start-ScratchShell $root
+        $p = Start-ScratchShell $scratch
         Start-Sleep -Seconds $Seconds
         Test-Case 'launch 3: Bars reads 64 after the reset and a relaunch, and Waveform still reads 4 px' {
             $problem = Open-VisualizationPage
@@ -576,19 +574,15 @@ function Invoke-PersistencePhase {
     }
     finally {
         Stop-ScratchShell $p
-        if (-not $KeepScratch) { Remove-Item $scratchRoot -Recurse -Force -ErrorAction SilentlyContinue }
+        # Deletes the stamp folder unless -KeepScratch, and never while a Tunqio on it still runs.
+        Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
     }
 }
 
 # ---- refuse while somebody's Tunqio is open: once a minute, for at most -WaitMinutes (T-174: every wait has an end) ----
-$refuseDeadline = (Get-Date).AddMinutes($WaitMinutes)
-while (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
-    if ((Get-Date) -ge $refuseDeadline) {
-        Write-Output "check-visualization-settings: REFUSED (a Tunqio process was still running after $WaitMinutes minute(s); this script launches its own and will not run beside one somebody is using)"
-        exit 2
-    }
-    Write-Output "  wait  Tunqio is running; checking again in 60 s (until $($refuseDeadline.ToString('HH:mm')))"
-    Start-Sleep -Seconds 60
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes -PollSeconds 60)) {
+    Write-Output "check-visualization-settings: REFUSED (a Tunqio process was still running after $WaitMinutes minute(s); this script launches its own and will not run beside one somebody is using)"
+    exit 2
 }
 
 Invoke-PersistencePhase
@@ -603,25 +597,22 @@ if ($PersistenceOnly) {
     exit 1
 }
 
+# T-199: a second, fresh scratch profile, so the page starts on default parameters (the relaunch phase above left
+# Waveform at 4 px). Choosing a preset stores viz.preset and the two theming keys are toggled below; all of that lands
+# in this profile's settings.json, which is deleted with it, so nothing is backed up or restored.
+$full = New-TunqioScratchProfile -Name 'check-visualization-settings-full'
+$userPresets = Join-Path $full.DataRoot 'presets'
+$scratchDir = Join-Path $userPresets $scratchId
+
 Write-Output ''
 Write-Output "Settings > Visualization (E4-S9), read off the live automation tree"
 Write-Output "  exe             $Exe"
+Write-Output "  data root       $($full.DataRoot)"
 Write-Output "  user presets    $userPresets"
-Write-Output "  scratch preset  $scratchDir  (written during the run, removed afterwards)"
+Write-Output "  scratch preset  $scratchDir  (written during the run, deleted with the profile)"
 Write-Output ''
 
-# Removed before the run too: a folder left by a killed run would make "it appeared after Refresh" untrue.
-if (Test-Path $scratchDir) { Remove-Item $scratchDir -Recurse -Force }
-
-# The settings file is the user's, and this script writes to it: choosing a preset stores viz.preset and the two
-# theming keys are toggled below. So it is copied aside now and put back once the app has exited - after, so the
-# app's own shutdown flush cannot land on top of the restore.
-$settingsFile = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
-$settingsBackup = Join-Path $env:TEMP 'tunqio-check-e4s9-settings.json'
-$hadSettings = Test-Path $settingsFile
-if ($hadSettings) { Copy-Item $settingsFile $settingsBackup -Force }
-
-$process = Start-Process $Exe -PassThru
+$process = Start-TunqioOnScratch $Exe $full
 try {
     Start-Sleep -Seconds $Seconds
     $root = [System.Windows.Automation.AutomationElement]::RootElement
@@ -839,13 +830,13 @@ try {
         if (-not $toggle) { return 'no reactive theming switch' }
         $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
         Start-Sleep -Milliseconds 700
-        $settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
+        $settingsPath = $full.SettingsPath
         if (-not (Test-Path $settingsPath)) { return "no settings.json at $settingsPath" }
         $json = Get-Content $settingsPath -Raw | ConvertFrom-Json
         if ($null -eq $json.'ui.reactiveTheming') { return 'ui.reactiveTheming was not written' }
         if ($null -eq $json.'ui.reactiveSmoothing') { return 'ui.reactiveSmoothing was not written' }
         Write-Host "        ui.reactiveTheming=$($json.'ui.reactiveTheming') ui.reactiveSmoothing=$($json.'ui.reactiveSmoothing')"
-        # Put the switch back where it was found; this is the user's own settings file.
+        # Put the switch back where it was found, so the rest of the run sees the page as it started.
         $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
         Start-Sleep -Milliseconds 500
     }
@@ -853,7 +844,7 @@ try {
     Test-Case 'the chosen preset is written to viz.preset' {
         if (-not (& $selectSection 'Visualization settings')) { return 'could not return to the Visualization section' }
         Select-ListRow 'Presets' 'Radial Spectrum'
-        $settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
+        $settingsPath = $full.SettingsPath
         $json = Get-Content $settingsPath -Raw | ConvertFrom-Json
         if ($json.'viz.preset' -ne 'radial-spectrum') {
             return "viz.preset is '$($json.'viz.preset')' after choosing Radial Spectrum"
@@ -914,8 +905,7 @@ try {
 finally {
     # An app that does not exit, or exits with a crash code, fails the run (T-188); exit here overrides the try's exit code.
     $closeProblem = Close-TunqioShell $process $null 20
-    if (-not $KeepScratch -and (Test-Path $scratchDir)) { Remove-Item $scratchDir -Recurse -Force }
-    if ($hadSettings) { Copy-Item $settingsBackup $settingsFile -Force; Remove-Item $settingsBackup -Force }
-    elseif (Test-Path $settingsFile) { Remove-Item $settingsFile -Force }
+    # The scratch preset is inside this profile, so it goes with it (unless -KeepScratch). T-199: nothing to restore.
+    Remove-TunqioScratchProfile $full -Keep:$KeepScratch
     if ($closeProblem) { Write-Output "FAIL: $closeProblem"; exit 1 }
 }
