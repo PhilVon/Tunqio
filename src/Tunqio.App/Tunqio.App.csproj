@@ -91,6 +91,27 @@
     </Content>
   </ItemGroup>
 
+  <!--
+    T-133: AppxSymbolPackageEnabled=false (above) is honoured by Visual Studio's Microsoft.AppxPackage.Targets, but this
+    project packages through the Windows App SDK's single-project MSIX tooling (Microsoft.Windows.SDK.BuildTools.MSIX,
+    EnableMsixTooling), whose own _GenerateAppxSymbolPackage replaces VS's and is conditioned only on mspdbcmf.exe existing
+    and @(PDBPayload) being non-empty. It never reads the property, so every packaged build wrote Tunqio.appxsym beside the
+    MSIX. Symbols ship once, as the release's Tunqio_<ver>_x64_symbols.zip (tools/release-assets.ps1).
+
+    @(PDBPayload) is filled from the payload's .pdb files by _CalculateInputsForGenerateAppxPackageRecipe, in the same
+    target that already keeps those .pdb files out of the MSIX (AppxPackageIncludePrivateSymbols=false), and the symbol
+    generator is its only reader. Emptying it right after makes the generator's condition false, so the property means
+    what it says. tools/check-package.ps1 fails a package with a .appxsym beside it, so a tooling update that renames
+    either target shows up as a red package check rather than a quiet second symbol artifact.
+  -->
+  <Target Name="TunqioHonourAppxSymbolPackageEnabled"
+          AfterTargets="_CalculateInputsForGenerateAppxPackageRecipe"
+          Condition="'$(AppxSymbolPackageEnabled)' != 'true'">
+    <ItemGroup>
+      <PDBPayload Remove="@(PDBPayload)" />
+    </ItemGroup>
+  </Target>
+
   <!-- The preset root the core scans: presets/ beside mpcore.dll, or MPCORE_PRESET_ROOT when it is set
        (native/mpcore/src/render/preset.cpp, default_preset_root). The repo's presets/ is committed source, so
        these are Content items rather than another AfterTargets copy: the MSIX payload is computed from item
