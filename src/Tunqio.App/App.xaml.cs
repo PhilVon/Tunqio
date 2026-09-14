@@ -138,7 +138,9 @@ public partial class App : Application
                 _host.Services.GetRequiredService<ILibraryFolderPicker>(),
                 _host.Services.GetRequiredService<IPlaybackSessionSource>(),
                 launchCount - 1,
-                Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } music ? music : null));
+                Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } music ? music : null),
+            // The rater (E6-S7): the container's one, whose events the library pages also follow.
+            _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRater>());
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());

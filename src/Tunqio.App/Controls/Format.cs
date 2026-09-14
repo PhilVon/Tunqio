@@ -23,8 +23,11 @@ public static class Format
             : string.Create(CultureInfo.InvariantCulture, $"{t.Minutes}:{t.Seconds:00}");
     }
 
-    /// <summary>A 0–100 rating as 0–5 stars.</summary>
-    public static string Rating(int? rating) => rating is { } r ? Stars[Math.Clamp((r + 10) / 20, 0, 5)] : string.Empty;
+    /// <summary>A 0–100 rating as 0–5 star glyphs (the text form; the star control is <see cref="RatingControl"/>).</summary>
+    public static string Rating(int? rating) => rating is null ? string.Empty : Stars[Tunqio.Core.Library.Ratings.Stars(rating)];
+
+    /// <summary>A 0–100 rating as the star count <see cref="RatingControl.Value"/> takes; not rated is 0.</summary>
+    public static int RatingStars(int? rating) => Tunqio.Core.Library.Ratings.Stars(rating);
 
     public static string Upper(string? value) => value?.ToUpperInvariant() ?? string.Empty;
 

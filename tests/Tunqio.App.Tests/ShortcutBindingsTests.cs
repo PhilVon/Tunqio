@@ -37,6 +37,14 @@ public class ShortcutBindingsTests
         ShellShortcuts.ActionId(Action(ShellCommand.PlayPause)).Should().Be("playPause");
         ShellShortcuts.ActionName(Action(ShellCommand.Seek, -30)).Should().Be("Seek back 30 s");
         ShellShortcuts.ActionName(Action(ShellCommand.Volume, -ShellShortcuts.VolumeStep)).Should().Be("Volume down");
+
+        // T-73's six rating rows share one command; merged beside T-70 they all came out as shortcuts.rate.
+        ShellShortcuts.ActionId(Action(ShellCommand.Rate, 1)).Should().Be("rate1");
+        ShellShortcuts.ActionId(Action(ShellCommand.Rate, 5)).Should().Be("rate5");
+        ShellShortcuts.ActionId(Action(ShellCommand.Rate, 0)).Should().Be("rateClear");
+        ShellShortcuts.ActionName(Action(ShellCommand.Rate, 1)).Should().Be("Rate 1 star");
+        ShellShortcuts.ActionName(Action(ShellCommand.Rate, 4)).Should().Be("Rate 4 stars");
+        ShellShortcuts.ActionName(Action(ShellCommand.Rate, 0)).Should().Be("Clear rating");
     }
 
     /// <summary>A command added to the table (T-73's rating keys, say) gets a row without anyone naming it here.</summary>

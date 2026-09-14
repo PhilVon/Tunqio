@@ -28,10 +28,17 @@ public static class ShellServices
     public static IServiceCollection AddShell(this IServiceCollection services, SynchronizationContext? uiContext)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.AddSingleton(p => new ShellNotices(
-            p.GetRequiredService<IPlaybackSessionSource>(),
-            p.GetRequiredService<LibraryScanCoordinator>(),
-            uiContext));
+        services.AddSingleton(p =>
+        {
+            var notices = new ShellNotices(
+                p.GetRequiredService<IPlaybackSessionSource>(),
+                p.GetRequiredService<LibraryScanCoordinator>(),
+                uiContext);
+            // A rating's file write that failed is told here (E6-S7); the rater is the container's, so a write that
+            // waited for playback to release the file reports through the same bar when it finally runs.
+            p.GetRequiredService<Core.Library.ITrackRater>().FileWriteCompleted += (_, change) => notices.ShowRatingWrite(change);
+            return notices;
+        });
         // The mode (E5-S1, ADR-007). One for the process: the window's layout, the switcher and the shortcuts all
         // move this value, and ui.mode is written back from here.
         services.AddSingleton(p => new ShellState(p.GetRequiredService<ISettingsStore>()));

@@ -30,7 +30,9 @@ public sealed partial class TracksViewModel : ObservableObject
     private readonly ILibraryNavigator _navigator;
     private readonly IFileRevealer _revealer;
     private readonly ISettingsStore _settings;
+    private readonly ITrackRater _rater;
     private readonly HashSet<TrackColumn> _hidden;
+    private bool _listening;
 
     [ObservableProperty]
     public partial IncrementalItemsSource<TrackDto>? Items { get; set; }
@@ -50,23 +52,80 @@ public sealed partial class TracksViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsEmpty { get; set; }
 
-    public TracksViewModel(ITrackRepository tracks, IPlaybackCommands playback, ILibraryNavigator navigator, IFileRevealer revealer, ISettingsStore settings)
+    public TracksViewModel(ITrackRepository tracks, IPlaybackCommands playback, ILibraryNavigator navigator, IFileRevealer revealer, ISettingsStore settings, ITrackRater rater)
     {
         ArgumentNullException.ThrowIfNull(tracks);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(revealer);
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(rater);
         _tracks = tracks;
         _playback = playback;
         _navigator = navigator;
         _revealer = revealer;
         _settings = settings;
+        _rater = rater;
         _hidden = ParseHidden(settings.GetValue(SettingsKeys.UiTracksHiddenColumns, SettingsKeys.Defaults.UiTracksHiddenColumns));
     }
 
     /// <summary>A column's visibility changed; the page applies it to the table.</summary>
     public event EventHandler<TrackColumn>? ColumnVisibilityChanged;
+
+    /// <summary>A row's stars were set (E6-S7): the rater writes the row, and <see cref="Items"/> follows through its event like every other view.</summary>
+    public Task RateAsync(TrackDto track, int stars, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        return _rater.RateAsync(track.Id, stars, ct);
+    }
+
+    /// <summary>
+    /// Whether ratings landing anywhere in the app patch the rows here. The page turns this on while it is in the
+    /// tree and off when it leaves, so a view model does not outlive its page on the rater's event.
+    /// </summary>
+    public void ListenForRatings(bool listen)
+    {
+        if (listen == _listening)
+        {
+            return;
+        }
+
+        _listening = listen;
+        if (listen)
+        {
+            _rater.Changed += OnRatingChanged;
+        }
+        else
+        {
+            _rater.Changed -= OnRatingChanged;
+        }
+    }
+
+    /// <summary>
+    /// The row takes the rating without a requery: a requery would move the row under the pointer when the list is
+    /// sorted by rating, and lose the scroll position on a list of a hundred thousand. The sort catches up on the
+    /// next load. Raised on the rater's thread, which is the UI thread for every rating set from a control.
+    /// </summary>
+    private void OnRatingChanged(object? sender, RatingChange change)
+    {
+        if (Items is not { } items)
+        {
+            return;
+        }
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i].Id == change.TrackId)
+            {
+                if (items[i].Rating != change.Rating)
+                {
+                    items[i] = items[i] with { Rating = change.Rating };
+                }
+
+                return;
+            }
+        }
+    }
 
     public TracksSpec Spec { get; private set; } = TracksSpec.All;
 

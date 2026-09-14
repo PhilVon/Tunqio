@@ -144,7 +144,7 @@ public sealed class TagLibTagWriter : ITagWriter
 
             using (TagFile file = _open(temp, format))
             {
-                Apply(file.Tag, edit);
+                Apply(file, edit);
                 file.Save();
             }
 
@@ -246,12 +246,21 @@ public sealed class TagLibTagWriter : ITagWriter
     }
 
     /// <summary>
-    /// Applies the edit to a tag. <c>null</c> leaves a field alone; the empty value (<c>""</c>, <c>0</c>, an
+    /// Applies the edit to a file's tags. <c>null</c> leaves a field alone; the empty value (<c>""</c>, <c>0</c>, an
     /// empty list) clears it, which is what <see cref="TagSnapshot.ToEdit"/> produces for a field that was
-    /// absent and therefore what an undo needs. TagLibSharp treats null and an empty array as "no frame".
+    /// absent and therefore what an undo needs. TagLibSharp treats null and an empty array as "no frame". The
+    /// text fields go through the combined <see cref="TagFile.Tag"/>; the rating has no field the containers
+    /// agree on, so <see cref="TagRatings"/> puts it where each container's own tag keeps one (E6-S7).
     /// </summary>
-    private static void Apply(Tag tag, TagEdit edit)
+    private static void Apply(TagFile file, TagEdit edit)
     {
+        Tag tag = file.Tag;
+        if (edit.Rating is { } rating)
+        {
+            // A format this cannot rate is left as it is; the verify then reports the rating the file did not keep.
+            TagRatings.Write(file, rating > 0 ? rating : null);
+        }
+
         if (edit.Title is { } title)
         {
             tag.Title = Blank(title);
@@ -337,7 +346,8 @@ public sealed class TagLibTagWriter : ITagWriter
             DiscNo: Positive(tag.Disc),
             Genres: TagValues.Distinct(tag.Genres),
             Composer: composers.Count > 0 ? string.Join("; ", composers) : null,
-            Comment: TagValues.Clean(tag.Comment));
+            Comment: TagValues.Clean(tag.Comment),
+            Rating: TagRatings.Read(file));
     }
 
     /// <summary>
@@ -376,7 +386,7 @@ public sealed class TagLibTagWriter : ITagWriter
     private static string Describe(TagSnapshot snapshot) =>
         $"title '{snapshot.Title}', artists '{string.Join("; ", snapshot.Artists ?? [])}', album '{snapshot.AlbumTitle}', " +
         $"album artist '{snapshot.AlbumArtist}', year {snapshot.Year}, track {snapshot.TrackNo}, disc {snapshot.DiscNo}, " +
-        $"genres '{string.Join("; ", snapshot.Genres ?? [])}'";
+        $"genres '{string.Join("; ", snapshot.Genres ?? [])}', rating {snapshot.Rating}";
 
     private static string? Blank(string value) => value.Length == 0 ? null : TagValues.Clean(value);
 

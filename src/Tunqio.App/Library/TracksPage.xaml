@@ -28,7 +28,8 @@
         SortDescending="{x:Bind ViewModel.Descending, Mode=OneWay}"
         CanSort="{x:Bind ViewModel.CanSort, Mode=OneWay}"
         SortRequested="OnSortRequested"
-        ActionRequested="OnTrackAction" />
+        ActionRequested="OnTrackAction"
+        RatingRequested="OnRatingRequested" />
 
     <TextBlock Grid.Row="1" Text="No tracks here" Opacity="0.7" HorizontalAlignment="Center" VerticalAlignment="Center"
                Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}" />

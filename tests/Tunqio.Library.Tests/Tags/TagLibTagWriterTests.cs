@@ -126,6 +126,108 @@ public class TagLibTagWriterTests : IDisposable
         Sha256(path).Should().Be(hash, "an unchanged verdict must mean the bytes were never rewritten");
     }
 
+    // ---- E6-S7: the rating (AC-452) ---------------------------------------------------------------------------
+
+    /// <summary>One fixture per container the library scans, so the mapping in <c>TagRatings</c> is exercised for each tag kind it names.</summary>
+    public static TheoryData<string> RatedFormats() => new()
+    {
+        "Night Signal - Aurora Lines (2019)/01 - First Light.flac",
+        "The Lanterns - Harbour Songs (2007)/01 - Low Tide.mp3",
+        "Orchestra Meridian - Two Halls (2011)/Disc 1/01 - Overture.ogg",
+        "Three Voices - Chorus (2022)/01 - Chorus.opus",
+        "Various Artists - City Lights Compilation (2015)/01 - Open Door.m4a",
+        "Studio Bits - Odds and Ends (2003)/03 - Apple Lossless.m4a",
+        "Studio Bits - Odds and Ends (2003)/01 - Windows Media Take.wma",
+        "Björk Óðinsdóttir - Þöglar nætur (2020)/01 - Norðurljós.wv",
+        "Field Notes - Tape One (1998)/01 - Rain on Tin.wav",
+        "Studio Bits - Odds and Ends (2003)/02 - Big Endian.aiff",
+    };
+
+    /// <summary>
+    /// A rating written into each container reads back as the same whole stars, the other fields are untouched,
+    /// the scanner still parses the file, and asking for it again is Unchanged. The value goes in as 60 (three
+    /// stars); what each container keeps is its own business (a POPM byte, "60", a WM/SharedUserRating of 50) and
+    /// the read-back folds it to the library's scale.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RatedFormats))]
+    public async Task A_rating_round_trips_through_every_container_and_leaves_the_other_tags_alone_Async(string relativePath)
+    {
+        string path = Copy(RepoPaths.File(["tests", "fixtures", "library", .. relativePath.Split('/')]));
+        var writer = new TagLibTagWriter();
+        TagSnapshot? before = await writer.ReadAsync(path);
+        before!.Rating.Should().BeNull("the fixtures are generated without ratings");
+
+        TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Rating: 60));
+
+        result.Outcome.Should().Be(TagWriteOutcome.Written, "{0}: {1}", relativePath, result.Error);
+        TagSnapshot? after = await writer.ReadAsync(path);
+        after!.Rating.Should().Be(60, relativePath);
+        after.Title.Should().Be(before.Title, "a rating edit must not disturb the title");
+        after.Artists.Should().Equal(before.Artists ?? [], "nor the credits");
+        after.AlbumTitle.Should().Be(before.AlbumTitle);
+        after.Year.Should().Be(before.Year);
+        after.TrackNo.Should().Be(before.TrackNo);
+
+        TagReadResult scanned = await new TagLibTagReader(new TagReaderOptions()).ReadAsync(path, folderId: 1);
+        scanned.Outcome.Should().Be(TagReadOutcome.Read, "the scanner must still read a file that now carries a rating: " + relativePath);
+        scanned.Track.Title.Should().Be(before.Title);
+        scanned.Track.DurationMs.Should().BeGreaterThan(0);
+
+        (await writer.WriteAsync(path, new TagEdit(Rating: 60))).Outcome.Should().Be(TagWriteOutcome.Unchanged, "the file already says three stars");
+        (await writer.WriteAsync(path, new TagEdit(Rating: 100))).Outcome.Should().Be(TagWriteOutcome.Written, "five stars is a change");
+        (await writer.ReadAsync(path))!.Rating.Should().Be(100, relativePath);
+    }
+
+    [Theory]
+    [MemberData(nameof(RatedFormats))]
+    public async Task Clearing_a_rating_removes_it_from_the_file_Async(string relativePath)
+    {
+        string path = Copy(RepoPaths.File(["tests", "fixtures", "library", .. relativePath.Split('/')]));
+        var writer = new TagLibTagWriter();
+        await writer.WriteAsync(path, new TagEdit(Rating: 40));
+        (await writer.ReadAsync(path))!.Rating.Should().Be(40, "arrange: " + relativePath);
+
+        // 0 is the writer's clear, the same shape as Year: 0 (TagSnapshot's remarks); null would mean "leave it".
+        TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Rating: 0));
+
+        result.Outcome.Should().Be(TagWriteOutcome.Written, relativePath);
+        (await writer.ReadAsync(path))!.Rating.Should().BeNull("cleared is absent, not zero stars: " + relativePath);
+        (await writer.WriteAsync(path, new TagEdit(Rating: 0))).Outcome.Should().Be(TagWriteOutcome.Unchanged, "clearing what is already clear touches nothing");
+    }
+
+    /// <summary>
+    /// The Vorbis comment is the one field an independent tagger shows by name: ffprobe lists <c>RATING</c> for a
+    /// FLAC, which proves the bytes say 60 on disk and not merely that our reader mirrors our writer. (POPM and the
+    /// MP4 <c>rate</c> atom are not tags ffprobe reports, so those containers are held to the round trip above.)
+    /// </summary>
+    [FfmpegFact]
+    public async Task A_flac_rating_is_a_RATING_comment_another_tagger_can_read_Async()
+    {
+        string path = Copy(Flac);
+
+        await new TagLibTagWriter().WriteAsync(path, new TagEdit(Rating: 60));
+
+        Ffprobe.Value(Ffprobe.Tags(path), "rating").Should().Be("60");
+        Ffprobe.Decode(path).Should().BeTrue("the rated file must still decode end to end");
+    }
+
+    /// <summary>A rating is not part of undo: a snapshot's edit leaves it alone, so a tag edit's undo cannot take a star rating back with it.</summary>
+    [Fact]
+    public void A_snapshot_edit_puts_every_field_back_except_the_rating()
+    {
+        var snapshot = new TagSnapshot(Title: "T", Year: 2001, Rating: 80);
+
+        TagEdit undo = snapshot.ToEdit();
+
+        undo.Title.Should().Be("T");
+        undo.Year.Should().Be(2001);
+        undo.Rating.Should().BeNull("the tag editor never edits ratings, so its undo must not restore one");
+        snapshot.With(new TagEdit(Rating: 45)).Rating.Should().Be(40, "a container keeps whole stars, so the verify compares against what the file can say");
+        snapshot.With(new TagEdit(Rating: 0)).Rating.Should().BeNull();
+        snapshot.With(new TagEdit(Title: "U")).Rating.Should().Be(80, "an edit that says nothing about the rating leaves it");
+    }
+
     // ---- AC-106 -----------------------------------------------------------------------------------------------
 
     // The stage names travel as strings because xunit only discovers tests on public classes, and the stage enum

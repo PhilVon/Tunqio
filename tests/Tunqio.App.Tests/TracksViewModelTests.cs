@@ -13,6 +13,7 @@ public class TracksViewModelTests
     private readonly FakeNavigator _navigator = new();
     private readonly FakeRevealer _revealer = new();
     private readonly FakeSettings _settings = new();
+    private readonly FakeRater _rater = new();
 
     public TracksViewModelTests()
     {
@@ -25,7 +26,39 @@ public class TracksViewModelTests
         ]);
     }
 
-    private TracksViewModel Create() => new(_tracks, _playback, _navigator, _revealer, _settings);
+    private TracksViewModel Create() => new(_tracks, _playback, _navigator, _revealer, _settings, _rater);
+
+    // ---- E6-S7: the rating column ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A row's stars go through the rater, and the rater's event patches the row in place — in the loaded list,
+    /// without a requery, and only while the page has asked to listen. A rating that lands for a track that is not
+    /// in the list is ignored.
+    /// </summary>
+    [Fact]
+    public async Task Rating_a_row_goes_through_the_rater_and_the_row_follows_its_event_Async()
+    {
+        TracksViewModel vm = Create();
+        await vm.LoadAsync(TracksSpec.All);
+        int queries = _tracks.Queries.Count;
+        vm.ListenForRatings(true);
+        TrackDto delta = vm.Items!.Single(t => t.Title == "Delta");
+
+        await vm.RateAsync(delta, 4);
+
+        _rater.Requests.Should().Equal((1L, 4));
+        vm.Items!.Single(t => t.Title == "Delta").Rating.Should().Be(80, "the row shows the rating the rater announced");
+        _tracks.Queries.Count.Should().Be(queries, "the row is patched, not requeried: a requery would move it under the pointer");
+
+        _rater.RaiseChanged(2, 20);
+        vm.Items!.Single(t => t.Title == "alpha").Rating.Should().Be(20, "a rating set elsewhere reaches the row");
+        _rater.RaiseChanged(99, 60);
+        vm.Items!.Should().HaveCount(4, "a track that is not in the list changes nothing");
+
+        vm.ListenForRatings(false);
+        _rater.RaiseChanged(1, null);
+        vm.Items!.Single(t => t.Title == "Delta").Rating.Should().Be(80, "a page that has left the tree no longer follows");
+    }
 
     [Fact]
     public void Fixed_views_have_fixed_queries_and_a_cap()

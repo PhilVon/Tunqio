@@ -59,6 +59,9 @@ public sealed partial class TracksList : UserControl
     /// <summary>The selection (list order) was asked to play, queue, navigate or reveal.</summary>
     public event EventHandler<TrackActionEventArgs>? ActionRequested;
 
+    /// <summary>A row's stars were set (E6-S7); the page rates the track. The row shows the new stars already.</summary>
+    public event EventHandler<TrackRatingEventArgs>? RatingRequested;
+
     /// <summary>An <see cref="IncrementalItemsSource{T}"/> of <see cref="TrackDto"/> (any list of tracks binds, but only an incremental one pages).</summary>
     public object? ItemsSource
     {
@@ -262,6 +265,15 @@ public sealed partial class TracksList : UserControl
 
     private void OnMenuAddToPlaylist(object sender, RoutedEventArgs e) => Raise(TrackAction.AddToPlaylist, _menuAnchor);
 
+    /// <summary>The star control in a row: the track is the row's item, found the way every other row gesture finds it.</summary>
+    private void OnRowRatingChanged(object? sender, int stars)
+    {
+        if (TrackOf(sender) is { } track)
+        {
+            RatingRequested?.Invoke(this, new TrackRatingEventArgs(track, stars));
+        }
+    }
+
     /// <summary>A row acted on outside the selection becomes the selection (the usual list convention).</summary>
     private void EnsureSelected(TrackDto track)
     {
@@ -298,4 +310,12 @@ public sealed partial class TracksList : UserControl
 
         return (element as FrameworkElement)?.DataContext as TrackDto;
     }
+}
+
+/// <summary>A row's stars were set to <paramref name="stars"/> (0 clears) for <paramref name="track"/> (E6-S7).</summary>
+public sealed class TrackRatingEventArgs(TrackDto track, int stars) : EventArgs
+{
+    public TrackDto Track { get; } = track;
+
+    public int Stars { get; } = stars;
 }

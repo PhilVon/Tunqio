@@ -70,6 +70,7 @@ Each screen lists what it shows, primary actions, empty state, and the data cont
 ### Shell / Now Playing
 - Shows: art (up to 1000 px), title, artists (clickable), album (clickable), year, format badge (FLAC 24/96), progress with elapsed/remaining toggle, visualizer.
 - Actions: preset switcher, toggle art/visualizer emphasis, love/rate (1–5 stars), show in folder, tag editor.
+- As built (E6-S7): the stars sit under the format badge as a `RatingControl` — five glyphs, Left/Right and 0–5 on the keyboard, a click on the current star clears — named "Rating, N of 5 stars" and answering the RangeValue pattern; Ctrl+Alt+1..5 and Ctrl+Alt+0 rate the playing track through the same `ITrackRater`, and the panel patches its track from the rater's event rather than waiting for a snapshot. A dropped file with no library row shows empty stars that cannot be set.
 - Empty: "Nothing playing" with Add folder / Open files buttons on first run.
 - Binds: `PlaybackSnapshot`, `TrackDto`, `AnalysisFrame` (theming), `IVisualizationHost`.
 
@@ -85,6 +86,7 @@ Each screen lists what it shows, primary actions, empty state, and the data cont
 ### Library › Tracks
 - Virtualised `ListView` table: number, title, artist, album, duration, format, plays, rating. Column chooser. Multi-select with Shift/Ctrl. Sort by any column.
 - Binds: `ITrackRepository.StreamAsync` with `TrackQuery`.
+- As built (E6-S7): the rating cell is the same `RatingControl` as Now Playing's, one per realised row, set by pointer, keyboard or RangeValue; it is not part of the row's automation name (the accessibility contract below keeps rows to four columns). A rating set anywhere — this row, Now Playing, a shortcut, album detail — patches the row in place through `ITrackRater.Changed` while the page is loaded; the list is not requeried, so a rating-sorted list keeps its order and its scroll position until the next load. Album detail's rows do the same.
 
 ### Library › Genres, Folders, Recently added, Recently played, Most played
 - Genres: tag cloud sized by count → filtered Tracks view. Folders: the library folders → Tracks filtered by folder (a sub-folder tree is not in E3-S8). Recent/Most: Tracks view with fixed sort and a limit of 500, over played tracks only for the two played views.

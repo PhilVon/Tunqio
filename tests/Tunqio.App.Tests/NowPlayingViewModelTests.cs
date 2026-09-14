@@ -22,6 +22,7 @@ public sealed class NowPlayingViewModelTests : IAsyncLifetime
     private readonly FakeQueueStore _queues = new();
     private readonly StubSessionSource _source = new();
     private readonly FakeNavigator _navigator = new();
+    private readonly FakeRater _rater = new();
     private PlaybackSession _session = null!;
     private NowPlayingViewModel _vm = null!;
 
@@ -34,8 +35,71 @@ public sealed class NowPlayingViewModelTests : IAsyncLifetime
         ]);
         _session = new PlaybackSession(_engine, _tracks, _history, _queues, _settings, autoPoll: false);
         _source.Session = _session;
-        _vm = new NowPlayingViewModel(_source, _navigator);
+        _vm = new NowPlayingViewModel(_source, _rater, _navigator);
         return Task.CompletedTask;
+    }
+
+    // ---- E6-S7: the stars ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_stars_come_from_the_track_and_rating_it_goes_through_the_rater_Async()
+    {
+        _tracks.Rows[0] = _tracks.Rows[0] with { Rating = 60 };
+        await PlayAsync(11);
+
+        _vm.Stars.Should().Be(3, "60 on the 0..100 scale is three stars");
+        _vm.CanRate.Should().BeTrue("a library row can be rated");
+
+        _vm.Rate(5).Should().BeTrue();
+
+        _rater.Requests.Should().Equal((11L, 5));
+        _vm.Stars.Should().Be(5, "the rater's Changed event patches the shown track without a new snapshot");
+        _vm.Track!.Rating.Should().Be(100);
+
+        // The next snapshot carries the session's older copy of the row; the patched rating must not be undone by it.
+        await TickAsync();
+        _vm.Stars.Should().Be(5, "a snapshot that says the same track is not a change, whatever its copy of the row says");
+    }
+
+    [Fact]
+    public async Task A_rating_set_elsewhere_reaches_the_panel_and_one_for_another_track_does_not_Async()
+    {
+        await PlayAsync(11, 12);
+        var changes = new List<string>();
+        _vm.PropertyChanged += (_, e) => changes.Add(e.PropertyName ?? string.Empty);
+
+        _rater.RaiseChanged(12, 80);
+        _vm.Stars.Should().Be(0, "track 12 is queued, not showing");
+        changes.Should().NotContain(nameof(NowPlayingViewModel.Stars));
+
+        _rater.RaiseChanged(11, 40);
+        _vm.Stars.Should().Be(2);
+        changes.Should().Contain(nameof(NowPlayingViewModel.Stars));
+
+        _rater.RaiseChanged(11, null);
+        _vm.Stars.Should().Be(0, "cleared");
+
+        // Track 12 was resolved by the session when it was queued, before it was rated. When it becomes current the
+        // panel must show the rating it has now, not the copy the queue holds (the same holds for a repeat-one replay).
+        _tracks.Rows.Single(t => t.Id == 12).Rating.Should().BeNull("arrange: the session's copy of the row has no rating");
+        await _session.NextAsync();
+        await TickAsync();
+        _vm.Track!.Id.Should().Be(12);
+        _vm.Stars.Should().Be(4, "the rating announced while the track waited in the queue wins over the queue's older copy");
+    }
+
+    [Fact]
+    public async Task Nothing_playing_or_no_rater_cannot_be_rated_and_says_so_Async()
+    {
+        _vm.CanRate.Should().BeFalse("nothing is playing");
+        _vm.Rate(3).Should().BeFalse("the shortcut leaves the key unhandled");
+        _rater.Requests.Should().BeEmpty();
+
+        using var plain = new NowPlayingViewModel(_source, rater: null, _navigator);
+        await PlayAsync(11);
+        plain.CanRate.Should().BeFalse("the spike modes have no rater and the stars are read-only");
+        plain.Rate(3).Should().BeFalse();
+        _vm.CanRate.Should().BeTrue();
     }
 
     public async Task DisposeAsync()
@@ -255,7 +319,7 @@ public sealed class NowPlayingViewModelTests : IAsyncLifetime
     [Fact]
     public async Task With_no_sidebar_the_names_are_text_Async()
     {
-        using var plain = new NowPlayingViewModel(_source);
+        using var plain = new NowPlayingViewModel(_source, rater: null);
         await PlayAsync(11);
 
         plain.Title.Should().Be("Wide Awake");

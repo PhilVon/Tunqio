@@ -69,6 +69,8 @@ public sealed class ShellWiringTests
         var services = new ServiceCollection();
         services.AddSingleton<IPlaybackSessionSource>(new StubSessionSource());
         services.AddSingleton(new LibraryScanCoordinator(scanner));
+        // AddShell subscribes the notices to the rater's failed file writes (E6-S7); AddLibraryViews registers the real one.
+        services.AddSingleton<Tunqio.Core.Library.ITrackRater>(new FakeRater());
         services.AddShell(uiContext: null);
         using ServiceProvider provider = services.BuildServiceProvider();
 

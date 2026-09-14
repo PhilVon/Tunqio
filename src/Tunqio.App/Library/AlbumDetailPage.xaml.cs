@@ -21,6 +21,10 @@ public sealed partial class AlbumDetailPage : Page, ILibraryRefreshable
     {
         ViewModel = App.Services.GetRequiredService<AlbumDetailViewModel>();
         InitializeComponent();
+        // Ratings set elsewhere reach the rows while the page is in the tree (E6-S7); the page is not cached, so
+        // the tree is its whole life, and listening only while loaded keeps the view model off a singleton's event afterwards.
+        Loaded += (_, _) => ViewModel.ListenForRatings(true);
+        Unloaded += (_, _) => ViewModel.ListenForRatings(false);
     }
 
     public AlbumDetailViewModel ViewModel { get; }
@@ -126,6 +130,15 @@ public sealed partial class AlbumDetailPage : Page, ILibraryRefreshable
     private void OnMenuOpenArtist(object sender, RoutedEventArgs e) => Raise(TrackAction.OpenArtist, _menuAnchor);
 
     private void OnMenuShowInFolder(object sender, RoutedEventArgs e) => Raise(TrackAction.ShowInFolder, _menuAnchor);
+
+    /// <summary>The star control in a row (E6-S7): the row is found the way every other row gesture finds it.</summary>
+    private void OnRowRatingChanged(object? sender, int stars)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            ViewModel.RateAsync(row, stars).Forget("Rate album track");
+        }
+    }
 
     // Add to playlist (E6-S1): a dialog, so the page and not the view model opens it.
     private void OnAddAlbumToPlaylist(object sender, RoutedEventArgs e) =>

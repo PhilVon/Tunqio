@@ -35,6 +35,38 @@ public sealed class ShellNoticesTests : IAsyncLifetime
         return Task.CompletedTask;
     }
 
+    // ---- E6-S7: a rating's file write ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// A failed file write is told, once, as a transient warning that says the library rating stands; a write that
+    /// landed, was already right or is waiting for playback is not a bar at all, since there is nothing to tell.
+    /// </summary>
+    [Fact]
+    public void A_rating_that_could_not_be_written_to_its_file_is_told_and_the_others_are_not()
+    {
+        var failed = new RatingChange(11, @"D:\Music\one.flac", 60, TagWriteOutcome.Failed, "the file is read-only");
+        _notices.ShowRatingWrite(failed);
+
+        ShellNotice bar = _notices.Items.Should().ContainSingle().Which;
+        bar.Kind.Should().Be(NoticeKind.Rating);
+        bar.Severity.Should().Be(StartupNoticeSeverity.Warning);
+        bar.Message.Should().Contain("saved in the library").And.Contain("one.flac").And.Contain("the file is read-only");
+        bar.IsSticky.Should().BeFalse("there is nothing to do about it from the bar");
+
+        _notices.ShowRatingWrite(failed with { Path = @"D:\Music\two.flac" });
+        _notices.Items.Should().ContainSingle("one bar per kind: the second failure replaces the first").Which.Message.Should().Contain("two.flac");
+
+        _clock.Advance(ShellNotices.TransientLifetime + TimeSpan.FromSeconds(1));
+        _notices.Items.Should().BeEmpty("a report of something that has happened goes away by itself");
+
+        foreach (TagWriteOutcome? outcome in new TagWriteOutcome?[] { null, TagWriteOutcome.Written, TagWriteOutcome.Unchanged, TagWriteOutcome.Deferred })
+        {
+            _notices.ShowRatingWrite(new RatingChange(11, @"D:\Music\one.flac", 60, outcome));
+        }
+
+        _notices.Items.Should().BeEmpty("only a failure is worth a bar");
+    }
+
     public async Task DisposeAsync()
     {
         _notices.Dispose();

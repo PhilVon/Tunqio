@@ -53,6 +53,36 @@ public class ShellShortcutsTests
         Find(VirtualKey.M)!.Value.Command.Should().Be(ShellCommand.Mute, "Ctrl+M is the mini player and M on its own is still Mute");
         Find(VirtualKey.Z, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Undo);
         Find(VirtualKey.Y, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Redo);
+
+        // E6-S7: "Rate 1–5 / clear | Ctrl+Alt+1..5 / Ctrl+Alt+0". One command carrying the stars, as the seeks carry seconds.
+        VirtualKeyModifiers ctrlAlt = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu;
+        Find(VirtualKey.Number1, ctrlAlt)!.Value.Should().BeEquivalentTo(new { Command = ShellCommand.Rate, Amount = 1.0 }, o => o.ExcludingMissingMembers());
+        Find(VirtualKey.Number2, ctrlAlt)!.Value.Should().BeEquivalentTo(new { Command = ShellCommand.Rate, Amount = 2.0 }, o => o.ExcludingMissingMembers());
+        Find(VirtualKey.Number3, ctrlAlt)!.Value.Should().BeEquivalentTo(new { Command = ShellCommand.Rate, Amount = 3.0 }, o => o.ExcludingMissingMembers());
+        Find(VirtualKey.Number4, ctrlAlt)!.Value.Should().BeEquivalentTo(new { Command = ShellCommand.Rate, Amount = 4.0 }, o => o.ExcludingMissingMembers());
+        Find(VirtualKey.Number5, ctrlAlt)!.Value.Should().BeEquivalentTo(new { Command = ShellCommand.Rate, Amount = 5.0 }, o => o.ExcludingMissingMembers());
+        Find(VirtualKey.Number0, ctrlAlt)!.Value.Should().BeEquivalentTo(new { Command = ShellCommand.Rate, Amount = 0.0 }, o => o.ExcludingMissingMembers());
+    }
+
+    // ---- E6-S7: the rating keys -------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Ctrl+Alt+digit is a chord no control wants, so it is taken on the way down like the mode keys; and it must
+    /// not collide with Ctrl+digit, which is the mode switch, or with the bare digit, which is type-ahead in a list.
+    /// </summary>
+    [Fact]
+    public void The_rating_keys_are_taken_before_a_control_sees_them_and_leave_the_mode_keys_alone()
+    {
+        VirtualKeyModifiers ctrlAlt = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu;
+        foreach (VirtualKey key in new[] { VirtualKey.Number0, VirtualKey.Number1, VirtualKey.Number2, VirtualKey.Number3, VirtualKey.Number4, VirtualKey.Number5 })
+        {
+            Find(key, ctrlAlt)!.Value.Delivery.Should().Be(ShortcutDelivery.PreEmpt, "{0} is a chord nothing else wants", key);
+            Find(key).Should().BeNull("a bare digit is type-ahead in a list, not a rating");
+        }
+
+        Find(VirtualKey.Number1, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Discovery, "Ctrl+1 is still the mode key");
+        ShellShortcuts.All.Where(s => s.Command == ShellCommand.Rate).Select(s => s.Amount).Should().BeEquivalentTo([1.0, 2.0, 3.0, 4.0, 5.0, 0.0]);
+        ShellShortcuts.All.Where(s => s.Command == ShellCommand.Rate).Should().OnlyContain(s => !s.WhileTyping, "on a layout where Ctrl+Alt is AltGr the chord types a character");
     }
 
     /// <summary>E5-S4: a text box has an undo of its own, so Curation's only fires on a Ctrl+Z nothing else took.</summary>

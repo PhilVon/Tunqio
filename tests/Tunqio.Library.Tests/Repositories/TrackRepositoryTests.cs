@@ -160,6 +160,37 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
         _all.Where(t => t.AlbumArtist == "Various Artists").Select(t => t.AlbumTitle).Distinct().Should().ContainSingle();
     }
 
+    /// <summary>
+    /// E6-S7 (AC-451): a rating is one column of one row, set and cleared through the repository, and the scanner's
+    /// upsert leaves it alone — the rescan here changes the file's tags and the rating stays. The star scale is the
+    /// caller's (<see cref="Ratings"/>); the repository takes 0..100 and refuses anything outside it.
+    /// </summary>
+    [Fact]
+    public async Task A_rating_is_set_cleared_and_kept_across_a_rescan_Async()
+    {
+        TrackDto track = _all.First(t => t.Rating is null && !t.Missing);
+
+        (await _seed.Tracks.SetRatingAsync(track.Id, 60)).Should().BeTrue();
+        (await _seed.Tracks.GetAsync(track.Id))!.Rating.Should().Be(60, "three stars are 60 on the 0..100 scale");
+
+        // The file comes back from a scan with new tags: the row takes them and keeps the rating.
+        ScannedTrack rescanned = new(track.Path, track.FolderId, track.FileSize + 1, track.FileMtime + 1, track.Codec, track.DurationMs,
+            "Retitled After Rating", track.Artists.Select(a => a.Name).ToArray(), AlbumTitle: track.AlbumTitle, AlbumArtist: track.AlbumArtist, Year: track.Year, TrackNo: track.TrackNo);
+        await _seed.Tracks.UpsertBatchAsync([rescanned]);
+        TrackDto after = (await _seed.Tracks.GetAsync(track.Id))!;
+        after.Title.Should().Be("Retitled After Rating");
+        after.Rating.Should().Be(60, "a rescan re-reads the file, and the rating is user data the file does not carry");
+
+        (await _seed.Tracks.SetRatingAsync(track.Id, null)).Should().BeTrue();
+        (await _seed.Tracks.GetAsync(track.Id))!.Rating.Should().BeNull("clearing is NULL, not zero: an unrated track sorts after every rated one");
+
+        (await _seed.Tracks.SetRatingAsync(long.MaxValue, 40)).Should().BeFalse("a track the library does not have is reported, not invented");
+        Func<Task> tooHigh = () => _seed.Tracks.SetRatingAsync(track.Id, 101);
+        await tooHigh.Should().ThrowAsync<ArgumentOutOfRangeException>();
+        Func<Task> negative = () => _seed.Tracks.SetRatingAsync(track.Id, -1);
+        await negative.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
     [Fact]
     public async Task Re_upserting_a_path_keeps_its_id_rating_and_play_history_but_takes_the_new_tags_Async()
     {

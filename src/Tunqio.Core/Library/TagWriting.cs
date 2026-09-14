@@ -73,6 +73,12 @@ public sealed record TagWriteResult(string Path, TagWriteOutcome Outcome, TagSna
 /// themselves do, since a tag frame holding nothing is a frame that gets dropped on save. <see cref="ToEdit"/>
 /// builds exactly such an edit from a snapshot, which is how undo restores a previously absent field.
 /// </para>
+/// <para>
+/// <b>The rating is the exception to undo.</b> <see cref="Rating"/> (0..100, in whole stars — see
+/// <see cref="Ratings"/>) is read and verified like the other fields, but <see cref="ToEdit"/> leaves it alone: the
+/// tag editor never edits ratings, so its undo has no business putting one back, and a rating set from the star
+/// control between an edit and its undo must survive the undo (E6-S7).
+/// </para>
 /// </remarks>
 public sealed record TagSnapshot(
     string? Title = null,
@@ -84,11 +90,12 @@ public sealed record TagSnapshot(
     int? DiscNo = null,
     IReadOnlyList<string>? Genres = null,
     string? Composer = null,
-    string? Comment = null)
+    string? Comment = null,
+    int? Rating = null)
 {
     /// <summary>
     /// An edit that puts every one of these values back, clearing the ones that were absent. Undo is this edit
-    /// applied to the file the snapshot came from.
+    /// applied to the file the snapshot came from. The rating is not part of it (see the type's remarks).
     /// </summary>
     public TagEdit ToEdit() => new(
         Title: Title ?? string.Empty,
@@ -116,7 +123,9 @@ public sealed record TagSnapshot(
             DiscNo: Number(edit.DiscNo, DiscNo),
             Genres: List(edit.Genres, Genres),
             Composer: Text(edit.Composer, Composer),
-            Comment: Text(edit.Comment, Comment));
+            Comment: Text(edit.Comment, Comment),
+            // Whole stars, because that is all any container keeps: an edit asking for 45 is verified against the 40 the file can say.
+            Rating: Number(edit.Rating, Rating) is { } rating ? Ratings.FromStars(Ratings.Stars(rating)) : null);
     }
 
     /// <summary>Value equality over the fields, treating null and empty as the same absence (a format that cannot hold an empty frame reads one back as null).</summary>
@@ -132,7 +141,8 @@ public sealed record TagSnapshot(
             && Same(Composer, other.Composer)
             && Same(Comment, other.Comment)
             && Same(Artists, other.Artists)
-            && Same(Genres, other.Genres);
+            && Same(Genres, other.Genres)
+            && Rating == other.Rating;
     }
 
     private static string? Text(string? edited, string? current) =>

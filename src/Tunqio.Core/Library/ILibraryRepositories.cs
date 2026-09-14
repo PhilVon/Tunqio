@@ -58,6 +58,13 @@ public interface ITrackRepository
 
     /// <summary>Applies a partial edit to the row (not the file), re-resolving album, artists and genres as needed.</summary>
     Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sets the track's rating (0..100; see <see cref="Ratings"/>) or clears it with <c>null</c> (E6-S7). The row
+    /// only: the file's tag is <see cref="ITrackRater"/>'s. Returns false, having written nothing, when the library
+    /// has no such track. A later rescan of the file leaves the rating alone (<see cref="UpsertBatchAsync"/>).
+    /// </summary>
+    Task<bool> SetRatingAsync(long id, int? rating, CancellationToken ct = default);
 }
 
 /// <summary>Albums grid and detail.</summary>
