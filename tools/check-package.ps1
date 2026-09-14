@@ -87,6 +87,72 @@ function Test-Payload([string]$what, [string[]]$present) {
     Write-Output ''
 }
 
+# ---- E7-S1 (AC-472, AC-172): what Windows registers from the package's own AppxManifest.xml -------------------------------
+# The file type association, the tunqio URI scheme, the tunqio.exe execution alias and unvirtualised writes. Read from the
+# manifest inside the .msix, which is what an install registers from, rather than from src/Tunqio.App/Package.appxmanifest,
+# which the packaging step rewrites. The names come from src/Tunqio.Core/Identity.cs and the extensions from
+# src/Tunqio.Core/Library/AudioFormats.cs, the list the library scanner accepts, so neither is a second copy kept here.
+# Elements are found by local name: the namespace prefixes are the packaging tool's choice.
+function Read-CoreConstant([string]$file, [string]$name) {
+    $m = [regex]::Match((Get-Content $file -Raw), "const string $name = `"([^`"]+)`"")
+    if (-not $m.Success) { throw "$file declares no const string $name" }
+    return $m.Groups[1].Value
+}
+
+function Test-Registrations([string]$package) {
+    $identityFile = "$repo\src\Tunqio.Core\Identity.cs"
+    $formatsFile = "$repo\src\Tunqio.Core\Library\AudioFormats.cs"
+    $scheme = Read-CoreConstant $identityFile 'UriScheme'
+    $alias = Read-CoreConstant $identityFile 'ExecutionAlias'
+    $group = Read-CoreConstant $identityFile 'FileTypeAssociationGroup'
+    $extensions = @([regex]::Matches((Get-Content $formatsFile -Raw), '\["(\.[a-z0-9]+)"\]') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
+    if ($extensions.Count -eq 0) { throw "$formatsFile lists no extensions; there is nothing to check the association against." }
+
+    Write-Output 'packaged app (registrations in AppxManifest.xml)'
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($package)
+    try {
+        $entry = $zip.Entries | Where-Object { $_.FullName -eq 'AppxManifest.xml' } | Select-Object -First 1
+        if (-not $entry) {
+            $script:failures += 'MSIX - AppxManifest.xml is not in the package'
+            Write-Output "  FAIL  AppxManifest.xml is not in the package`n"
+            return
+        }
+        $reader = New-Object System.IO.StreamReader($entry.Open())
+        try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    }
+    finally { $zip.Dispose() }
+
+    function Check-Registration([string]$what, [bool]$ok, [string]$detail) {
+        if ($ok) { Write-Output "  ok    $what ($detail)" }
+        else { $script:failures += "MSIX - $what ($detail)"; Write-Output "  FAIL  $what ($detail)" }
+    }
+
+    $associations = @($manifest.SelectNodes("//*[local-name()='FileTypeAssociation']"))
+    $association = $associations | Where-Object { $_.GetAttribute('Name') -eq $group } | Select-Object -First 1
+    Check-Registration "file type association '$group'" ($null -ne $association) "$($associations.Count) association(s) declared"
+    if ($association) {
+        $display = $association.SelectSingleNode("*[local-name()='DisplayName']")
+        Check-Registration 'association display name' ($display -and $display.InnerText -eq 'Tunqio audio file') "'$(if ($display) { $display.InnerText })'"
+        $declared = @($association.SelectNodes(".//*[local-name()='FileType']") | ForEach-Object { $_.InnerText.Trim().ToLowerInvariant() } | Sort-Object -Unique)
+        $missing = @($extensions | Where-Object { $declared -notcontains $_ })
+        $extra = @($declared | Where-Object { $extensions -notcontains $_ })
+        Check-Registration 'every extension the scanner accepts is associated' ($missing.Count -eq 0) "$($declared.Count) declared; missing: $(if ($missing.Count) { $missing -join ' ' } else { 'none' })"
+        Check-Registration 'nothing the scanner refuses is associated' ($extra.Count -eq 0) "extra: $(if ($extra.Count) { $extra -join ' ' } else { 'none' })"
+    }
+
+    $protocols = @($manifest.SelectNodes("//*[local-name()='Protocol']") | ForEach-Object { $_.GetAttribute('Name') })
+    Check-Registration "URI scheme '$scheme'" ($protocols -contains $scheme) "declared: $(if ($protocols.Count) { $protocols -join ', ' } else { 'none' })"
+
+    $aliases = @($manifest.SelectNodes("//*[local-name()='AppExecutionAlias']/*[local-name()='ExecutionAlias']") | ForEach-Object { $_.GetAttribute('Alias') })
+    Check-Registration "execution alias '$alias'" ($aliases -contains $alias) "declared: $(if ($aliases.Count) { $aliases -join ', ' } else { 'none' })"
+
+    $virtualization = $manifest.SelectSingleNode("//*[local-name()='Properties']/*[local-name()='FileSystemWriteVirtualization']")
+    Check-Registration 'file system write virtualisation is disabled' ($virtualization -and $virtualization.InnerText.Trim() -eq 'disabled') "'$(if ($virtualization) { $virtualization.InnerText.Trim() } else { 'not declared' })'"
+    $capabilities = @($manifest.SelectNodes("//*[local-name()='Capability']") | ForEach-Object { $_.GetAttribute('Name') })
+    Check-Registration 'the unvirtualizedResources capability it requires' ($capabilities -contains 'unvirtualizedResources') "capabilities: $($capabilities -join ', ')"
+    Write-Output ''
+}
+
 foreach ($dir in $Root) {
     $resolved = (Resolve-Path $dir -ErrorAction SilentlyContinue).Path
     if (-not $resolved) { $resolved = $dir }
@@ -116,6 +182,7 @@ if ($Msix) {
         try { $present = @($zip.Entries | ForEach-Object { $_.FullName.Replace('\', '/').ToLowerInvariant() }) }
         finally { $zip.Dispose() }
         Test-Payload 'packaged app (MSIX payload)' $present
+        Test-Registrations $package
     }
 }
 

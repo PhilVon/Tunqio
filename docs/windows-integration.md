@@ -8,6 +8,53 @@ This document details Windows-specific integration features that provide seamles
 
 ### Audio Format Registration
 
+**As built (E7-S1, T-74).** The manifest sample below is the original design and its extension list is out of date; the
+handler class and the context-menu registry code further down are superseded outright (ADR-006: no registry writes).
+What ships:
+
+- **Manifest.** `src/Tunqio.App/Package.appxmanifest` declares one `uap:FileTypeAssociation Name="tunqio-audio"` (display
+  name `Tunqio audio file`) with a `uap:FileType` for every extension `Tunqio.Core.Library.AudioFormats` gives the
+  library scanner: `.mp3 .flac .m4a .mp4 .aac .ogg .oga .opus .wav .aif .aiff .aifc .wma .wv .ape` (MPC left 1.0 with
+  Q-26). Beside it, `uap:Protocol Name="tunqio"` and `uap5:AppExecutionAlias` with `tunqio.exe`;
+  `desktop6:FileSystemWriteVirtualization` stays `disabled` with the `unvirtualizedResources` capability. Names come from
+  [identity.md](identity.md). There is no `uap:Logo`: the association uses the app's icon until the artwork task adds
+  `Assets/FileAssociation.png`.
+- **Checked twice.** `Tunqio.Core.Tests` (`IdentityTests`) compares the source manifest with `AudioFormats.Extensions` and
+  the `Identity` constants, so adding a format without an association fails a test. `tools/check-package.ps1 -Msix`
+  reads `AppxManifest.xml` out of the built package (what an install registers from) and asserts the association (every
+  scanner extension, nothing extra), the scheme, the alias and the unvirtualised writes, taking the expected values from
+  `AudioFormats.cs` and `Identity.cs` rather than a list of its own.
+- **Activation.** A file, `tunqio://` URI or command line reaches `CommandRouter` (`Tunqio.App/Activation`), described
+  under "Protocol activation" below; single instance is in [solution-structure.md](solution-structure.md), "Startup
+  sequence".
+- **Proven unpackaged; waits on an installed package.** The router, the redirection and the command line are proven
+  without installing anything, by unit tests and `tools/check-single-instance.ps1`. What Windows itself does for an
+  installed package (Explorer's double-click and multi-select Open, a browser following a `tunqio://` link, the real
+  write path under `%LocalAppData%\Tunqio`) needs the package installed, which needs its self-signed certificate
+  trusted; Phil chose to leave that until the package has a real signature (Q-105), so those checks are on T-80 (E8-S1).
+
+### Protocol activation (as built, E7-S1)
+
+`CommandRouter` turns one activation's input, always a list of strings, into session commands:
+
+| Input | Command |
+|-------|---------|
+| one audio file (Explorer, `Tunqio.exe song.flac`) | play it now, inserted after the current item with the queue kept (flow 2); window to the foreground |
+| several files, or a folder | replace the queue with all of them in the order given, and play; window to the foreground |
+| `tunqio://play?path=<url-encoded path>` (repeatable) | replace the queue and play; window to the foreground |
+| `tunqio://queue?path=<url-encoded path>` | append to the queue |
+| `tunqio://toggle`, `tunqio://next`, `tunqio://previous` | transport |
+| `tunqio://show`, or a second launch with no arguments | window to the foreground |
+
+The app's own switches (`--data-root PATH` and the spike switches) are skipped. Everything else is refused with one
+warning line and never throws: an unknown command or switch, a `play` or `queue` with no `path`, a path that does not
+exist or is not a supported format, and a relative path from anywhere but this process's own command line (a redirected
+activation and a URI carry no working directory). Query values are percent-decoded and `+` is kept, because it is legal
+in a file name. The scheme and a browser's trailing slash (`tunqio://play/?path=`) are case- and slash-tolerant.
+Commands go through `SessionCommandTarget`: files resolve through `OpenFilesService` (a library row where one exists,
+else a transient track, D-24), transport goes to the one `PlaybackSession`, and a command that arrives before audio is up
+waits for it for up to 30 s rather than being dropped, which is what lets a cold start from Explorer play its file.
+
 The application registers as a handler for supported audio formats through the Windows Registry and WinUI 3 package manifest:
 
 ```xml

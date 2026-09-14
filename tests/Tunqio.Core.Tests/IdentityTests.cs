@@ -59,6 +59,40 @@ public class IdentityTests
             .Should().Be("disabled", "%LocalAppData%\\Tunqio must be literal and survive uninstall (docs/identity.md)");
     }
 
+    // ---- E7-S1 (AC-472, AC-172): what the manifest registers when the package is installed ----------------------------------
+
+    private static readonly XNamespace Uap5 = "http://schemas.microsoft.com/appx/manifest/uap/windows10/5";
+    private static readonly XNamespace Rescap = "http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities";
+
+    [Fact]
+    public void Manifest_associates_every_format_the_library_scans_under_the_identity_group_name()
+    {
+        XElement association = Manifest().Descendants(Uap + "FileTypeAssociation").Should().ContainSingle().Subject;
+
+        association.Attribute("Name")!.Value.Should().Be(Identity.FileTypeAssociationGroup);
+        association.Element(Uap + "DisplayName")!.Value.Should().Be("Tunqio audio file", "docs/identity.md names the display name");
+        association.Descendants(Uap + "FileType").Select(t => t.Value)
+            .Should().BeEquivalentTo(Tunqio.Core.Library.AudioFormats.Extensions, "an association for every extension the scanner accepts, and nothing else");
+    }
+
+    [Fact]
+    public void Manifest_declares_the_uri_scheme_and_the_execution_alias()
+    {
+        XDocument manifest = Manifest();
+
+        manifest.Descendants(Uap + "Protocol").Should().ContainSingle()
+            .Which.Attribute("Name")!.Value.Should().Be(Identity.UriScheme);
+        manifest.Descendants(Uap5 + "ExecutionAlias").Should().ContainSingle()
+            .Which.Attribute("Alias")!.Value.Should().Be(Identity.ExecutionAlias);
+    }
+
+    [Fact]
+    public void Manifest_declares_the_capability_that_unvirtualised_writes_need()
+    {
+        Manifest().Descendants(Rescap + "Capability").Select(c => c.Attribute("Name")!.Value)
+            .Should().Contain("unvirtualizedResources", "MakeAppx refuses FileSystemWriteVirtualization=disabled without it");
+    }
+
     [Fact]
     public void App_executable_is_named_after_the_product()
     {

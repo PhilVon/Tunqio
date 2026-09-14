@@ -2,14 +2,18 @@
 <!--
   Identity values come from docs/identity.md and are checked against Tunqio.Core.Identity by Tunqio.Core.Tests.
   Identity Name, Publisher (once replaced at E8-S1) and Application Id are frozen at 1.0.
-  File type associations, the tunqio:// protocol and the execution alias are added by E7-S1.
+  E7-S1: the file type association (one extension per entry in Tunqio.Core.Library.AudioFormats, the list the library
+  scanner accepts), the tunqio:// protocol and the tunqio.exe execution alias. Names from docs/identity.md; asserted over
+  this file by Tunqio.Core.Tests (IdentityTests) and over the built MSIX by tools/check-package.ps1. There are no registry
+  writes (ADR-006): Windows registers all three from here when the package is installed.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
-  IgnorableNamespaces="uap rescap desktop6">
+  IgnorableNamespaces="uap uap5 rescap desktop6">
 
   <Identity
     Name="Tunqio"
@@ -47,6 +51,41 @@
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="tunqio-audio">
+            <uap:DisplayName>Tunqio audio file</uap:DisplayName>
+            <uap:InfoTip>Audio file playable by Tunqio</uap:InfoTip>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.mp3</uap:FileType>
+              <uap:FileType>.flac</uap:FileType>
+              <uap:FileType>.m4a</uap:FileType>
+              <uap:FileType>.mp4</uap:FileType>
+              <uap:FileType>.aac</uap:FileType>
+              <uap:FileType>.ogg</uap:FileType>
+              <uap:FileType>.oga</uap:FileType>
+              <uap:FileType>.opus</uap:FileType>
+              <uap:FileType>.wav</uap:FileType>
+              <uap:FileType>.aif</uap:FileType>
+              <uap:FileType>.aiff</uap:FileType>
+              <uap:FileType>.aifc</uap:FileType>
+              <uap:FileType>.wma</uap:FileType>
+              <uap:FileType>.wv</uap:FileType>
+              <uap:FileType>.ape</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="tunqio">
+            <uap:DisplayName>Tunqio</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+        <uap5:Extension Category="windows.appExecutionAlias">
+          <uap5:AppExecutionAlias>
+            <uap5:ExecutionAlias Alias="tunqio.exe" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
     </Application>
   </Applications>
 

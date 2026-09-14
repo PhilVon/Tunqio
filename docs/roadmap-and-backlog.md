@@ -580,6 +580,18 @@ Depends on: E0-S8. Associations for all formats, `tunqio://`, `AppInstance` redi
 - [ ] Selecting 50 files in Explorer and pressing Enter results in one instance with a 50-item queue
 - [ ] `tunqio://play?path=...` and `tunqio://toggle` work from a browser and the command line
 
+As built (T-74): the manifest declares the `tunqio-audio` association for every extension the scanner accepts, the
+`tunqio` scheme and the `tunqio.exe` alias, asserted over the source by `IdentityTests` and over the built MSIX by
+`tools/check-package.ps1`; `CommandRouter` and `SessionCommandTarget` in `Tunqio.App/Activation`; single instance in
+`Program.Main`, keyed by data root. Details in [windows-integration.md](windows-integration.md) and
+[solution-structure.md](solution-structure.md). **Proven unpackaged:** the router by unit tests, and by
+`tools/check-single-instance.ps1` the redirection of a file path, of `tunqio://queue`, `toggle` and `next`, and of 50
+paths from one command line into one instance with a 50-item queue, plus a second data root being its own instance. That
+is the command-line half of the third box. **Waits on an installed package:** the first two boxes and the browser half of
+the third are what Windows does for an installed MSIX, and installing one means trusting its self-signed certificate.
+Phil chose to leave that until E8-S1 gives the package a real signature (Q-105, skip-until-release), so those checks
+moved to T-80. The boxes stay unticked until then.
+
 ### E7-S2 · System Media Transport Controls · **M** · `windows`
 - [ ] Media keys work with the app in the background; the Windows volume flyout shows art, title, artist, album and a moving timeline
 - [x] Hardware Next/Previous and the flyout buttons drive `PlaybackSession`

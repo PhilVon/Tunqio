@@ -1,10 +1,10 @@
 using System.Diagnostics;
-using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Serilog;
+using Tunqio.App.Activation;
 using Tunqio.App.Library;
 using Tunqio.App.Playback;
 using Tunqio.App.Shell;
@@ -67,18 +67,7 @@ public partial class App : Application
         var paths = DataRootSwitch.Path(commandLine) is { } dataRoot ? new AppPaths(dataRoot) : new AppPaths();
         paths.EnsureCreated();
 
-        Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Debug()
-            .Enrich.WithProperty("SessionId", SessionId)
-            .WriteTo.Debug(formatProvider: CultureInfo.InvariantCulture)
-            .WriteTo.File(
-                paths.LogFileTemplate,
-                formatProvider: CultureInfo.InvariantCulture,
-                rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 7,
-                shared: true,
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SessionId}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
-            .CreateLogger();
+        Log.Logger = AppLogging.Create(paths, SessionId);
 
         // Captured here rather than inside ConfigureServices: OnLaunched is the XAML thread, and the registrations
         // that hand it on must not be at the mercy of which thread the host happens to build the collection on.
@@ -173,6 +162,7 @@ public partial class App : Application
         logger.LogInformation("Main window shown after {ElapsedMs} ms", startup.ElapsedMilliseconds);
         _ = StartAudioAsync(window, logger, commandLine);
         _ = StartLibraryWatcherAsync(logger);
+        StartActivationRouting(window, logger);
 
         if (RenderSpikeRunner.IsRequested(commandLine))
         {
@@ -192,6 +182,59 @@ public partial class App : Application
             // E2-S1 measurement mode: resize through the documented widths and report what the panels came out at.
             new ShellSpikeRunner(window, logger, commandLine, Path.Combine(paths.LogsDirectory, "shell-spike.json")).Start();
         }
+    }
+
+    /// <summary>
+    /// Start-up steps 2d and 3e (docs/solution-structure.md), E7-S1: this launch's own arguments, and every activation a
+    /// later process redirects here (<see cref="Program"/>), go through one <see cref="CommandRouter"/> on the XAML thread.
+    /// The router waits for audio itself, so a file opened from Explorer on a cold start plays once the engine is up.
+    /// </summary>
+    private void StartActivationRouting(MainWindow window, ILogger<App> logger)
+    {
+        try
+        {
+            var target = new SessionCommandTarget(
+                _host!.Services.GetRequiredService<IPlaybackSessionSource>(),
+                _host.Services.GetRequiredService<OpenFilesService>(),
+                BringMainWindowToForeground,
+                SessionCommandTarget.SessionWait,
+                _host.Services.GetRequiredService<ILogger<SessionCommandTarget>>());
+            var router = new CommandRouter(target, _host.Services.GetRequiredService<ILogger<CommandRouter>>());
+            Microsoft.UI.Dispatching.DispatcherQueue dispatcher = window.DispatcherQueue;
+            _ = router.RouteAsync(Program.LaunchTokens, Environment.CurrentDirectory, emptyMeansShow: false);
+            Program.Inbox.Attach(tokens =>
+            {
+                if (!dispatcher.TryEnqueue(() => _ = router.RouteAsync(tokens, workingDirectory: null, emptyMeansShow: true)))
+                {
+                    Log.Warning("Activation dropped: the window is closing");
+                }
+            });
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            logger.LogError(e, "Activation routing did not start; files and tunqio:// links opened while running are ignored this session");
+        }
+    }
+
+    /// <summary>Restores and raises the main window, on the XAML thread whichever thread asks.</summary>
+    private void BringMainWindowToForeground()
+    {
+        if (_window is not { } window)
+        {
+            return;
+        }
+
+        window.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_host is null)
+            {
+                return;
+            }
+
+            window.Activate();
+            bool raised = NativeWindowing.BringToForeground(_mainWindowHandle);
+            Log.Information("Activation: main window activated (foreground granted {Raised})", raised);
+        });
     }
 
     /// <summary>

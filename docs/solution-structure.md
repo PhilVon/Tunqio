@@ -240,6 +240,30 @@ Logging: Serilog through `Microsoft.Extensions.Logging` for C#; `mpcore` logs th
 
 Activation while running (file, protocol, jump list, toast button) lands in `OnActivated` on the main instance and is routed to `PlaybackSession` via a `CommandRouter` that understands `play <paths>`, `enqueue <paths>`, `playlist <id>`, `track <path>`, `toggle`, `next`, `previous`.
 
+**As built (E7-S1, T-74).** Step 2a runs before the XAML app exists, not in `OnLaunched`:
+
+- `Program.Main` (`Tunqio.App/Program.cs`) is the entry point; the generated one is off (`DISABLE_XAML_GENERATED_MAIN`).
+  It reads this launch's activation (`AppInstance.GetCurrent().GetActivatedEventArgs()`: the files or URI of a packaged
+  activation, else the command line) and calls `AppInstance.FindOrRegisterForKey` with the **data root's** key, not
+  `"main"`: `InstanceKey` hashes the normalised full path of `--data-root`, or of `%LocalAppData%\Tunqio` without it. So
+  there is one Tunqio per profile, and a harness on a scratch `--data-root` is always a separate instance that can never
+  redirect into the app Phil is using.
+- **Not the current instance:** it passes the foreground on (`AllowSetForegroundWindow` to the running process), calls
+  `RedirectActivationToAsync` on the thread pool with a 10 s cap, writes one line to the profile's log, and returns 0
+  without starting XAML.
+- **The current instance:** it subscribes `AppInstance.Activated`, which queues each redirected activation's tokens in
+  `Program.Inbox`, and starts the app as the generated `Main` did. Once the window is shown, `App.StartActivationRouting`
+  (steps 2d and 3e) runs this launch's own tokens through `CommandRouter`, then attaches the inbox, whose activations are
+  each routed on the XAML thread. A redirected launch's arguments arrive as one string (unpackaged, with the program name
+  first); `CommandLineText` splits it by the C runtime's rules.
+- The measurement modes (`--library-spike`, `--render-spike`, `--nowplaying-spike`, `--shell-spike`) neither register nor
+  redirect. A key that cannot be registered at all starts the app unshared rather than not at all.
+- The router's commands and what it refuses are in [windows-integration.md](windows-integration.md), "Protocol
+  activation". The playlist, track and toast verbs above arrive with E7-S3 and E7-S4.
+- Proven unpackaged by `tools/check-single-instance.ps1`: on a scratch root, second processes with a file, with
+  `tunqio://queue`, `toggle` and `next`, and with 50 paths each exit with code 0 while root A keeps one process and one
+  window that plays, pauses, skips and holds a 50-item queue; a launch on a second scratch root gets its own window.
+
 ## Shutdown sequence
 
 1. Capture `QueueState` and window placement; persist.

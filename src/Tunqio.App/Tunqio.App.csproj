@@ -22,6 +22,8 @@
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <PublishProfile>win-x64.pubxml</PublishProfile>
+    <!-- E7-S1: Program.cs is the entry point, so the single-instance check runs before the XAML app exists. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <TunqioPackaged Condition="'$(TunqioPackaged)' == '' and '$(GenerateAppxPackageOnBuild)' == 'true'">true</TunqioPackaged>
     <TunqioPackaged Condition="'$(TunqioPackaged)' == ''">false</TunqioPackaged>
   </PropertyGroup>
