@@ -19,6 +19,14 @@
   <Grid x:Name="Root" AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" DragLeave="OnDragLeave">
 
     <!--
+      The shell's own solid base (E7-S6), shown instead of a system backdrop where the machine has none or while a
+      high-contrast theme is in force. A ThemeResource in markup rather than a brush looked up in code, so it follows
+      the high-contrast palette and a theme change by itself.
+    -->
+    <Border x:Name="SolidSurface" IsHitTestVisible="False" Visibility="Collapsed"
+            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" />
+
+    <!--
       Audio-reactive theming (E4-S6) paints its Composition gradient into this layer, which is empty and first
       so it sits behind every panel: the contract says reactive theming blends the background layer only.
       Invisible until something is playing and the switches allow it, so a window without it looks as it did.

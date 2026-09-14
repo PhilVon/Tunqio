@@ -795,7 +795,35 @@ public class JumpListManager
 
 ## Windows 11 Specific Features
 
-### Acrylic and Mica Background Effects
+### As built (E7-S6)
+
+T-79 built and proved the Windows 10 half. The Windows 11 look (Mica on the main window, the snap layouts flyout
+on the maximise button, rounded corners on the main window and mini player) moved to T-90 under D-19, because the
+reference machine (Windows 11 23H2) does not exist yet and the development machine runs Windows 10 build 19045. The
+WPF sample below is superseded (ADR-001): the shell is WinUI 3 and never calls DWM directly.
+
+- **Backdrop.** `ShellBackdrop.Probe` asks `MicaController.IsSupported()`, then
+  `DesktopAcrylicController.IsSupported()`, through the `IBackdropSupport` seam. It chooses Mica, else desktop
+  acrylic, else the shell's own solid surface (`SolidSurface` in MainWindow.xaml, a
+  `ThemeResource ApplicationPageBackgroundThemeBrush`). A probe that throws logs one warning, counts as not supported
+  and never escapes. On Windows 10 the log reads `Shell backdrop: Acrylic`.
+- **High contrast.** `ShellBackdropController` turns the material off and shows the solid surface while a
+  high-contrast theme is on, and restores the material when it goes off, without a restart. It reads
+  `IAccessibilitySignals`, the same abstraction reactive theming stops on. `SystemAccessibilitySignals` now also
+  raises `Changed` on `UISettings.ColorValuesChanged`, which Windows raises when high contrast is toggled. The window
+  re-reads the setting on a one-second poll too, so a lost notification costs at most a second. Each change is one log
+  line. A backdrop that fails to apply is one warning and is not retried until the setting changes again. The tests
+  use fakes (`ShellBackdropTests`); nothing changes the Windows setting.
+- **Windows 11-only calls.** Nothing else in the app exists only on Windows 11. The main window keeps the system title
+  bar, so Windows 11 adds snap layouts on its own. The mini player keeps a system border
+  (`SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false)`), so Windows 11 rounds its corners on its own. No code
+  sets `DWMWA_WINDOW_CORNER_PREFERENCE` or any other DWM attribute. `WindowsVersionGuardTests` fails if a backdrop
+  material is named outside `ShellBackdrop.cs`, or if a DWM window attribute appears anywhere in `src` or `native`.
+  WinRT APIs newer than build 19041 are caught at compile time: `SupportedOSPlatformVersion` is 10.0.19041.0, so an
+  unguarded call is a CA1416 error under `-warnaserror`.
+- **Dialogs and the settings overlay** are `ContentDialog`s and in-app acrylic brushes inside the window. Their
+  corner radius and high-contrast colours come from WinUI's theme resources, and they call no OS-version-dependent API.
+
 
 ```csharp
 public class WindowEffectsManager

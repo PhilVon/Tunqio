@@ -16,7 +16,13 @@
 
   WHAT IT TOUCHES. It launches its own Tunqio, resizes that window, opens the library menu and selects views
   through UI Automation patterns, and closes it. It sends no keystrokes and needs no foreground, so it can run
-  while someone is using the machine (T-166).
+  while someone is using the machine (T-166). The launch is on a scratch profile passed as --data-root
+  (artifacts\check-shell-layout\<stamp>\data, deleted at the end unless -Keep), seeded so the first-run welcome
+  does not cover the shell; the real %LOCALAPPDATA%\Tunqio is never opened (T-79).
+.PARAMETER DataRoot
+  A scratch profile to launch on instead of the generated one. Refused inside %LOCALAPPDATA%\Tunqio.
+.PARAMETER Keep
+  Keep the generated scratch folder for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Debug x64 output.
 .PARAMETER Widths
@@ -30,7 +36,9 @@ param(
     [switch]$SkipFreshnessCheck,
     [string]$Exe,
     [string]$Widths = '1616,1216,1016,716',
-    [int]$Seconds = 10
+    [int]$Seconds = 10,
+    [string]$DataRoot,
+    [switch]$Keep
 )
 
 $ErrorActionPreference = 'Stop'
@@ -114,7 +122,21 @@ function Select-LibraryView($scope, [string]$view) {
 }
 
 $failures = @()
-$process = Start-Process $Exe -PassThru
+# A scratch profile (T-79): the harness never opens the real one.
+$scratch = $null
+if (-not $DataRoot) {
+    $scratch = Join-Path $PSScriptRoot ('..\artifacts\check-shell-layout\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $DataRoot = Join-Path $scratch 'data'
+}
+$DataRoot = [System.IO.Path]::GetFullPath($DataRoot)
+$realProfile = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Tunqio'))
+if ($DataRoot.StartsWith($realProfile, [StringComparison]::OrdinalIgnoreCase)) { throw "-DataRoot $DataRoot is inside the real profile $realProfile; use a scratch folder." }
+New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+if (-not (Test-Path (Join-Path $DataRoot 'settings.json'))) {
+    [System.IO.File]::WriteAllText((Join-Path $DataRoot 'settings.json'), '{ "ui.welcomeShown": false }')
+}
+Write-Output "data root: $DataRoot"
+$process = Start-Process $Exe -ArgumentList @('--data-root', "`"$DataRoot`"") -PassThru
 try {
     Start-Sleep -Seconds $Seconds
     $root = [System.Windows.Automation.AutomationElement]::RootElement
@@ -190,5 +212,6 @@ try {
 finally {
     # An app that does not exit, or exits with a crash code, fails the run (T-188); exit here overrides the try's exit 0.
     $closeProblem = Close-TunqioShell $process $null 20
+    if ($scratch -and -not $Keep -and $process.HasExited) { Remove-Item -Recurse -Force $scratch -ErrorAction SilentlyContinue }
     if ($closeProblem) { Write-Output "FAIL: $closeProblem"; exit 1 }
 }

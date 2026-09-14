@@ -614,7 +614,9 @@ the window in the background. See windows-integration.md, "As built (E7-S2)".
 
 ### E7-S6 · Windows 11 enhancements · **S** · `windows` `ui`
 Mica, snap layout hints, rounded corners verified; graceful fallback on Windows 10.
-- [ ] App looks correct on Windows 10 2004 VM and Windows 11 reference machine
+- [ ] App looks correct on Windows 10 2004 VM and Windows 11 reference machine — **Windows 10 half built in T-79; the Windows 11 half (Mica, snap layouts, rounded corners on 23H2) moved to T-90 under D-19, because the reference machine does not exist yet**
+
+As built (T-79): `ShellBackdrop.Probe` checks the Mica and acrylic probes through `IBackdropSupport`, falls back from Mica to desktop acrylic to a solid surface, and turns a probe that throws into one warning. `ShellBackdropController` shows the solid surface while high contrast is on and restores the material when it goes off, without a restart. It reads the `IAccessibilitySignals` that reactive theming uses, on its change event and a one-second poll, and is unit tested over fakes. `WindowsVersionGuardTests` keeps every backdrop material inside `ShellBackdrop.cs` and every DWM window attribute out of the source. `check-shell-layout.ps1` and `check-mini-player.ps1` now run on a scratch `--data-root`. See windows-integration.md, "As built (E7-S6)".
 
 ---
 

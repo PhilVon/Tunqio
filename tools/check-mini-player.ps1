@@ -7,15 +7,23 @@
   UIA only: no keystrokes and no pointer movement. The move is the window's own TransformPattern, which is what makes
   the check possible without taking the mouse; if the window does not offer it, the snap is reported as not shown.
 
-  WHAT IT CHANGES. It launches the app over the user's library, muted, and presses Play in the mini player, which
-  plays the restored queue. It pauses and unmutes before closing.
+  WHAT IT CHANGES. It launches the app on a scratch profile passed as --data-root (artifacts\check-mini-player\<stamp>\data,
+  deleted at the end unless -Keep), muted, and presses Play in the mini player if the restored queue has anything to play.
+  It pauses and unmutes before closing. The real %LOCALAPPDATA%\Tunqio is never opened (T-79); pass -DataRoot to run on
+  a prepared scratch profile with a queue.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
+.PARAMETER DataRoot
+  A scratch profile to launch on instead of the generated one. Refused inside %LOCALAPPDATA%\Tunqio.
+.PARAMETER Keep
+  Keep the generated scratch folder for inspection.
 #>
 [CmdletBinding()]
 param(
     [string]$Exe,
-    [int]$Seconds = 10
+    [int]$Seconds = 10,
+    [string]$DataRoot,
+    [switch]$Keep
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,7 +40,20 @@ if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
 }
 
 $A = [System.Windows.Automation.AutomationElement]
-$log = Join-Path $env:LOCALAPPDATA ('Tunqio\logs\tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log')
+# A scratch profile (T-79): the harness never opens the real one.
+$scratch = $null
+if (-not $DataRoot) {
+    $scratch = Join-Path $here ('..\artifacts\check-mini-player\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $DataRoot = Join-Path $scratch 'data'
+}
+$DataRoot = [System.IO.Path]::GetFullPath($DataRoot)
+$realProfile = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Tunqio'))
+if ($DataRoot.StartsWith($realProfile, [StringComparison]::OrdinalIgnoreCase)) { throw "-DataRoot $DataRoot is inside the real profile $realProfile; use a scratch folder." }
+New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+if (-not (Test-Path (Join-Path $DataRoot 'settings.json'))) {
+    [System.IO.File]::WriteAllText((Join-Path $DataRoot 'settings.json'), '{ "ui.welcomeShown": false }')
+}
+$log = Join-Path $DataRoot ('logs\tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log')
 $script:failures = @()
 
 function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
@@ -87,7 +108,8 @@ $played = $false
 
 try {
     Write-Output "shell: $Exe"
-    $process = Start-Process $Exe -PassThru
+    Write-Output "data root: $DataRoot"
+    $process = Start-Process $Exe -ArgumentList @('--data-root', "`"$DataRoot`"") -PassThru
     $main = Wait-Until { Get-TopWindows $process.Id | Where-Object { $_.Current.Name -notlike '*mini player*' } | Select-Object -First 1 } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
     $mainTitle = $main.Current.Name
@@ -178,6 +200,7 @@ finally {
     # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
     $closeProblem = Close-TunqioShell $process $main 15
     if ($closeProblem) { $script:failures += $closeProblem }
+    if ($scratch -and -not $Keep -and (-not $process -or $process.HasExited)) { Remove-Item -Recurse -Force $scratch -ErrorAction SilentlyContinue }
 }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
