@@ -30,6 +30,13 @@ public sealed partial class TagEditorDialog : ContentDialog
     public static string Placeholder(bool isBatch) => isBatch ? TagEditorViewModel.MultipleValues : string.Empty;
 
     /// <summary>
+    /// The box's automation help text: the placeholder's meaning, for a screen reader that cannot reach the
+    /// placeholder (T-123). Empty unless the selection disagrees on the field and the user has not typed in it, so it
+    /// is not read out for a field they agree on or one that will now be written.
+    /// </summary>
+    public static string MixedHelp(bool isMixed) => isMixed ? TagEditorViewModel.MultipleValuesHelp : string.Empty;
+
+    /// <summary>
     /// Opens the editor over <paramref name="tracks"/> and, once it has written something, leaves the undo on
     /// the shell's notice bar. Everything is resolved here rather than injected because the caller is a row
     /// menu in a list control, which has no container of its own.

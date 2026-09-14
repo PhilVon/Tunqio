@@ -18,6 +18,10 @@
     different layout, it is the same boxes loaded differently: a field the selection disagrees on comes back
     blank with "(multiple values)" behind it, and only boxes the user actually changed are written.
 
+    The placeholder is only seen, never heard: WinUI keeps it in the raw automation view, which Narrator does not
+    read. So each box also carries the same fact as HelpText, set while the selection disagrees and the box is
+    untouched (TagEditorViewModel.IsXMixed), and empty otherwise so it is not read for a field about to be written (T-123).
+
     The preview list is below the fields rather than beside them because it is the answer to "what am I about
     to change", which is a question asked after filling the boxes, not while.
   -->
@@ -59,26 +63,31 @@
         <TextBox Grid.Row="0" Grid.ColumnSpan="2" Header="Title"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsTitleMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="1" Grid.ColumnSpan="2" Header="Artist"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsArtistsMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Artists, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="2" Grid.ColumnSpan="2" Header="Album"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsAlbumTitleMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.AlbumTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="3" Grid.ColumnSpan="2" Header="Album artist"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsAlbumArtistMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.AlbumArtist, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="4" Grid.Column="0" Header="Genre"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                 AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsGenresMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Genres, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <!--
@@ -107,14 +116,17 @@
           <TextBox Grid.Column="0" Header="Year" InputScope="Number"
                    PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                   AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsYearMixed), Mode=OneWay}"
                    Text="{x:Bind ViewModel.Year, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
           <TextBox Grid.Column="1" Header="Track" InputScope="Number"
                    PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                   AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsTrackNoMixed), Mode=OneWay}"
                    Text="{x:Bind ViewModel.TrackNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
           <TextBox Grid.Column="2" Header="Disc" InputScope="Number"
                    PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
+                   AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsDiscNoMixed), Mode=OneWay}"
                    Text="{x:Bind ViewModel.DiscNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
         </Grid>
       </Grid>

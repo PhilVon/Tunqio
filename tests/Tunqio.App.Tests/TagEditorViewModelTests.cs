@@ -57,6 +57,70 @@ public class TagEditorViewModelTests
         vm.Files.Should().HaveCount(12);
     }
 
+    // ---- what a screen reader is told about a box the selection disagrees on (T-123) --------------------------
+
+    [Fact]
+    public async Task A_batch_marks_as_mixed_only_the_fields_the_selection_disagrees_on_Async()
+    {
+        var writer = new FakeTagWriter();
+        foreach (TrackDto track in Twelve)
+        {
+            // Titles and track numbers differ; the rest agree, and Disc agrees on being blank, which must not read
+            // as "they differ" just because the box is empty.
+            writer.Files[track.Path] = new TagSnapshot(track.Title, ["Night Signal"], "Aurora Lines", "Old Artist", 2019, (int)track.Id, null, ["Ambient"]);
+        }
+
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer);
+        await vm.LoadAsync(Twelve);
+
+        vm.IsTitleMixed.Should().BeTrue("the twelve titles differ");
+        vm.IsTrackNoMixed.Should().BeTrue();
+        vm.IsArtistsMixed.Should().BeFalse("every track has the same artist");
+        vm.IsAlbumTitleMixed.Should().BeFalse();
+        vm.IsAlbumArtistMixed.Should().BeFalse();
+        vm.IsYearMixed.Should().BeFalse();
+        vm.IsGenresMixed.Should().BeFalse();
+        vm.IsDiscNoMixed.Should().BeFalse("a blank every track shares is agreement, not disagreement");
+    }
+
+    [Fact]
+    public async Task Typing_in_a_mixed_box_stops_it_being_mixed_and_blanking_it_again_restores_it_Async()
+    {
+        var writer = new FakeTagWriter();
+        foreach (TrackDto track in Twelve)
+        {
+            writer.Files[track.Path] = new TagSnapshot(track.Title, AlbumArtist: "Old Artist");
+        }
+
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer);
+        await vm.LoadAsync(Twelve);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.Title = "One Title For All";
+
+        vm.IsTitleMixed.Should().BeFalse("the box will now be written, so it no longer stands for 'left as it is'");
+        raised.Should().Contain(nameof(TagEditorViewModel.IsTitleMixed), "the dialog's HelpText binding only moves when told to");
+        vm.BuildEdit().Title.Should().Be("One Title For All");
+
+        vm.Title = string.Empty;
+
+        vm.IsTitleMixed.Should().BeTrue("blank again matches the load, so the field is untouched and still differs across the tracks");
+        vm.BuildEdit().Title.Should().BeNull("the help text and the write agree: a mixed box is not written");
+    }
+
+    [Fact]
+    public async Task A_single_track_has_no_mixed_fields_even_where_it_is_blank_Async()
+    {
+        var writer = new FakeTagWriter();
+        writer.Files[Twelve[0].Path] = new TagSnapshot("First Light");
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer);
+        await vm.LoadAsync([Twelve[0]]);
+
+        new[] { vm.IsTitleMixed, vm.IsArtistsMixed, vm.IsAlbumTitleMixed, vm.IsAlbumArtistMixed, vm.IsYearMixed, vm.IsTrackNoMixed, vm.IsDiscNoMixed, vm.IsGenresMixed }
+            .Should().AllSatisfy(mixed => mixed.Should().BeFalse("one track cannot disagree with itself"));
+    }
+
     [Fact]
     public async Task A_batch_writes_only_the_field_that_was_changed_Async()
     {

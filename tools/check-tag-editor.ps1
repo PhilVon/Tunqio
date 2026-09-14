@@ -81,6 +81,8 @@ $albums = @(
 )
 $newAlbumArtist = 'Tunqio Check T116'
 $multiple = '(multiple values)'
+# TagEditorViewModel.MultipleValuesHelp, word for word: what a screen reader hears in place of the placeholder (T-123).
+$mixedHelp = 'Multiple values. The selected tracks differ on this field, and it is left as it is unless you type in it.'
 $batchSize = 12
 
 # T-194: everything the run writes is under one stamped folder in the repo's artifacts, not under %TEMP% (which is
@@ -662,6 +664,59 @@ try {
         return $null
     }
 
+    # T-123. The placeholder above is read from the raw view because that is the only view WinUI puts it in, which
+    # means Narrator never says it. The dialog now carries the same fact as HelpText on each box, and this case reads
+    # it the way a screen reader does: the box is found through the CONTROL view, and HelpText is read off that. It
+    # has to be present on a box the selection disagrees on, absent on one it agrees on (Disc: both albums carry no
+    # disc number), and gone as soon as the box is typed into, because a typed box is no longer "left as it is".
+    # SetValue rather than keystrokes, and the box is put back to blank so the cases after this one see it untouched.
+    Test-Case 'a screen reader is told which boxes the selection disagrees on (HelpText, control view)' {
+        if (-not $dialog) { return 'no dialog' }
+        $control = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+        $inControlView = @{}
+        foreach ($element in $dialog.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.Automation]::ControlViewCondition)) {
+            if ((Get-TypeName $element) -eq 'Edit' -and $element.Current.Name) { $inControlView[$element.Current.Name] = $element }
+        }
+        $problems = @()
+        foreach ($field in 'Title', 'Artist', 'Album', 'Album artist', 'Year', 'Track', 'Genre') {
+            if (-not $inControlView.ContainsKey($field)) { $problems += "no box named '$field' in the control view"; continue }
+            $help = $inControlView[$field].Current.HelpText
+            if ($help -ne $mixedHelp) { $problems += "'$field' has HelpText '$help' in the control view, not the multiple-values help" }
+        }
+        if ($inControlView.ContainsKey('Disc') -and $inControlView['Disc'].Current.HelpText) {
+            $problems += "'Disc' says '$($inControlView['Disc'].Current.HelpText)' although both albums agree on it"
+        }
+        # And the walker agrees the box is a control-view element, not just something FindAll surfaced.
+        if ($inControlView.ContainsKey('Title') -and -not $control.GetParent($inControlView['Title'])) {
+            $problems += "'Title' has no parent in the control view"
+        }
+        if ($problems.Count -gt 0) { return ($problems -join '; ') }
+
+        $title = $inControlView['Title']
+        $value = $title.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        $value.SetValue('Tunqio Check T123')
+        $typed = $null
+        $deadline = (Get-Date).AddSeconds(5)
+        while ((Get-Date) -lt $deadline) {
+            $typed = $title.Current.HelpText
+            if (-not $typed) { break }
+            Start-Sleep -Milliseconds 200
+        }
+        $value.SetValue('')
+        $restored = $null
+        $deadline = (Get-Date).AddSeconds(5)
+        while ((Get-Date) -lt $deadline) {
+            $restored = $title.Current.HelpText
+            if ($restored -eq $mixedHelp) { break }
+            Start-Sleep -Milliseconds 200
+        }
+        $script:detail += "Title in the control view: HelpText '$mixedHelp' while mixed; '$typed' once typed into; '$restored' once blanked again"
+        if ($typed) { return "'Title' still says '$typed' after it was typed into, when it is about to be written" }
+        if ($restored -ne $mixedHelp) { return "'Title' says '$restored' after being blanked back to its loaded value, when it is again left as it is" }
+        return $null
+    }
+
     # ---- AC-252, second half: the row menu ---------------------------------------------------------------------
     (Get-ElementNamed $dialog 'Cancel' 'Button').GetCurrentPattern(
         [System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -822,6 +877,9 @@ try {
         foreach ($field in 'Title', 'Album', 'Album artist') {
             $placeholder = Get-Placeholder (Get-ElementNamed $single $field 'Edit')
             if ($placeholder -eq $multiple) { $problems += "'$field' shows the batch placeholder for a single track" }
+            # T-123: nor is a screen reader told one track disagrees with itself.
+            $help = (Get-ElementNamed $single $field 'Edit').Current.HelpText
+            if ($help) { $problems += "'$field' has HelpText '$help' for a single track" }
         }
         (Get-ElementNamed $single 'Cancel' 'Button').GetCurrentPattern(
             [System.Windows.Automation.InvokePattern]::Pattern).Invoke()

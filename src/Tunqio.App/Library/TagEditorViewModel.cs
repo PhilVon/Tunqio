@@ -54,6 +54,13 @@ public sealed partial class TagEditorViewModel : ObservableObject
     /// <summary>What a box shows when the selection does not agree on that field.</summary>
     public const string MultipleValues = "(multiple values)";
 
+    /// <summary>
+    /// What a screen reader is told about the same box (T-123). The placeholder cannot say it: WinUI keeps
+    /// PlaceholderTextContentPresenter in the raw automation view, so Narrator never reads "(multiple values)", and it
+    /// is the only thing that separates "they all agree, and it is blank" from "they differ, and I will not touch it".
+    /// </summary>
+    public const string MultipleValuesHelp = "Multiple values. The selected tracks differ on this field, and it is left as it is unless you type in it.";
+
     private readonly ITagEditor _editor;
     private readonly ITagWriter _writer;
     private Loaded _loaded = Loaded.Empty;
@@ -129,6 +136,28 @@ public sealed partial class TagEditorViewModel : ObservableObject
 
     /// <summary>Whether the progress line has anything to say.</summary>
     public bool HasProgressText => !string.IsNullOrEmpty(ProgressText);
+
+    // ---- which boxes the selection disagrees on ------------------------------------------------------------
+    // True while the tracks differ on the field AND the box still holds what it was loaded with, which is exactly
+    // when BuildEdit leaves the field alone. Typing makes it false; clearing the box back to blank makes it true
+    // again, because a blank that matches the load is still "unchanged", not "clear". A field the selection
+    // agrees on, blank or not, is never mixed.
+
+    public bool IsTitleMixed => IsMixed(Field.Title, Title, _loaded.Title);
+
+    public bool IsArtistsMixed => IsMixed(Field.Artists, Artists, _loaded.Artists);
+
+    public bool IsAlbumTitleMixed => IsMixed(Field.AlbumTitle, AlbumTitle, _loaded.AlbumTitle);
+
+    public bool IsAlbumArtistMixed => IsMixed(Field.AlbumArtist, AlbumArtist, _loaded.AlbumArtist);
+
+    public bool IsYearMixed => IsMixed(Field.Year, Year, _loaded.Year);
+
+    public bool IsTrackNoMixed => IsMixed(Field.TrackNo, TrackNo, _loaded.TrackNo);
+
+    public bool IsDiscNoMixed => IsMixed(Field.DiscNo, DiscNo, _loaded.DiscNo);
+
+    public bool IsGenresMixed => IsMixed(Field.Genres, Genres, _loaded.Genres);
 
     /// <summary>Reads every selected file's tags and fills the boxes with what the selection agrees on.</summary>
     public async Task LoadAsync(IReadOnlyList<TrackDto> tracks, CancellationToken ct = default)
@@ -238,7 +267,19 @@ public sealed partial class TagEditorViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(HasChanges));
         OnPropertyChanged(nameof(CanConfirm));
+        // All eight rather than the one that moved: LoadAsync can change _loaded without changing a box's text
+        // (blank to blank), and that raises no OnXChanged of its own.
+        OnPropertyChanged(nameof(IsTitleMixed));
+        OnPropertyChanged(nameof(IsArtistsMixed));
+        OnPropertyChanged(nameof(IsAlbumTitleMixed));
+        OnPropertyChanged(nameof(IsAlbumArtistMixed));
+        OnPropertyChanged(nameof(IsYearMixed));
+        OnPropertyChanged(nameof(IsTrackNoMixed));
+        OnPropertyChanged(nameof(IsDiscNoMixed));
+        OnPropertyChanged(nameof(IsGenresMixed));
     }
+
+    private bool IsMixed(Field field, string current, string loaded) => (_loaded.Mixed & field) != 0 && current == loaded;
 
     private void OnProgress(TagEditProgress sample)
     {
@@ -315,7 +356,25 @@ public sealed partial class TagEditorViewModel : ObservableObject
         TrackNo: track.TrackNo,
         DiscNo: track.DiscNo);
 
-    /// <summary>The text each box was loaded with; a field the selection disagrees on loads blank.</summary>
+    /// <summary>The boxes, as flags, so <see cref="Loaded"/> can say which ones the selection disagreed on.</summary>
+    [Flags]
+    private enum Field
+    {
+        None = 0,
+        Title = 1,
+        Artists = 2,
+        AlbumTitle = 4,
+        AlbumArtist = 8,
+        Year = 16,
+        TrackNo = 32,
+        DiscNo = 64,
+        Genres = 128,
+    }
+
+    /// <summary>
+    /// The text each box was loaded with; a field the selection disagrees on loads blank and is in
+    /// <see cref="Mixed"/>, which is how a blank that means "they differ" is told from a blank they all share.
+    /// </summary>
     private sealed record Loaded(
         string Title,
         string Artists,
@@ -324,27 +383,43 @@ public sealed partial class TagEditorViewModel : ObservableObject
         string Year,
         string TrackNo,
         string DiscNo,
-        string Genres)
+        string Genres,
+        Field Mixed)
     {
-        public static Loaded Empty { get; } = new(string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
+        public static Loaded Empty { get; } = new(string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, Field.None);
 
-        public static Loaded From(List<TagSnapshot> snapshots) => snapshots.Count == 0
-            ? Empty
-            : new Loaded(
-                Common(snapshots, s => s.Title ?? string.Empty),
-                Common(snapshots, s => string.Join("; ", s.Artists ?? [])),
-                Common(snapshots, s => s.AlbumTitle ?? string.Empty),
-                Common(snapshots, s => s.AlbumArtist ?? string.Empty),
-                Common(snapshots, s => Number(s.Year)),
-                Common(snapshots, s => Number(s.TrackNo)),
-                Common(snapshots, s => Number(s.DiscNo)),
-                Common(snapshots, s => string.Join("; ", s.Genres ?? [])));
+        public static Loaded From(List<TagSnapshot> snapshots)
+        {
+            if (snapshots.Count == 0)
+            {
+                return Empty;
+            }
 
-        /// <summary>The value they all share, or blank when they differ (the box then shows the placeholder).</summary>
-        private static string Common(List<TagSnapshot> snapshots, Func<TagSnapshot, string> field)
+            Field mixed = Field.None;
+            return new Loaded(
+                Common(snapshots, s => s.Title ?? string.Empty, Field.Title, ref mixed),
+                Common(snapshots, s => string.Join("; ", s.Artists ?? []), Field.Artists, ref mixed),
+                Common(snapshots, s => s.AlbumTitle ?? string.Empty, Field.AlbumTitle, ref mixed),
+                Common(snapshots, s => s.AlbumArtist ?? string.Empty, Field.AlbumArtist, ref mixed),
+                Common(snapshots, s => Number(s.Year), Field.Year, ref mixed),
+                Common(snapshots, s => Number(s.TrackNo), Field.TrackNo, ref mixed),
+                Common(snapshots, s => Number(s.DiscNo), Field.DiscNo, ref mixed),
+                Common(snapshots, s => string.Join("; ", s.Genres ?? []), Field.Genres, ref mixed),
+                mixed);
+        }
+
+        /// <summary>The value they all share, or blank when they differ (the box then shows the placeholder and the
+        /// field is added to <paramref name="mixed"/>).</summary>
+        private static string Common(List<TagSnapshot> snapshots, Func<TagSnapshot, string> field, Field flag, ref Field mixed)
         {
             string first = field(snapshots[0]);
-            return snapshots.All(s => string.Equals(field(s), first, StringComparison.Ordinal)) ? first : string.Empty;
+            if (snapshots.All(s => string.Equals(field(s), first, StringComparison.Ordinal)))
+            {
+                return first;
+            }
+
+            mixed |= flag;
+            return string.Empty;
         }
 
         private static string Number(int? value) => value is > 0 ? value.Value.ToString(CultureInfo.CurrentCulture) : string.Empty;
