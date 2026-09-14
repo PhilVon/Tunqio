@@ -1,7 +1,7 @@
 # Third-party notices
 
-Components shipped in or used to build Tunqio, with their licences. NuGet packages are listed in
-`Directory.Packages.props`; their licence texts are collected by the release pipeline (E8-S1).
+Every third-party component that ships in the Tunqio MSIX, with its licence. Checked against the contents of a
+packaged Release build (`Tunqio.msix`, 404 entries) on card T-86, 2026-09-14; the check is described at the end.
 
 ## BASS audio library (proprietary, free for non-commercial use)
 
@@ -38,16 +38,36 @@ keyed on `tools/native-deps.json`, so a stale pin stays invisible on CI until th
 which the build's licence policy excludes. AAC, M4A, ALAC and WMA decode through BASS's built-in Media
 Foundation codec support on Windows 10 and 11 instead, so no add-on is needed for them.
 
-## NuGet packages
+## NuGet packages and the runtime
 
-Shipped NuGet packages are pinned in `Directory.Packages.props` and credited on the About page from
-`Tunqio.Core.ThirdPartyAttribution.Components`, each with its licence: the Windows App SDK and WinUI 3 (Microsoft),
-CommunityToolkit.Mvvm (MIT), H.NotifyIcon.WinUI (MIT; the tray icon, E7-S3, with its dependencies H.NotifyIcon and
-H.GeneratedIcons.System.Drawing, MIT, and System.Drawing.Common, MIT), Microsoft.Data.Sqlite and SQLite (MIT / public
-domain), TagLibSharp (LGPL 2.1), System.Reactive (MIT) and Serilog (Apache 2.0). Their licence texts are collected by
-the release pipeline (E8-S1).
+These ship as assemblies in the package, pinned in `Directory.Packages.props` (versions below are the ones in the
+package). They are credited on the About page from `Tunqio.Core.ThirdPartyAttribution.Components`, not from this
+table: the About page reads only the tables with a `Licence` column, and this one's column is `Licence terms` so
+that it stays that way until the page lists these rows too. Their licence texts are not yet shipped beside the
+executable; the release pipeline collects them (E8-S1).
+
+| Component | Version | Files in the package | Licence terms |
+|-----------|---------|----------------------|---------------|
+| .NET runtime and Windows Desktop runtime (self-contained) | 8.0.28 | `System.*.dll`, `Microsoft.CSharp.dll`, `Microsoft.Win32.*.dll`, `coreclr.dll`, `clrjit.dll`, `clrgc*.dll`, `clretwrc.dll`, `mscor*.dll`, `netstandard.dll`, `hostfxr.dll`, `hostpolicy.dll`, `createdump.exe`, `Microsoft.DiaSymReader.Native.amd64.dll`, `msquic.dll`; WPF and Windows Forms assemblies (`Presentation*.dll`, `PenImc_cor3.dll`, `wpfgfx_cor3.dll`, `D3DCompiler_47_cor3.dll`, `UIAutomation*.dll`, `WindowsFormsIntegration.dll`, `ReachFramework.dll`, `DirectWriteForwarder.dll`, `Accessibility.dll`), which the self-contained Windows Desktop runtime carries whole | MIT (.NET Foundation and Microsoft) |
+| Windows App SDK and WinUI 3 | 1.8.260804001 | `Microsoft.WinUI.dll`, `Microsoft.Windows.*.Projection.dll`, `Microsoft.WindowsAppRuntime.Bootstrap*.dll`, `Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.dll`, `Microsoft.InteractiveExperiences.Projection.dll`, `Microsoft.Graphics.Imaging.Projection.dll`, `Microsoft.Security.Authentication.OAuth.Projection.dll`, `Microsoft.ML.OnnxRuntime.dll` (Windows ML projection), `resources.pri` | Microsoft Software License Terms, Microsoft Windows App SDK (and Windows Machine Learning for the ML part); redistributable |
+| Windows App Runtime 1.8 (framework package) | 1.8 | Not inside `Tunqio.msix`: a package dependency installed beside it (`Dependencies\x64\Microsoft.WindowsAppRuntime.1.8.msix`) | Microsoft Software License Terms, Microsoft Windows App SDK |
+| C#/WinRT runtime and Windows SDK projection | 2.2.0 / 10.0.19041.55 | `WinRT.Runtime.dll`, `Microsoft.Windows.SDK.NET.dll` | MIT (C#/WinRT); Microsoft Windows SDK licence (projection) |
+| Microsoft Edge WebView2 SDK | 1.0.3179.45 | `Microsoft.Web.WebView2.Core*.dll`, `Microsoft.Web.WebView2.Core.winmd`, `WebView2Loader.dll` (a Windows App SDK dependency; Tunqio shows no web content) | BSD-3-Clause-style (Microsoft WebView2 SDK licence) |
+| CommunityToolkit.Mvvm | 8.4.2 | `CommunityToolkit.Mvvm.dll` | MIT |
+| H.NotifyIcon.WinUI, H.NotifyIcon, H.GeneratedIcons.System.Drawing | 2.3.2 | `H.NotifyIcon.WinUI.dll`, `H.NotifyIcon.dll`, `H.GeneratedIcons.System.Drawing.dll` | MIT |
+| System.Drawing.Common, Microsoft.Win32.SystemEvents | 9.0.1 | `System.Drawing.Common.dll`, `Microsoft.Win32.SystemEvents.dll` (H.NotifyIcon dependencies) | MIT |
+| Microsoft.Extensions.Hosting and its dependencies (Configuration, DependencyInjection, Logging, Options, FileProviders, Diagnostics, Primitives) | 8.0.x | `Microsoft.Extensions.*.dll` | MIT |
+| Serilog, Serilog.Extensions.Hosting, Serilog.Extensions.Logging, Serilog.Sinks.File, Serilog.Sinks.Debug | 4.4.0, 8.0.0, 8.0.0, 7.0.0, 3.0.0 | `Serilog*.dll` | Apache-2.0 |
+| System.Reactive | 6.1.0 | `System.Reactive.dll` | MIT |
+| Microsoft.Data.Sqlite | 8.0.31 | `Microsoft.Data.Sqlite.dll` | MIT |
+| SQLitePCLRaw (core, provider, bundle) | 2.1.12 | `SQLitePCLRaw.*.dll` | Apache-2.0 |
+| SQLite (native build `e_sqlite3`) | via SQLitePCLRaw.lib.e_sqlite3 2.1.12 | `e_sqlite3.dll` | Public domain |
+| TagLibSharp | 2.3.0 | `TagLibSharp.dll`, dynamically linked and unmodified, as LGPL 2.1 requires | LGPL-2.1-only |
 
 ## Vendored native sources (`native/third_party/`)
+
+pffft and nlohmann/json are compiled into `mpcore.dll` and so ship in the package. Catch2 is a test-only
+dependency and is not part of the shipped package.
 
 | Component | Version | Source | Licence | Files | SHA-256 |
 |-----------|---------|--------|---------|-------|---------|
@@ -61,4 +81,23 @@ Vendoring was chosen over a vcpkg manifest (E0-S1 "decide and record"): three sm
 no bootstrap step on CI or a fresh clone, and the exact bytes are hash-pinned here. Update by replacing the
 files and the hashes in the same commit.
 
-Catch2 is a test-only dependency and is not part of the shipped package.
+## Not shipped
+
+Build-time and test-only packages are not in the package: tools/IconGen's Svg.Skia and SkiaSharp, BenchmarkDotNet,
+xUnit, FluentAssertions, NetArchTest, coverlet, Microsoft.NET.Test.Sdk, System.IO.Hashing (FixtureGen and IconGen
+only), Microsoft.VisualStudio.Threading.Analyzers and Microsoft.Windows.SDK.BuildTools.
+
+## How this list was checked
+
+Build the package as CI's package step does, then read `Tunqio.msix` as the zip it is:
+
+```powershell
+& $msbuild src\Tunqio.App\Tunqio.App.csproj -p:Configuration=Release -p:Platform=x64 -p:TunqioPackaged=true -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path artifacts\msix\Tunqio_Test\Tunqio.msix))
+$zip.Entries.FullName | Where-Object { $_ -notmatch '^(System\.|Tunqio|Assets/|presets/|licenses/)' }
+$zip.Dispose()
+```
+
+Every file that list prints belongs to a row above. When a package is added to `Directory.Packages.props` or the
+package gains a file this page does not account for, add the row in the same change.

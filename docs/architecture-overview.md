@@ -2,6 +2,32 @@
 
 > **Status: foundation document, partially superseded.** The four-thread model is replaced by the ownership table in ADR-010 (BASS owns decode and output; the app owns Analysis, Render, Library workers and UI). The technology stack table is replaced by ADR-001, ADR-003 and ADR-004 (.NET 8 / WinUI 3 shell, BASS add-ons only, native C++ core DLL with a C ABI). Layering and data-flow descriptions remain valid. See [decisions.md](decisions.md) for the record and [README.md](README.md) for the current reading order.
 
+> **What shipped (T-86, 2026-09-14).** The statements below that no longer match the code, and where the real thing is:
+>
+> - **Processes and modules.** One process: the WinUI 3 shell `Tunqio.exe` (`src/Tunqio.App`) over three managed
+>   libraries (`Tunqio.Core`, `Tunqio.Interop`, `Tunqio.Library`) and the native `mpcore.dll`, which owns BASS, the
+>   analysis thread and the D3D11 renderer. See [solution-structure.md](solution-structure.md).
+> - **Interop is not C++/CLI.** The managed side calls `mpcore.dll`'s C ABI (`native/mpcore/include/mpcore.h`)
+>   through `LibraryImport` in `Tunqio.Interop`; native events arrive through callback trampolines that only enqueue
+>   for a pump thread ([solution-structure.md](solution-structure.md), "The native/managed boundary").
+> - **No ReactiveUI and no Redux-style store.** View models use CommunityToolkit.Mvvm; `PlaybackSession` in
+>   `Tunqio.Core` is the single owner of playback state and publishes `IObservable<PlaybackSnapshot>` (ADR-007).
+> - **Threads.** BASS owns decode and WASAPI output; `mpcore` owns the analysis thread (pffft, publishing through a
+>   triple buffer at 93.75 Hz) and the render thread; the app owns the UI thread, the event pump and library workers
+>   (ADR-010). There is no format-conversion thread and no hand-written ring buffer between decode and output; the
+>   `AudioBuffer` sample and the buffer sizes below are the original sketch.
+> - **Visualization surface.** The renderer draws into a composition swap chain on a WinUI 3 `SwapChainPanel`, not a
+>   shared texture ([spikes/e0-s5-swapchainpanel-render.md](spikes/e0-s5-swapchainpanel-render.md); E4-S3 "As built"
+>   in [solution-structure.md](solution-structure.md)). Presets are data (`presets/`, `preset.json` + HLSL), not code.
+> - **Analysis.** pffft (vendored), not Intel IPP or FFTW3; the frame layout is `mp_analysis_frame` in `mpcore.h`.
+> - **Latency.** The visual target is ADR-012's "p95 within one display refresh of audible audio", measured by
+>   `tools/LatencyRunner` (decisions.md, ADR-012 "As built"; [spikes/e4-s8-latency-floor.md](spikes/e4-s8-latency-floor.md)).
+>   The latency table below predates it.
+> - **Extensibility.** Built-in and user visualization presets only (ADR-009); no DSP, codec-plugin or metadata-provider
+>   interfaces shipped. BASS add-ons are the fixed set in `tools/native-deps.json`, loaded at engine creation.
+> - **Technology stack.** .NET 8 (`net8.0-windows`, built with the .NET 10 SDK for C# 14), WinUI 3 / Windows App SDK 1.8,
+>   BASS 2.4, D3D11, pffft; no WPF, no DirectSound fallback. The table at the end of this page is superseded.
+
 The Windows music player employs a layered architecture optimized for real-time audio-visual performance. The design centers on four core subsystems that operate concurrently while maintaining strict timing guarantees.
 
 ## System Architecture Diagram
@@ -84,6 +110,8 @@ WinUI 3-based interface with responsive design patterns:
 
 ## Threading Model
 
+> **Superseded (ADR-010).** The four threads below are the original sketch; what shipped is in the "What shipped" note at the top of this page.
+
 The application employs a **four-thread architecture** optimized for real-time performance:
 
 ### Thread 1: Audio Callback (THREAD_PRIORITY_TIME_CRITICAL)
@@ -140,6 +168,8 @@ struct AudioBuffer {
 
 ### UI → Audio Command Flow
 
+> **Superseded (ADR-007, ADR-004).** Commands go from CommunityToolkit.Mvvm view models to `PlaybackSession`, which calls `IAudioEngine`, implemented in `Tunqio.Interop` over `mpcore.dll`'s C ABI; there is no ReactiveUI, Redux store or C++/CLI.
+
 1. **UI Thread** dispatches commands through ReactiveUI command patterns
 2. **Commands** route through centralized state manager with Redux-like patterns
 3. **State Manager** invokes audio engine methods via C++/CLI interop
@@ -176,6 +206,8 @@ The architecture provides several extension mechanisms:
 5. **Metadata Sources**: Pluggable metadata providers for enhanced library information
 
 ## Technology Stack Summary
+
+> **Superseded (ADR-001, ADR-003, ADR-004).** No WPF, DirectSound, D3D12, Intel IPP or FFTW3 ships, and the platform is .NET 8 with a native C++ core; see "What shipped" at the top of this page.
 
 | Layer | Primary Technology | Secondary Options |
 |-------|-------------------|-------------------|
