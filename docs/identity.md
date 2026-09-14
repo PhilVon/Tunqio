@@ -17,7 +17,7 @@ Values marked **frozen at 1.0** cannot change after the first public release wit
 | Display name | `Tunqio` | `Package.appxmanifest` `DisplayName`, `uap:VisualElements DisplayName`, About page | no |
 | Short description | `Tunqio music player` | manifest `Description` | no |
 | Package identity name | `Tunqio` | manifest `Identity Name` | **yes** |
-| Publisher (dev / self-signed) | `CN=Tunqio` | manifest `Identity Publisher`; must match the signing certificate subject | replaced once, at E8-S1, then **frozen** |
+| Publisher (self-signed) | `CN=Tunqio` | manifest `Identity Publisher`; must match the signing certificate subject | **yes**: stays `CN=Tunqio`, since releases stay self-signed for the foreseeable future (D-34, Phil 2026-09-14); moving to a paid identity later would break in-place upgrade (R-19) |
 | Publisher display name | `Tunqio` | manifest `PublisherDisplayName` | no |
 | Application Id | `Tunqio` | manifest `Application Id` | **yes** (it is half of the AUMID) |
 | Application User Model ID | `<PackageFamilyName>!Tunqio` | derived by Windows from identity name, publisher hash and Application Id; never hard-coded | derived |

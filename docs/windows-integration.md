@@ -32,7 +32,9 @@ What ships:
   without installing anything, by unit tests and `tools/check-single-instance.ps1`. What Windows itself does for an
   installed package (Explorer's double-click and multi-select Open, a browser following a `tunqio://` link, the real
   write path under `%LocalAppData%\Tunqio`) needs the package installed, which needs its self-signed certificate
-  trusted; Phil chose to leave that until the package has a real signature (Q-105), so those checks are on T-80 (E8-S1).
+  trusted; Phil chose to leave that until E8-S1 produces a signed, installable release (Q-105), so those checks are on
+  T-80 (E8-S1). Releases stay self-signed for the foreseeable future (D-34), so installing always means trusting the
+  certificate once per machine.
 
 ### Protocol activation (as built, E7-S1)
 

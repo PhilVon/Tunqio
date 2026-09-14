@@ -21,7 +21,8 @@ install it on anything older.
 
 ### Installing the MSIX
 
-**The package is not signed yet.** Real signing arrives with the release pipeline (E8-S1); until then CI builds
+**The package is not signed yet.** Releases will stay self-signed rather than use a paid certificate (D-34), so installing
+always means trusting Tunqio's certificate once per machine. Signed releases arrive with the release pipeline (E8-S1); until then CI builds
 `Tunqio.msix` with signing turned off (the `tunqio-msix-unsigned` artifact of a CI run), and Windows will not
 install an unsigned package. A tester signs it with a self-signed certificate whose subject is the manifest's
 publisher, `CN=Tunqio`, trusts that certificate once, and installs. From an **administrator** Windows PowerShell,

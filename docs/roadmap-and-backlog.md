@@ -589,7 +589,7 @@ As built (T-74): the manifest declares the `tunqio-audio` association for every 
 `next`, and of 50 paths from one command line into one instance with a 50-item queue, plus a second data root being its own instance. That
 is the command-line half of the third box. **Waits on an installed package:** the first two boxes and the browser half of
 the third are what Windows does for an installed MSIX, and installing one means trusting its self-signed certificate.
-Phil chose to leave that until E8-S1 gives the package a real signature (Q-105, skip-until-release), so those checks
+Phil chose to leave that until E8-S1 produces a signed, installable release (Q-105, skip-until-release; still self-signed, D-34), so those checks
 moved to T-80. The boxes stay unticked until then.
 
 ### E7-S2 · System Media Transport Controls · **M** · `windows`
@@ -624,7 +624,7 @@ As built (T-79): `ShellBackdrop.Probe` checks the Mica and acrylic probes throug
 ## E8 · Release engineering, verification and hardening (M5)
 
 ### E8-S1 · Code signing and release pipeline · **M** · `infra`
-Self-signed until 1.0-rc (Q-5). `release.yml`, CI self-signed cert as a secret, README trust instructions, `.appinstaller`, SBOM (NuGet plus native list), notes, `mpcore.pdb` symbol archive; a decision card for the real signing identity before rc.
+Self-signed for the foreseeable future: Phil chose on 2026-09-14 not to pay for a certificate or signing subscription (D-34, superseding Q-5's real identity before rc), so the publisher stays `CN=Tunqio`. A release pipeline, README trust instructions, `.appinstaller`, SBOM (NuGet plus native list), notes, `mpcore.pdb` symbol archive. Open on T-80: where releases are built and signed (Q-128) and where `Tunqio.appinstaller` lives (Q-129).
 - [ ] Tagging `v1.0.0-rc.1` produces a signed MSIX that installs on a clean Windows 11 machine (after trusting the cert per the README) and auto-updates to `rc.2`
 - [ ] Publisher string is frozen and documented once the product name (Q-11) is applied
 

@@ -10,7 +10,7 @@ Open questions were answered on kanban card T-1 on 2026-09-08. The table records
 | OQ-2 | C#-first or native C++ core? | **C++ core DLL from day one.** | ADR-004 revised; solution-structure.md; build-test-release.md; E0-S9 added |
 | OQ-3 | Streaming or cloud sources ever? | **Maybe later.** | `track.source_kind` column reserved (library-and-data.md); ADR-008 |
 | OQ-4 | Minimum Windows? | **Windows 10 2004+.** | ADR-001; E8-S6 test matrix keeps a Win10 VM |
-| OQ-5 | Code signing? | **Self-signed for now**, real identity before 1.0-rc. | ADR-011; E8-S1 |
+| OQ-5 | Code signing? | **Self-signed for now**, real identity before 1.0-rc. Superseded 2026-09-14: **self-signed for the foreseeable future**, no paid identity (D-34, T-80 Q-127). | ADR-011; E8-S1 |
 | OQ-6 | ARM64 in 1.0? | **x64 only.** | ADR-011 |
 | OQ-7 | Write ratings to files by default? | **Opt-in, default off.** | E6-S7; `library.writeRatingsToFiles` |
 | OQ-8 | Hover preview in 1.0? | **Keep.** Default off until the user enables it. | E5-S5; `ui.hoverPreview`; `mp_preview_*` in the ABI |
@@ -41,7 +41,7 @@ Likelihood and impact: Low / Medium / High. Each risk has a mitigation story.
 | R-16 | Tag writing corrupts a user's file | L | H | Temp write, verify re-read, atomic replace; never write the active decode stream; ratings opt-in (Q-7) | E3-S10 |
 | **R-17** | **Native/managed boundary bugs: callbacks on audio threads running managed code, handle lifetime races, a native crash taking the process down with no managed exception** | M | H | ABI rules in solution-structure.md (enqueue-only trampolines, drain-before-destroy, `SafeHandle`s); `Interop.Tests` stress create/destroy; SEH guards on every export; ASan in CI; minidump writer | E0-S9, E1-S1, E8-S5 |
 | **R-18** | **Two toolchains slow the inner loop and CI (msbuild, mixed-mode debugging, ASan runs)** | M | L | Native tests run standalone in seconds; App F5 uses unpackaged mixed-mode; CI caches native deps; ASan job runs in parallel | E0-S1 |
-| **R-19** | **Self-signed releases (Q-5) block testers who will not trust a certificate, and changing publisher identity later breaks in-place upgrades** | M | M | README trust instructions; move to a real identity before 1.0-rc; freeze the Tunqio publisher identity from the first signed build | E8-S1 |
+| **R-19** | **Self-signed releases (Q-5) block testers who will not trust a certificate, and changing publisher identity later breaks in-place upgrades** | M | M | README trust instructions; freeze the `CN=Tunqio` publisher identity from the first signed build. The planned move to a real identity before 1.0-rc is dropped: releases stay self-signed for the foreseeable future (D-34, 2026-09-14), which accepts both halves of this risk, testers who will not trust a certificate, and broken in-place upgrades if a paid identity is ever adopted after 1.0 | E8-S1 |
 
 ## Assumptions
 
