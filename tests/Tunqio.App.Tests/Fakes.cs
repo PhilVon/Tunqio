@@ -198,8 +198,6 @@ internal sealed class FakeTrackRepository : ITrackRepository
 
     public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) => throw new NotSupportedException();
 
-    public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) => throw new NotSupportedException();
-
     /// <summary>Every rating written, in order; the row is patched so a later read sees it, as the real repository's would.</summary>
     public List<(long Id, int? Rating)> Ratings { get; } = [];
 

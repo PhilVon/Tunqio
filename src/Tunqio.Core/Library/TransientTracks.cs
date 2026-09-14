@@ -196,9 +196,6 @@ public sealed class TransientAwareTrackRepository : ITrackRepository
     public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) =>
         _library.SnapshotAsync(folderId, ct);
 
-    public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) =>
-        _library.UpdateTagsAsync(id, edit, ct);
-
     /// <summary>A transient track has no row to rate; the library answers false for it, which is the truth.</summary>
     public Task<bool> SetRatingAsync(long id, int? rating, CancellationToken ct = default) =>
         _library.SetRatingAsync(id, rating, ct);

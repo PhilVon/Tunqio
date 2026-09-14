@@ -24,18 +24,6 @@ public class StringPoolTests
     }
 
     [Fact]
-    public async Task A_renamed_artist_gets_a_fresh_credit_Async()
-    {
-        using LibrarySeed seed = await LibrarySeed.CreateAsync();
-        TrackDto before = (await seed.Tracks.ListAsync(new TrackQuery(PageSize: 1)))[0];
-        await seed.Tracks.UpdateTagsAsync(before.Id, new TagEdit(Artists: [before.Artists[0].Name + " (edited)"]));
-
-        TrackDto after = (await seed.Tracks.GetAsync(before.Id))!;
-
-        after.Artists[0].Name.Should().EndWith("(edited)");
-    }
-
-    [Fact]
     public void The_pool_is_bounded()
     {
         var pool = new StringPool();

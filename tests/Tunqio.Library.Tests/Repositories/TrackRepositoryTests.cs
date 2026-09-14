@@ -264,32 +264,6 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UpdateTags_rehomes_the_album_replaces_credits_and_keeps_search_in_step_Async()
-    {
-        TrackDto track = _all.First(t => t.AlbumId is not null && t.Artists.Count == 1 && !t.Missing);
-        await _seed.Tracks.UpdateTagsAsync(track.Id, new TagEdit(Title: "Edited Title", Artists: ["Edited Artist", "Second Credit"], AlbumTitle: "Edited Album", Year: 1999, Genres: ["Edited Genre"], Rating: 80));
-
-        TrackDto edited = (await _seed.Tracks.GetAsync(track.Id))!;
-        edited.Title.Should().Be("Edited Title");
-        edited.Artists.Select(a => a.Name).Should().Equal("Edited Artist", "Second Credit");
-        edited.AlbumTitle.Should().Be("Edited Album");
-        edited.AlbumArtist.Should().Be(track.AlbumArtist, "an edit that names no album artist keeps the current one");
-        edited.Year.Should().Be(1999);
-        edited.Rating.Should().Be(80);
-        edited.TrackNo.Should().Be(track.TrackNo, "untouched fields stay");
-        _genresByTrack = (await PairsAsync(_seed, "SELECT track_id, genre_id FROM track_genre")).ToLookup(p => p.Item1, p => p.Item2);
-        (await _seed.Service.Genres.ListAsync()).Should().Contain(g => g.Name == "Edited Genre" && g.TrackCount == 1);
-        (await FtsMatchesAsync("Edited Album")).Should().Equal(track.Id);
-
-        await _seed.Tracks.UpdateTagsAsync(track.Id, new TagEdit(Rating: null));
-        (await _seed.Tracks.GetAsync(track.Id))!.Rating.Should().Be(80, "an empty edit changes nothing");
-        Func<Task> bad = () => _seed.Tracks.UpdateTagsAsync(track.Id, new TagEdit(Rating: 101));
-        await bad.Should().ThrowAsync<ArgumentOutOfRangeException>();
-        Func<Task> unknown = () => _seed.Tracks.UpdateTagsAsync(999_999, new TagEdit(Title: "x"));
-        await unknown.Should().ThrowAsync<KeyNotFoundException>();
-    }
-
-    [Fact]
     public async Task Search_index_holds_exactly_the_present_rows_with_their_current_values_Async()
     {
         // Every non-corrupt fixture title is findable by a 3-gram of itself; the index has one row per track.
