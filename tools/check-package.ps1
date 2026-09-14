@@ -215,7 +215,7 @@ function Test-ManifestImages([xml]$manifest) {
     $declared = @($iconSpec.images | ForEach-Object { $_.path })
     foreach ($name in $wanted.Keys) {
         $ref = "$($wanted[$name])".Replace('\', '/')
-        $stem = [regex]::Escape($ref -replace '\.png$', '')
+        $stem = [regex]::Escape(($ref -replace '\.png$', ''))
         $variants = @($declared | Where-Object { $_ -eq $ref -or $_ -match "^$stem\.(scale|targetsize)-[^.]+\.png$" })
         Check-Registration "manifest $name is a generated image" ($ref -and $variants.Count -gt 0) "'$($wanted[$name])', $($variants.Count) file(s)"
     }
