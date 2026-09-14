@@ -180,6 +180,30 @@ function Check([string]$what, [bool]$ok, [string]$detail) {
 
 function Get-Sha256([string]$path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash }
 
+# Shows or hides the Tracks table's Rating column through the page's own Columns menu, and returns whether it was
+# visible before. The column chooser is remembered in settings.json (ui.tracksHiddenColumns), which this script does
+# not park, so a profile that hides Rating would otherwise leave the star cells collapsed and out of the tree - which is
+# exactly what the first live run found. Changed and put back through the app, as check-settings.ps1 does the theme.
+function Set-RatingColumnVisible($window, [bool]$visible) {
+    $button = Wait-For { Find-Named $window 'Choose columns' } 15 'the Tracks page offered Choose columns'
+    try { $button.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand() } catch { Invoke-Element $button }
+    $item = Wait-For {
+        $A::RootElement.FindAll($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, $CT::MenuItem))) |
+            Where-Object { $_.Current.ProcessId -eq $process.Id -and $_.Current.Name -eq 'Rating' } | Select-Object -First 1
+    } 8 'the Columns menu listed Rating'
+    $toggle = $item.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    $was = $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
+    if ($was -ne $visible) {
+        # Invoke is a click, which is what the page listens to; Toggle only where the item offers no Invoke.
+        $invoke = $null
+        if ($item.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) { $invoke.Invoke() } else { $toggle.Toggle() }
+        Start-Sleep -Milliseconds 700
+    }
+    try { $button.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse() } catch { }
+    Start-Sleep -Milliseconds 500
+    return $was
+}
+
 function Open-Section($window, [string]$name) {
     Select-Element (Wait-For { Find-NamedOfType $window $name 'ListItem' } 15 "the navigation offered $name")
     Start-Sleep -Milliseconds 800
@@ -251,6 +275,7 @@ if ($stillThere.Count -gt 0) {
 $process = $null
 $window = $null
 $mutedAtStart = $null
+$script:ratingColumnWasVisible = $null
 $reachedEnd = $false
 $startedAt = Get-Date
 $trackPath = Join-Path (Join-Path $music $albumFolder) $trackFile
@@ -295,7 +320,27 @@ try {
     Open-Section $window 'Tracks'
     $row = Wait-For { Find-Row $window $rowPrefix } 60 "the Tracks table showed '$rowPrefix'"
     Check 'The row announces its four columns and not the rating' ($row.Current.Name -notmatch 'star|Rating') "'$($row.Current.Name)'"
-    $stars = Wait-For { Find-Stars $row } 15 'the row carried a star control'
+    $script:ratingColumnWasVisible = Set-RatingColumnVisible $window $true
+    Write-Output "  note  the Rating column was $(if ($script:ratingColumnWasVisible) { 'visible' } else { 'hidden in this profile; shown for the run and hidden again at the end' })"
+    $stars = $null
+    try { $stars = Wait-For { $r = Find-Row $window $rowPrefix; if ($r) { Find-Stars $r } } 15 'the row carried a star control' }
+    catch {
+        # Say what IS under the row, raw view included, so a missing control is a finding and not a guess.
+        $r = Find-Row $window $rowPrefix
+        $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+        $dump = @()
+        $stack = New-Object System.Collections.Stack
+        if ($r) { $stack.Push(@($r, 0)) }
+        while ($stack.Count -gt 0 -and $dump.Count -lt 40) {
+            $pair = $stack.Pop(); $el = $pair[0]; $depth = $pair[1]
+            $dump += ('{0}{1} "{2}" id={3} class={4} offscreen={5}' -f ('  ' * $depth), (Get-TypeName $el), $el.Current.Name, $el.Current.AutomationId, $el.Current.ClassName, $el.Current.IsOffscreen)
+            $children = @(); $c = $walker.GetFirstChild($el); while ($c) { $children += $c; $c = $walker.GetNextSibling($c) }
+            for ($i = $children.Count - 1; $i -ge 0; $i--) { $stack.Push(@($children[$i], ($depth + 1))) }
+        }
+        Write-Output '  note  raw automation subtree of the row:'
+        $dump | ForEach-Object { Write-Output "          $_" }
+        throw
+    }
     $range = $stars.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
     Check 'The star control is a slider named for Narrator with a 0..5 range' ($stars.Current.Name -eq 'Rating, not rated' -and $range.Current.Minimum -eq 0 -and $range.Current.Maximum -eq 5 -and -not $range.Current.IsReadOnly) "'$($stars.Current.Name)', $($range.Current.Minimum)..$($range.Current.Maximum)"
     Check 'The star control is on screen inside its row' (-not (Get-UiaRect $stars).Offscreen -and $null -eq (Test-UiaInside (Get-UiaRect $stars) (Get-UiaRect $row) 'stars' 'row')) (Get-UiaRect $stars).Describe
@@ -352,6 +397,14 @@ catch {
     Write-Output "  FAIL  the run stopped: $($_.Exception.Message)"
 }
 finally {
+    if ($window -and $script:ratingColumnWasVisible -eq $false) {
+        try {
+            Open-Section $window 'Tracks'
+            Set-RatingColumnVisible $window $false | Out-Null
+            Write-Output 'cleanup: the Rating column is hidden again, as the profile had it'
+        }
+        catch { Write-Output "WARNING: the Rating column could not be hidden again: $($_.Exception.Message). Untick Rating under Tracks > Columns." }
+    }
     if ($window -and $null -ne $mutedAtStart -and -not $mutedAtStart) {
         try { (Find-Id $window 'MuteButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle() } catch { }
     }
