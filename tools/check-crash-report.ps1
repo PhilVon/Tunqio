@@ -175,7 +175,8 @@ try {
         }
         Check "The $kind report holds a minidump" ($dumpBytes -gt 0 -and $magic -eq 'MDMP') "$dumpBytes bytes, header '$magic'"
         $logLines = @(Get-Content (Join-Path $folder 'log.txt') -ErrorAction SilentlyContinue)
-        $testLine = @($logLines | Where-Object { $_ -match "Crash test: forcing a $kind crash" -or $_ -match "Crash test: forcing a $([cultureinfo]::InvariantCulture.TextInfo.ToTitleCase($kind)) crash" })
+        # The kind is an enum logged through Microsoft.Extensions.Logging, which the file renders quoted: forcing a "Managed" crash.
+        $testLine = @($logLines | Where-Object { $_ -match "Crash test: forcing a `"?$kind`"? crash" })
         Check "The $kind report holds at most 200 log lines, including the crash test line" ($logLines.Count -ge 1 -and $logLines.Count -le 200 -and $testLine.Count -ge 1) "$($logLines.Count) lines, crash test line $(if ($testLine.Count) { 'present' } else { 'missing' })"
         $info = $null
         try { $info = Get-Content (Join-Path $folder 'report.json') -Raw | ConvertFrom-Json } catch { }
@@ -201,7 +202,9 @@ try {
             $logText = if ($logBox) { Get-Value $logBox } else { '' }
             Check 'The dialog names the exception' ($exceptionText -like "$($want.Type)*") "'$exceptionText'"
             Check 'The dialog gives the dump size and location and says what a dump can hold' ($dumpText -like 'A crash dump of * is saved at *tunqio.dmp*' -and $dumpText -like '*file paths and track names*' -and $dumpText -like "*$($new[0].Name)*") "'$dumpText'"
-            Check 'The dialog shows the log lines readably' ($logText -match 'Crash test: forcing' -and ($logText -split "`n").Count -eq $logLines.Count) "$(($logText -split "`n").Count) lines in the box, $($logLines.Count) in log.txt"
+            # A WinUI TextBox holds its line breaks as a bare CR, so count lines on any of CR, LF or CRLF.
+            $boxLines = @($logText -split "`r`n|`r|`n")
+            Check 'The dialog shows the log lines readably' ($logText -match 'Crash test: forcing' -and $boxLines.Count -eq $logLines.Count) "$($boxLines.Count) lines in the box, $($logLines.Count) in log.txt"
             Check 'The dialog says nothing has left the PC' ($summaryText -like '*Nothing has been sent anywhere*' -and $choiceText -like 'Nothing leaves this PC unless you send it yourself*') "'$summaryText'"
             Invoke-Element (Find-Named $dialog $want.Answer)
             $gone = $false

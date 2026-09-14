@@ -381,7 +381,15 @@ public partial class App : Application
                 new Thread(() => throw new InvalidOperationException("Forced managed crash (--crash-test managed)")) { IsBackground = true, Name = "Crash test" }.Start();
                 break;
             case CrashTestKind.Xaml:
-                window.DispatcherQueue.TryEnqueue(() => throw new InvalidOperationException("Forced XAML crash (--crash-test xaml)"));
+                // A XAML callback, as T-188's crash was (a page's Unloaded): XAML raises UnhandledException for it and then fails
+                // fast. A DispatcherQueue.TryEnqueue callback would not do: its exception ends the process without that event.
+                var tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+                tick.Tick += (_, _) =>
+                {
+                    tick.Stop();
+                    throw new InvalidOperationException("Forced XAML crash (--crash-test xaml)");
+                };
+                tick.Start();
                 break;
             case CrashTestKind.Native:
                 new Thread(Tunqio.Interop.NativeCrashTest.CrashOnCoreThread) { IsBackground = true, Name = "Crash test" }.Start();
