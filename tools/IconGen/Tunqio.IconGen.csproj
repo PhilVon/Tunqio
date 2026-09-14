@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- tools/IconGen (T-191): renders assets/brand/tunqio-icon.svg into every icon asset in assets/brand/icon-assets.json.
+         dotnet run -c Release -p:Platform=x64 -project tools/IconGen                  (write the assets)
+         dotnet run -c Release -p:Platform=x64 -project tools/IconGen -check           (exit 1 unless the committed files are what a render gives)
+         dotnet run -c Release -p:Platform=x64 -project tools/IconGen -previews DIR    (also write 8x nearest-neighbour previews of the small sizes)
+       (each option with two dashes). A build-time tool: nothing references it and nothing from it ships in the app. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Tunqio.IconGen</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Svg.Skia" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
+</Project>

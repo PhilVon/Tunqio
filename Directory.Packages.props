@@ -34,6 +34,11 @@
     <PackageVersion Include="FluentAssertions" Version="7.2.2" />
     <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+    <!-- tools/IconGen only (T-191): renders assets/brand/tunqio-icon.svg into the app's icon assets at build time; nothing
+         here ships in the app. SkiaSharp is pinned at the version Svg.Skia 5.2.3 was built against. -->
+    <PackageVersion Include="Svg.Skia" Version="5.2.3" />
+    <PackageVersion Include="SkiaSharp" Version="4.148.0" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="4.148.0" />
   </ItemGroup>
   <ItemGroup>
     <GlobalPackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.14.15" />
