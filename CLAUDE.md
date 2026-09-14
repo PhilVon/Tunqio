@@ -26,6 +26,15 @@ yield, and above-normal priority starves the desktop itself.
 - Cap build parallelism at half the threads: `-m:4` on MSBuild.exe and `-maxcpucount:4` on dotnet.
 - Every repeat loop has a count and a timeout, and one heavy build or test run happens at a time.
 
+**Phil reviews the build, not the branch: rebuild main's app before you ask** (T-76, T-191). Both were rejected
+on 2026-09-14 as "not in the build": they were merged, but main's `artifacts\bin\Tunqio.App\release_win-x64` was
+last built before either merge, because the gate run that would have rebuilt it was skipped when the merged tree
+matched an agent's. An agent's worktree build is not main's build.
+
+- After any merge that changes what the app ships, rebuild main's Release output before moving a card to Review
+  or asking Phil to look, even when the tree is identical to one already gated.
+- In the sign-off request, name the exact `Tunqio.exe` to run and the time it was built.
+
 **Account for every background task before you report** (T-174). Before your final report, list what you
 started in the background that is still running, and stop it or say why it should keep running. Look where the
 human looks (the harness's background task list); a process list filtered by name misses a `sleep` loop.
