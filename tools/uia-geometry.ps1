@@ -130,20 +130,41 @@ function Close-TunqioShell($Process, $Window = $null, [int]$TimeoutSeconds = 20)
     if (-not $Process.HasExited) {
         # Windows PowerShell 5.1 reads ExitCode back empty unless the handle was opened while the process was alive.
         try { $null = $Process.Handle } catch { }
-        try {
-            if ($Window) { $Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() }
-            else { $Process.CloseMainWindow() | Out-Null }
+        $sent = $false
+        if ($Window) {
+            try {
+                $Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
+                $sent = $true
+            }
+            catch { Write-Host "  note  closing the shell through UIA failed ($($_.Exception.Message)); closing its main window instead" }
         }
-        catch {
-            Write-Host "  note  closing the shell through UIA failed ($($_.Exception.Message)); closing its main window instead"
-            try { $Process.CloseMainWindow() | Out-Null } catch { }
+        # T-195: CloseMainWindow is a silent no-op while the process has no main window (MainWindowHandle 0), which is
+        # the case until App shows it, and a harness that closes on a log line written before that (library.db created)
+        # got here first: the close never reached the app, which then opened its window and ran until it was killed.
+        # So wait, within the same timeout, for a window to close, and only count the close as sent when it was.
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        while (-not $sent -and -not $Process.HasExited -and (Get-Date) -lt $deadline) {
+            try {
+                $Process.Refresh()
+                if ($Process.MainWindowHandle -ne [IntPtr]::Zero -and $Process.CloseMainWindow()) { $sent = $true; break }
+            }
+            catch { }
+            Start-Sleep -Milliseconds 250
         }
-        if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
+        if (-not $sent -and -not $Process.HasExited) {
+            try { $Process.Kill(); $Process.WaitForExit(5000) | Out-Null } catch { }
+            $problem = "the shell (pid $($Process.Id)) had no main window to close within $TimeoutSeconds s (hidden, or not shown yet) and was killed"
+            Write-Host "  FAIL  $problem"
+            return $problem
+        }
+        $remaining = [Math]::Max(1000, [int]($deadline - (Get-Date)).TotalMilliseconds)
+        if ($sent -and -not $Process.WaitForExit([Math]::Max($remaining, $TimeoutSeconds * 1000))) {
             try { $Process.Kill(); $Process.WaitForExit(5000) | Out-Null } catch { }
             $problem = "the shell (pid $($Process.Id)) did not exit within $TimeoutSeconds s of Close and was killed"
             Write-Host "  FAIL  $problem"
             return $problem
         }
+        $null = $Process.WaitForExit(5000)
     }
     $code = $Process.ExitCode
     if ($null -eq $code) {
