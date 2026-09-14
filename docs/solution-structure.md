@@ -294,8 +294,8 @@ Close-to-tray, when enabled, only hides the window.
 
 - Native errors return `mp_result`; Interop converts them to `EngineEvent.Error` with the message from `mp_last_error`, never to exceptions in view models.
 - Transient errors: `InfoBar` at the top of the sidebar, auto-dismiss 8 s. Persistent (device missing, folder offline): sticky `InfoBar` with an action.
-- Native crash: the SEH guards convert what they can; a genuine access violation triggers the minidump writer (E8-S5). The soak and interop tests exist to make this rare.
-- Every `async void` event handler goes through a `SafeFireAndForget` helper that logs.
+- Native crash: the SEH guards convert what they can; a genuine access violation triggers the minidump writer (E8-S5). The soak and interop tests exist to make this rare. As built (T-86): no minidump writer exists yet; it is E8-S5's, and step 1 of the startup sequence registers none.
+- Every fire-and-forget task goes through a helper that logs. As built: it is `Forget(this Task, string what)` in `Tunqio.App/Controls/LibraryActions.cs`, not a class named `SafeFireAndForget`.
 
 ## Settings keys (JSON values in `settings.json`; Q-15 kept the file over the `setting` table)
 
