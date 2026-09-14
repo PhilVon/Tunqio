@@ -471,8 +471,9 @@ public class MediaKeyHandler
 - **Lifetime.** Disabled until the session exists; at shutdown the bridge closes the media session before
   `AudioStartup` disposes the session, so a late flyout press cannot reach a session being torn down. A machine that
   refuses a media session logs an error and runs without it.
-- **Live check.** `tools/check-smtc.ps1` launches the Release build on a scratch `--data-root`, adds one fixture album
-  through the first-run welcome, starts it through UIA with the output muted, and then reads and presses Tunqio's
+- **Live check.** `tools/check-smtc.ps1` launches the Release build on a scratch `--data-root`, adds an album through the
+  first-run welcome (three 90 s tagged FLAC tones it generates with ffmpeg, since the committed fixtures are 1 s each
+  and an album of them ends before a timeline can be read twice), starts it through UIA with the output muted, and then reads and presses Tunqio's
   session from outside the process through `GlobalSystemMediaTransportControlsSessionManager`, matched by source app
   id so a browser's session is never touched: title, artist, album, track number, thumbnail, Playing, a timeline that
   moves, and `TryPauseAsync`, `TryPlayAsync`, `TrySkipNextAsync` and `TryChangePlaybackPositionAsync` each changing the

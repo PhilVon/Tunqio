@@ -5,8 +5,10 @@
   volume flyout draws and the hardware media keys press. No keystrokes and no pointer.
 
   It launches the Release build with --data-root on a scratch profile, walks the first-run welcome through UIA to add
-  a scratch music folder copied from tests/fixtures/library (one album), mutes the output through the Mute button,
-  and invokes the album's tile to start playback. Then, from this PowerShell process:
+  a scratch music folder, mutes the output through the Mute button, and invokes the album's tile to start playback.
+  The album is generated for the run with ffmpeg: three 90 s tagged FLAC tones with the fixture library's folder.png
+  embedded as art. The committed fixtures (tests/fixtures/library) are 1 s each, so an album of them has finished
+  before a timeline can be read twice. Then, from this PowerShell process:
     - Tunqio's media session exists, found by its source app id (never the machine's current session, which may be a
       browser or another player and is never touched);
     - it names the first track's title, artist and album, says Playing, and has a thumbnail;
@@ -27,10 +29,13 @@
   How long to wait for a Tunqio somebody else opened to go away, retrying once a minute, before refusing.
 .PARAMETER Keep
   Keep the scratch folder for inspection.
+.PARAMETER Ffmpeg
+  ffmpeg.exe for generating the album. Defaults to artifacts\ffmpeg\bin (tools/fetch-ffmpeg.ps1), then PATH.
 #>
 [CmdletBinding()]
 param(
     [string]$Exe,
+    [string]$Ffmpeg,
     [int]$WaitMinutes = 10,
     [switch]$Keep
 )
@@ -62,12 +67,37 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $scratch = [System.IO.Path]::GetFullPath((Join-Path $here "..\artifacts\check-smtc\$stamp"))
 $dataRoot = Join-Path $scratch 'data'
 $music = Join-Path $scratch 'music'
-$fixtures = Join-Path $here '..\tests\fixtures\library'
-$albumFolder = 'Night Signal - Aurora Lines (2019)'
-$albumTile = 'Album Aurora Lines by Night Signal, 2019'
-$albumTitle = 'Aurora Lines'
-$albumArtist = 'Night Signal'
+$coverArt = [System.IO.Path]::GetFullPath((Join-Path $here '..\tests\fixtures\library\Field Notes - Tape One (1998)\folder.png'))
+$albumTitle = 'Long Signals'
+$albumArtist = 'Check Artist'
+$albumYear = 2020
+$albumTile = "Album $albumTitle by $albumArtist, $albumYear"
+$trackTitles = @('Long One', 'Long Two', 'Long Three')
+$trackSeconds = 90
 $realRoot = Join-Path $env:LOCALAPPDATA 'Tunqio'
+
+if (-not $Ffmpeg) {
+    $fetched = Join-Path $here '..\artifacts\ffmpeg\bin\ffmpeg.exe'
+    if (Test-Path $fetched) { $Ffmpeg = [System.IO.Path]::GetFullPath($fetched) }
+    elseif (Get-Command ffmpeg -ErrorAction SilentlyContinue) { $Ffmpeg = (Get-Command ffmpeg).Source }
+    else { throw 'ffmpeg was not found: run tools/fetch-ffmpeg.ps1, put ffmpeg on PATH, or pass -Ffmpeg.' }
+}
+
+# One tagged 90 s FLAC tone with the cover embedded. Start-Process with a bounded wait rather than a bare call, so a
+# stuck encoder cannot hold the run, and so its stderr never becomes a PowerShell error record.
+function New-LongTrack([string]$folder, [int]$number, [string]$title) {
+    $out = Join-Path $folder ('{0:00} - {1}.flac' -f $number, $title)
+    $hz = 220 * $number
+    $argumentLine = ('-nostdin -hide_banner -loglevel error -y -f lavfi -i "sine=frequency={0}:sample_rate=44100:duration={1}" -i "{2}" ' +
+        '-map 0:a -map 1:v -c:a flac -ac 2 -c:v copy -disposition:v attached_pic ' +
+        '-metadata "title={3}" -metadata "artist={4}" -metadata "album_artist={4}" -metadata "album={5}" ' +
+        '-metadata "track={6}/{7}" -metadata "date={8}" "{9}"') -f $hz, $trackSeconds, $coverArt, $title, $albumArtist, $albumTitle, $number, $trackTitles.Count, $albumYear, $out
+    $encoder = Start-Process -FilePath $Ffmpeg -ArgumentList $argumentLine -NoNewWindow -PassThru
+    # Windows PowerShell 5.1: ExitCode reads back empty unless the handle was opened while the process was alive.
+    $null = $encoder.Handle
+    if (-not $encoder.WaitForExit(60000)) { $encoder.Kill(); throw "ffmpeg did not finish $out within 60 s" }
+    if ($encoder.ExitCode -ne 0 -or -not (Test-Path $out)) { throw "ffmpeg could not write $out (exit $($encoder.ExitCode))" }
+}
 
 # ---- WinRT from Windows PowerShell 5.1: IAsyncOperation<T> to a Task, with a timeout on every wait ----------------------
 $asTaskGeneric = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
@@ -145,7 +175,10 @@ function Get-LivePosition($session) {
 $process = $null
 try {
     New-Item -ItemType Directory -Force -Path $dataRoot, $music | Out-Null
-    Copy-Item -Recurse (Join-Path $fixtures $albumFolder) $music
+    $albumDir = Join-Path $music "$albumArtist - $albumTitle ($albumYear)"
+    New-Item -ItemType Directory -Force -Path $albumDir | Out-Null
+    for ($i = 0; $i -lt $trackTitles.Count; $i++) { New-LongTrack $albumDir ($i + 1) $trackTitles[$i] }
+    Write-Output "  note  generated $($trackTitles.Count) tracks of $trackSeconds s with $Ffmpeg"
     $full = [System.IO.Path]::GetFullPath($dataRoot)
     if ($full.StartsWith([System.IO.Path]::GetFullPath($realRoot), [System.StringComparison]::OrdinalIgnoreCase) -or $full -like '*\Packages\*\LocalCache\*') {
         throw "refusing data root ${full}: it is (or is a redirected copy of) the real profile"
@@ -187,7 +220,7 @@ try {
     Check 'Tunqio has a system media session' ($null -ne $session) $session.SourceAppUserModelId
 
     $properties = Wait-Until { $p = Get-Properties $session; if ($p -and $p.Title) { $p } } 10 'the session named a track'
-    Check 'The session names the first track' ($properties.Title -eq 'First Light') "title '$($properties.Title)'"
+    Check 'The session names the first track' ($properties.Title -eq $trackTitles[0]) "title '$($properties.Title)'"
     Check 'The session names the artist' ($properties.Artist -eq $albumArtist) "artist '$($properties.Artist)'"
     Check 'The session names the album and album artist' ($properties.AlbumTitle -eq $albumTitle -and $properties.AlbumArtist -eq $albumArtist) "album '$($properties.AlbumTitle)', album artist '$($properties.AlbumArtist)'"
     Check 'The session carries the track number' ($properties.TrackNumber -eq 1) "track $($properties.TrackNumber)"
@@ -202,7 +235,7 @@ try {
     $first = Get-Timeline $session
     Start-Sleep -Seconds 7
     $second = Get-Timeline $session
-    Check 'The timeline has the track length' ($second.End.TotalSeconds -gt 1) "end $($second.End)"
+    Check 'The timeline has the track length' ([Math]::Abs($second.End.TotalSeconds - $trackSeconds) -lt 2) "end $($second.End)"
     Check 'The timeline moves between two reads 7 s apart' ($second.Position -gt $first.Position) "position $($first.Position) then $($second.Position)"
 
     # ---- AC-467: presses from outside reach the session --------------------------------------------------------------
@@ -219,9 +252,9 @@ try {
     Check 'An outside play resumes the app' ($playing -eq 'Playing') $playing
 
     Check 'TrySkipNextAsync is accepted' (Invoke-SessionBool ($session.TrySkipNextAsync())) 'true'
-    $next = Wait-Until { $p = Get-Properties $session; if ($p -and $p.Title -and $p.Title -ne 'First Light') { $p } } 10 'the session named another track'
-    Check 'An outside Next moves the app to the next track' ($next.Title -eq 'Ion Trail' -and $next.TrackNumber -eq 2) "title '$($next.Title)', track $($next.TrackNumber)"
-    $nowPlaying = Wait-Until { Find-Named $window 'Ion Trail' } 10 'the shell showed Ion Trail'
+    $next = Wait-Until { $p = Get-Properties $session; if ($p -and $p.Title -and $p.Title -ne $trackTitles[0]) { $p } } 10 'the session named another track'
+    Check 'An outside Next moves the app to the next track' ($next.Title -eq $trackTitles[1] -and $next.TrackNumber -eq 2) "title '$($next.Title)', track $($next.TrackNumber)"
+    $nowPlaying = Wait-Until { Find-Named $window $trackTitles[1] } 10 "the shell showed $($trackTitles[1])"
     Check 'The shell shows the track an outside Next moved to' ($null -ne $nowPlaying) "'$($nowPlaying.Current.Name)'"
 
     $target = [TimeSpan]::FromSeconds(60)
@@ -239,7 +272,8 @@ try {
     $log = Read-Log $dataRoot
     $route = $log | Where-Object { $_ -match 'Media controls: SMTC through SystemMediaTransportControlsInterop.GetForWindow' } | Select-Object -Last 1
     $attached = $log | Where-Object { $_ -match 'Media controls attached to the playback session' } | Select-Object -Last 1
-    $presses = @($log | Where-Object { $_ -match 'Media control (Pause|Play|Next) pressed' })
+    # The logging bridge may render the button as a quoted string (the seek line renders its TimeSpan quoted).
+    $presses = @($log | Where-Object { $_ -match 'Media control "?(Pause|Play|Next)"? pressed' })
     $seekLine = $log | Where-Object { $_ -match 'Media control seek to' } | Select-Object -Last 1
     $closed = $log | Where-Object { $_ -match 'Media controls closed' } | Select-Object -Last 1
     Check 'The log names the SMTC route' ($null -ne $route) "$(if ($route) { 'GetForWindow' } else { 'no line' })"

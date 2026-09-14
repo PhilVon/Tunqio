@@ -582,7 +582,12 @@ Depends on: E0-S8. Associations for all formats, `tunqio://`, `AppInstance` redi
 
 ### E7-S2 · System Media Transport Controls · **M** · `windows`
 - [ ] Media keys work with the app in the background; the Windows volume flyout shows art, title, artist, album and a moving timeline
-- [ ] Hardware Next/Previous and the flyout buttons drive `PlaybackSession`
+- [x] Hardware Next/Previous and the flyout buttons drive `PlaybackSession`
+
+As built (T-75): `SmtcBridge` over `SystemMediaTransportControlsInterop.GetForWindow`, unit-tested over a fake SMTC, and
+`tools/check-smtc.ps1` reads and presses Tunqio's media session from outside the process (the path the flyout and the
+media keys use). The first box is Phil's to confirm by eye and by key: the flyout's look and a hardware key pressed with
+the window in the background. See windows-integration.md, "As built (E7-S2)".
 
 ### E7-S3 · Tray icon · **S** · `windows`
 - [ ] Tray menu offers play/pause, next, previous, show, exit; minimise/close-to-tray settings work; tooltip shows the current track
