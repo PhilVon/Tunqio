@@ -26,6 +26,7 @@ $resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
 if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+. (Join-Path $here 'uia-geometry.ps1')
 
 if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'Tunqio is already running. This script changes and restores the theme through the instance it launches, so it will not touch one somebody is using.'
@@ -130,7 +131,46 @@ try {
     Start-Sleep -Milliseconds 1200
     Check 'Choosing a theme writes ui.theme at once' ((Get-StoredTheme) -eq $target.ToLowerInvariant()) "ui.theme is '$(Get-StoredTheme)'"
 
+    # ---- narrow: the section menu must not cover the page title (T-69 review) ----------------------------------------
+    # In LeftMinimal a NavigationView draws its menu button over its content; Phil found it over the settings page
+    # titles at a narrow window, as T-182 had found it over the sidebar's. Measured per section at 716 px, where the
+    # overlay is about 700 px and its navigation is still the icon strip, and at 560 px, where it goes to the menu
+    # button (Minimal, below the 640 px threshold) - the case Phil saw. The log says which mode each width got.
+    foreach ($narrow in 716, 560) {
+    Set-UiaWindowSize -ProcessId $process.Id -Width $narrow -Height 900
+    Start-Sleep -Milliseconds 1200
+    $overlay = Find-Named $window 'Settings overlay'
+    Write-Output "  note  overlay is $([int](Rect $overlay).Width) px wide at a $narrow px window"
+    foreach ($pair in @(@('Playback settings', 'Playback'), @('Output settings', 'Output'), @('Appearance settings', 'Appearance'), @('Visualization settings', 'Visualization'))) {
+        $item = Find-Named $overlay $pair[0]
+        if (-not $item -or (Get-UiaRect $item).Offscreen) {
+            $menu = $overlay.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq 'Open Navigation' } | Select-Object -First 1
+            if ($menu) { Invoke-Element $menu; Start-Sleep -Milliseconds 900 }
+            $item = Find-Named $overlay $pair[0]
+        }
+        if (-not $item) { Check "At 716 px $($pair[0]) is reachable" $false 'no section item'; continue }
+        Select-Element $item
+        Start-Sleep -Milliseconds 1200
+        $closeNav = $overlay.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq 'Close Navigation' -and -not (Get-UiaRect $_).Offscreen } | Select-Object -First 1
+        if ($closeNav) { Invoke-Element $closeNav; Start-Sleep -Milliseconds 700 }
+        $buttons = @($overlay.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -match '^(Open Navigation|Close Navigation)$' -and -not (Get-UiaRect $_).Offscreen })
+        $title = $overlay.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq $pair[1] -and $_.Current.ControlType.ProgrammaticName -eq 'ControlType.Text' -and -not (Get-UiaRect $_).Offscreen } | Select-Object -First 1
+        $overlaps = @()
+        foreach ($b in $buttons) {
+            $br = Get-UiaRect $b
+            $tr = Get-UiaRect $title
+            $x = [math]::Min($br.Right, $tr.Right) - [math]::Max($br.Left, $tr.Left)
+            $y = [math]::Min($br.Bottom, $tr.Bottom) - [math]::Max($br.Top, $tr.Top)
+            if ($x -gt 0 -and $y -gt 0) { $overlaps += "'$($b.Current.Name)' $($br.Describe) covers the title $($tr.Describe) by $x x $y px" }
+        }
+        Check "At $narrow px the section menu leaves the $($pair[1]) title clear" ($null -ne $title -and $overlaps.Count -eq 0) $(if (-not $title) { 'no title on screen' } elseif ($overlaps.Count) { $overlaps -join '; ' } else { "$($buttons.Count) menu button(s) $(($buttons | ForEach-Object { (Get-UiaRect $_).Describe }) -join ', '), title $((Get-UiaRect $title).Describe)" })
+    }
+    }
+    Set-UiaWindowSize -ProcessId $process.Id -Width 1616 -Height 900
+    Start-Sleep -Milliseconds 1000
+
     # ---- close --------------------------------------------------------------------------------------------------------
+    $overlay = Find-Named $window 'Settings overlay'
     Invoke-Element (Find-Named $overlay 'Close settings')
     Start-Sleep -Milliseconds 800
     Check 'Close shuts the overlay and the sidebar comes back' ($null -eq (Find-Named $window 'Settings overlay') -and $null -ne (Find-Named $window 'Search library')) 'overlay gone, library search box back'
@@ -168,6 +208,9 @@ if ($reachedEnd) {
     $log = Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
     $line = if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'Test tone started on the open output' } | Select-Object -Last 1 }
     Check 'The test tone started on the open output' ($null -ne $line) "$(if ($line) { $line.Trim() } else { "no line in $logDir" })"
+    $modes = @(if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'Settings navigation is "?(\w+)"? at (\d+) px' } | ForEach-Object { $Matches[1] + ' at ' + $Matches[2] + ' px' } })
+    Write-Output "  note  settings navigation modes seen: $($modes -join '; ')"
+    Check 'The narrow step reached the menu-button (Minimal) navigation it is there to measure' ((@($modes -match '^Minimal')).Count -gt 0) "$($modes.Count) mode change(s) logged"
 }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).

@@ -164,7 +164,22 @@ public sealed partial class MainWindow : Window
             {
                 if (key == SettingsKeys.UiTheme)
                 {
-                    DispatcherQueue.TryEnqueue(() => _chrome.ApplyTheme(ThemePolicy.Read(settings)));
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        ThemePreference preference = ThemePolicy.Read(settings);
+                        _chrome.ApplyTheme(preference);
+                        LogThemeState("applied " + preference);
+                        // After the tree has had a pass, the backdrop is created again (T-69 review). With Windows dark,
+                        // Light then Dark left the controls bar light while its own brush was already the dark one
+                        // (logged: #4C3A3A3A); that brush is 30% opaque, so what showed through it was the system
+                        // backdrop, which kept the previous theme until a second change. A new backdrop starts from the
+                        // theme that is on screen.
+                        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                        {
+                            ShellBackdrop.Kind which = ApplyBackdrop();
+                            LogThemeState("after a pass " + preference + ", backdrop " + which + " recreated");
+                        });
+                    });
                 }
             };
         }
@@ -545,6 +560,29 @@ public sealed partial class MainWindow : Window
 
     /// <summary>True while the settings overlay is showing.</summary>
     public bool SettingsOpen => _chrome.SettingsOpen;
+
+    /// <summary>
+    /// T-69 review: after a theme switch the controls bar stayed light while the overlay repainted. A screenshot of a
+    /// WinUI window comes out black, so what each surface is painting with is logged from inside instead.
+    /// </summary>
+    private void LogThemeState(string when)
+    {
+        static string ColourOf(Microsoft.UI.Xaml.Media.Brush? brush) =>
+            brush is Microsoft.UI.Xaml.Media.SolidColorBrush solid
+                ? string.Create(CultureInfo.InvariantCulture, $"#{solid.Color.A:X2}{solid.Color.R:X2}{solid.Color.G:X2}{solid.Color.B:X2}")
+                : brush?.GetType().Name ?? "none";
+
+        Serilog.Log.Debug(
+            "Theme {When}: root requested {Requested} actual {RootActual}; controls actual {ControlsActual} background {ControlsBackground}; settings actual {SettingsActual} background {SettingsBackground}; transport actual {TransportActual}",
+            when,
+            Root.RequestedTheme,
+            Root.ActualTheme,
+            ControlsPanel.ActualTheme,
+            ColourOf(ControlsPanel.Background),
+            SettingsPanel.ActualTheme,
+            ColourOf((SettingsPanel.Content as Grid)?.Background),
+            Transport.ActualTheme);
+    }
 
     /// <summary>Shows the settings overlay (E6-S3) on <paramref name="section"/>, or where it was last left.</summary>
     public void OpenSettings(string? section = null)

@@ -51,6 +51,22 @@ public sealed partial class SettingsOverlay : UserControl
     /// <summary>The tag of the section showing, for a check or a caller that wants to reopen it.</summary>
     public string? CurrentSection => (Sections.SelectedItem as NavigationViewItem)?.Tag as string;
 
+    /// <summary>
+    /// How far a section's page is pushed down in minimal navigation: the library pane's measured 44 px (T-182). In
+    /// LeftMinimal a NavigationView draws its menu button over the top of its content without reserving room, and Phil
+    /// found it over the settings page titles at a narrow window in T-69's review, exactly as the sidebar had been.
+    /// </summary>
+    private const double MinimalNavigationInset = 44;
+
+    private void OnDisplayModeChanged(NavigationView sender, NavigationViewDisplayModeChangedEventArgs args)
+    {
+        SectionFrame.Margin = args.DisplayMode == NavigationViewDisplayMode.Minimal
+            ? new Thickness(0, MinimalNavigationInset, 0, 0)
+            : new Thickness(0);
+        // Logged so a check can say which navigation it measured: the overlap only exists in Minimal.
+        Serilog.Log.Debug("Settings navigation is {DisplayMode} at {Width:F0} px", args.DisplayMode, ActualWidth);
+    }
+
     private void OnClose(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnSectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

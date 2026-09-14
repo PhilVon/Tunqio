@@ -30,6 +30,7 @@
         IsBackButtonVisible="Collapsed"
         IsPaneToggleButtonVisible="True"
         SelectionChanged="OnSectionChanged"
+        DisplayModeChanged="OnDisplayModeChanged"
         AutomationProperties.Name="Settings sections">
       <NavigationView.MenuItems>
         <NavigationViewItem Content="Playback" Tag="playback" AutomationProperties.Name="Playback settings">

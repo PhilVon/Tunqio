@@ -177,6 +177,32 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The order the app actually has, which the test above does not use (E6-S3). Settings &gt; Appearance writes
+    /// <c>ui.theme</c> and this controller hears it at once, while the window still has the old theme; the window repaints
+    /// on its next dispatcher turn, and only then does <c>ActualThemeChanged</c> flip the dark flag and call
+    /// <see cref="ReactiveThemeController.Evaluate"/>. Written while diagnosing T-69's "controls bar stays light" and it
+    /// passed on the code as it was, which ruled this controller out; kept so the order stays covered.
+    /// </summary>
+    [Fact]
+    public void A_theme_that_is_applied_after_its_setting_changed_is_still_followed()
+    {
+        using var h = new Harness().Build();
+        h.Run(60);
+        ReactiveThemePalette inDark = h.Sink.Applied[^1];
+
+        // The setting first, with the window still dark...
+        h.Settings.SetValue(SettingsKeys.UiTheme, "light");
+        // ...then the repaint, and what the window's ActualThemeChanged handler does.
+        h.Dark = false;
+        h.Controller.Evaluate();
+        h.Run(60, fromSequence: 500);
+
+        ReactiveThemePalette after = h.Sink.Applied[^1];
+        after.Primary.Luminance.Should().BeGreaterThan(
+            inDark.Primary.Luminance, "the light theme's palette is lighter, and the window is light now");
+    }
+
     private sealed class Harness : IDisposable
     {
         public TestClock Clock { get; } = new();
