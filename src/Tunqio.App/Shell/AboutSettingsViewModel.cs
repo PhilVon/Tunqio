@@ -197,9 +197,10 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
 
     /// <summary>
     /// Reads the shipped notices and the <c>licenses/</c> folder into <see cref="Licences"/>: the notices file
-    /// itself first, then every component the notices list with its text where one is shipped, then any text in
-    /// the folder the notices do not mention, then the NuGet components <see cref="ThirdPartyAttribution.Components"/>
-    /// credits whose texts the release pipeline collects (E8-S1).
+    /// itself first, then every shipped component the notices list, in file order (the BASS packages, the NuGet
+    /// packages and the runtime, the vendored sources compiled into mpcore.dll), with its text where one is shipped,
+    /// then any text in the folder the notices do not mention. A row the notices mark as not shipped (Catch2,
+    /// test-only) is left out (T-198).
     /// </summary>
     public void LoadLicences()
     {
@@ -226,6 +227,11 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
         var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ThirdPartyComponent component in components)
         {
+            if (!component.Shipped)
+            {
+                continue; // kept in the notices for completeness, not in the package
+            }
+
             string? text = null;
             if (component.LicenceFile is { } file)
             {
@@ -239,7 +245,7 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
                 component.Version,
                 component.Licence,
                 text,
-                text is null ? (component.LicenceFile is null ? "The licence text is in the repository beside the vendored source." : "The licence text " + component.LicenceFile + " is missing from this build.") : null));
+                text is null ? MissingTextNote(component) : null));
         }
 
         if (Directory.Exists(LicencesDirectory))
@@ -253,32 +259,21 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
             }
         }
 
-        foreach (string credit in ThirdPartyAttribution.Components)
-        {
-            (string name, string licence) = SplitCredit(credit);
-            string key = name.Split(',', ' ')[0];
-            if (components.Any(c => string.Equals(c.Name, key, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue; // already listed from the notices, with its text
-            }
-
-            rows.Add(new LicenceRow(name, string.Empty, licence, null, "A NuGet package. Its licence text is collected by the release pipeline (E8-S1) and is not shipped beside the executable yet."));
-        }
-
         Licences = rows;
         SelectedLicence = rows.Count > 0 ? rows[0] : null;
     }
 
-    /// <summary>"TagLibSharp (LGPL 2.1)" into its name and the parenthetical.</summary>
-    private static (string Name, string Licence) SplitCredit(string credit)
+    /// <summary>What the text box says for a component whose licence text is not beside the executable.</summary>
+    private static string MissingTextNote(ThirdPartyComponent component)
     {
-        int open = credit.LastIndexOf('(');
-        if (open <= 0 || !credit.EndsWith(')'))
+        if (component.LicenceFile is { } file)
         {
-            return (credit.Trim(), string.Empty);
+            return "The licence text " + file + " is missing from this build.";
         }
 
-        return (credit[..open].Trim(), credit[(open + 1)..^1].Trim());
+        return component.Section.StartsWith("Vendored", StringComparison.OrdinalIgnoreCase)
+            ? "Compiled into mpcore.dll from source. The licence text is in the repository beside the vendored source."
+            : "Licensed under " + component.Licence + ", as the third-party notices record. Its licence text is collected by the release pipeline (E8-S1) and is not shipped beside the executable yet.";
     }
 
     partial void OnSelectedLicenceChanged(LicenceRow? value)

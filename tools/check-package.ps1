@@ -241,6 +241,74 @@ function Test-ManifestImages([xml]$manifest) {
     Check-Registration 'the file association has its own logo' ($wanted['tunqio-audio association Logo'] -eq 'Assets\FileAssociation.png') "'$($wanted['tunqio-audio association Logo'])'"
 }
 
+# ---- T-198 (AC-542): every third-party file in the package has a row in THIRD-PARTY-NOTICES.md ---------------------------
+# The About page lists what the notices list, so a file the package ships with no row is a component shipped without its
+# licence on the page. A unit test cannot see the package; this script already opens it, so the assertion lives here. The
+# rows are read from the notices file itself, as T-86 checked them by hand: a BASS table row (first column 'Package')
+# accounts for <name>.dll, and every backticked pattern in a 'Files in the package' cell accounts for the entries it
+# matches. Tunqio's own files are the only ones allowed without a row; mpcore.dll is Tunqio's, and the vendored sources
+# compiled into it (pffft, nlohmann/json) must still have their rows.
+$noticesPath = Join-Path $repo 'THIRD-PARTY-NOTICES.md'
+$ownPatterns = @('Tunqio*', 'Assets/*', 'presets/*', 'licenses/*', 'AppxMetadata/*')
+$ownFiles = @('mpcore.dll', 'AppxManifest.xml', 'AppxBlockMap.xml', 'AppxSignature.p7x', '[Content_Types].xml')
+
+function Read-NoticesPatterns {
+    $lines = @(Get-Content $noticesPath)
+    $found = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if (-not $lines[$i].TrimStart().StartsWith('|')) { continue }
+        $header = @($lines[$i].Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() })
+        $filesColumn = [array]::IndexOf($header, 'Files in the package')
+        $isBass = $header[0] -eq 'Package'
+        $i++ # the separator row
+        while ($i + 1 -lt $lines.Count -and $lines[$i + 1].TrimStart().StartsWith('|')) {
+            $i++
+            $cells = @($lines[$i].Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() })
+            $row = $cells[0].Replace('`', '')
+            if (-not $row) { continue }
+            if ($isBass) { $found += [pscustomobject]@{ Row = $row; Pattern = "$row.dll" } }
+            elseif ($filesColumn -ge 0 -and $filesColumn -lt $cells.Count) {
+                foreach ($m in [regex]::Matches($cells[$filesColumn], '`([^`]+)`')) { $found += [pscustomobject]@{ Row = $row; Pattern = $m.Groups[1].Value } }
+            }
+        }
+    }
+    return $found
+}
+
+function Test-NoticesCoverage([string[]]$entries) {
+    Write-Output 'packaged app (every third-party file has a THIRD-PARTY-NOTICES.md row)'
+    if (-not (Test-Path $noticesPath)) { $script:failures += "MSIX - $noticesPath is missing"; Write-Output "  FAIL  $noticesPath is missing`n"; return }
+    $patterns = @(Read-NoticesPatterns)
+    if ($patterns.Count -eq 0) { throw "$noticesPath yields no BASS rows and no 'Files in the package' patterns; there is nothing to map the package to." }
+    $noticesText = Get-Content $noticesPath -Raw
+    foreach ($vendored in 'pffft', 'nlohmann/json') {
+        $ok = $noticesText -match "(?m)^\| $([regex]::Escape($vendored)) \|[^\r\n]*\| Yes, compiled into ``mpcore\.dll`` \|"
+        if ($ok) { Write-Output "  ok    $vendored (compiled into mpcore.dll) has a shipped row" }
+        else { $script:failures += "MSIX - mpcore.dll carries $vendored but THIRD-PARTY-NOTICES.md has no shipped row for it"; Write-Output "  FAIL  $vendored has no shipped row" }
+    }
+    $own = 0; $mapped = 0; $unmapped = @(); $usedRows = @{}
+    foreach ($entry in $entries) {
+        if ($entry.EndsWith('/')) { continue }
+        if ($ownFiles -contains $entry -or @($ownPatterns | Where-Object { $entry -like $_ }).Count -gt 0) { $own++; continue }
+        # The most specific pattern wins: an exact name before a wildcard, then the longest, so System.Reactive.dll counts for
+        # its own row and not for the runtime's System.*.dll.
+        $hit = $patterns | Where-Object { $entry -like $_.Pattern.Replace('\', '/') } |
+            Sort-Object @{ Expression = { if ($_.Pattern.Contains('*')) { 1 } else { 0 } } }, @{ Expression = { $_.Pattern.Length }; Descending = $true } |
+            Select-Object -First 1
+        if ($hit) { $mapped++; $usedRows[$hit.Row] = $true }
+        else { $unmapped += $entry }
+    }
+    foreach ($entry in $unmapped) {
+        $script:failures += "MSIX - $entry ships in the package but no row of THIRD-PARTY-NOTICES.md accounts for it"
+        Write-Output "  FAIL  $entry has no notices row"
+    }
+    $rows = @($patterns | ForEach-Object { $_.Row } | Sort-Object -Unique)
+    $idle = @($rows | Where-Object { -not $usedRows.ContainsKey($_) })
+    Write-Output "  $(if ($unmapped.Count -eq 0) { 'ok  ' } else { 'FAIL' })  $mapped third-party file(s) map to $($usedRows.Count) of $($rows.Count) notices row(s); $own of Tunqio's own; $($unmapped.Count) unaccounted for"
+    if ($idle.Count) { Write-Output "  note  rows with no file in this package: $($idle -join '; ')" }
+    Write-Output ''
+}
+
 foreach ($dir in $Root) {
     $resolved = (Resolve-Path $dir -ErrorAction SilentlyContinue).Path
     if (-not $resolved) { $resolved = $dir }
@@ -275,6 +343,7 @@ if ($Msix) {
         try {
             $present = @($zip.Entries | ForEach-Object { $_.FullName.Replace('\', '/').ToLowerInvariant() })
             Test-Payload 'packaged app (MSIX payload)' $present
+            Test-NoticesCoverage @($zip.Entries | ForEach-Object { [uri]::UnescapeDataString($_.FullName.Replace('\', '/')) })
             Test-IconAssets 'MSIX' {
                 param($path)
                 $entry = $zip.Entries | Where-Object { $_.FullName.Replace('\', '/') -ieq $path } | Select-Object -First 1
@@ -291,7 +360,7 @@ if ($Msix) {
 }
 
 if ($failures.Count -eq 0) {
-    Write-Output 'PASS: every artifact carries mpcore.dll, the BASS runtime it loads, the licence texts and every icon asset at its size.'
+    Write-Output "PASS: every artifact carries mpcore.dll, the BASS runtime it loads, the licence texts and every icon asset at its size$(if ($Msix) { ', and every third-party file in the package has a THIRD-PARTY-NOTICES.md row' })."
     exit 0
 }
 foreach ($failure in $failures) { Write-Output "FAIL: $failure" }
