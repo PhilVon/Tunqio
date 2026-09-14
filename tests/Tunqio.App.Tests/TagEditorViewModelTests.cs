@@ -14,7 +14,14 @@ public class TagEditorViewModelTests
     private static readonly TrackDto[] Twelve =
         [.. Enumerable.Range(1, 12).Select(i => Rows.Track(i, "Track " + i, albumArtist: "Old Artist", path: $@"D:\Music\{i}.flac"))];
 
-    private static TagEditorViewModel ViewModel(FakeTagEditor editor, FakeTagWriter writer) => new(editor, writer);
+    private static TagEditorViewModel ViewModel(FakeTagEditor editor, FakeTagWriter writer, FakeCoverArtPicker? picker = null) =>
+        new(editor, writer, picker ?? new FakeCoverArtPicker());
+
+    private static readonly EmbeddedPicture FrontCover = new(new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 }, "image/png", PictureKind.FrontCover);
+
+    private static readonly EmbeddedPicture BackCover = new(new byte[] { 0xFF, 0xD8, 0xFF, 9, 9 }, "image/jpeg", PictureKind.BackCover);
+
+    private static readonly EmbeddedPicture Picked = new(new byte[] { 0xFF, 0xD8, 0xFF, 4, 5, 6, 7 }, "image/jpeg", PictureKind.FrontCover);
 
     [Fact]
     public async Task A_single_track_loads_the_values_the_file_holds_Async()
@@ -151,6 +158,147 @@ public class TagEditorViewModelTests
         editor.Applied[0].Targets.Should().HaveCount(12);
     }
 
+    // ---- the art preview, single-track shape (T-113) ----------------------------------------------------------
+
+    [Fact]
+    public async Task A_single_track_shows_its_cover_and_offers_replace_and_remove_Async()
+    {
+        var writer = new FakeTagWriter();
+        writer.Files[Twelve[0].Path] = new TagSnapshot("First Light", Pictures: [FrontCover, BackCover]);
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer);
+
+        await vm.LoadAsync([Twelve[0]]);
+
+        vm.CanEditArt.Should().BeTrue();
+        vm.HasArt.Should().BeTrue();
+        vm.Art!.SameAs(FrontCover).Should().BeTrue("the preview shows the front cover, not the back");
+        vm.ArtChanged.Should().BeFalse();
+        vm.HasChanges.Should().BeFalse("looking at the art is not a change");
+        vm.ArtSummary.Should().StartWith("Embedded PNG").And.Contain("one other picture", "the user is told what Remove will take with it");
+        vm.BuildEdit().Pictures.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Remove_art_on_a_file_with_one_picture_confirms_the_empty_set_Async()
+    {
+        var writer = new FakeTagWriter();
+        writer.Files[Twelve[0].Path] = new TagSnapshot("First Light", Pictures: [FrontCover]);
+        var editor = new FakeTagEditor();
+        TagEditorViewModel vm = ViewModel(editor, writer);
+        await vm.LoadAsync([Twelve[0]]);
+
+        vm.RemoveArt();
+
+        vm.HasArt.Should().BeFalse();
+        vm.ArtChanged.Should().BeTrue();
+        vm.HasChanges.Should().BeTrue();
+        vm.CanConfirm.Should().BeTrue();
+        vm.ArtSummary.Should().Be("The art will be removed.");
+        await vm.ConfirmAsync();
+        TagEdit edit = editor.Applied.Should().ContainSingle().Which.Edit;
+        edit.Pictures.Should().NotBeNull().And.BeEmpty("an empty set is the writer's 'clear every picture'");
+        edit.Title.Should().BeNull("nothing else was touched");
+    }
+
+    [Fact]
+    public async Task Remove_art_takes_only_the_shown_picture_and_says_which_one_shows_next_Async()
+    {
+        var writer = new FakeTagWriter();
+        writer.Files[Twelve[0].Path] = new TagSnapshot("First Light", Pictures: [FrontCover, BackCover]);
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer);
+        await vm.LoadAsync([Twelve[0]]);
+
+        vm.RemoveArt();
+
+        // Phil, Q-142 (shown-only): the back cover stays in the file, and being the only picture left it becomes the art.
+        vm.BuildEdit().Pictures.Should().ContainSingle().Which.SameAs(BackCover).Should().BeTrue();
+        vm.HasArt.Should().BeTrue();
+        vm.Art!.SameAs(BackCover).Should().BeTrue();
+        vm.ArtSummary.Should().Contain("cover will be removed").And.Contain("back cover", "the surprising half is said out loud");
+
+        vm.RemoveArt();
+
+        vm.HasArt.Should().BeFalse("a second Remove takes the picture that was showing");
+        vm.BuildEdit().Pictures.Should().BeEmpty();
+        vm.RemoveArt();
+        vm.BuildEdit().Pictures.Should().BeEmpty("with nothing shown there is nothing to remove");
+    }
+
+    [Fact]
+    public async Task Replace_art_makes_the_picked_image_the_front_cover_and_keeps_the_other_pictures_Async()
+    {
+        var writer = new FakeTagWriter();
+        writer.Files[Twelve[0].Path] = new TagSnapshot("First Light", Pictures: [FrontCover, BackCover]);
+        var picker = new FakeCoverArtPicker { Next = Picked with { Kind = PictureKind.Other } };
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer, picker);
+        await vm.LoadAsync([Twelve[0]]);
+
+        await vm.ReplaceArtAsync();
+
+        vm.Art!.Bytes.ToArray().Should().Equal(Picked.Bytes.ToArray());
+        vm.Art.Kind.Should().Be(PictureKind.FrontCover, "whatever the picker said, the chosen image is the cover");
+        IReadOnlyList<EmbeddedPicture> pictures = vm.BuildEdit().Pictures!;
+        pictures.Should().HaveCount(2, "the back cover stays (Q-142, shown-only: Replace swaps the picture that was showing)");
+        pictures[1].SameAs(BackCover).Should().BeTrue();
+        vm.ArtSummary.Should().StartWith("New cover: JPEG").And.Contain("other pictures stay");
+        vm.HasChanges.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Replace_art_on_a_file_with_none_adds_the_one_picture_Async()
+    {
+        var writer = new FakeTagWriter();
+        writer.Files[Twelve[0].Path] = new TagSnapshot("First Light", Pictures: []);
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer, new FakeCoverArtPicker { Next = Picked });
+        await vm.LoadAsync([Twelve[0]]);
+        vm.HasArt.Should().BeFalse();
+        vm.ArtSummary.Should().Be("No embedded art.");
+
+        await vm.ReplaceArtAsync();
+
+        vm.BuildEdit().Pictures.Should().ContainSingle().Which.SameAs(Picked).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_cancelled_picker_and_an_oversized_image_change_nothing_Async()
+    {
+        var writer = new FakeTagWriter();
+        writer.Files[Twelve[0].Path] = new TagSnapshot("First Light", Pictures: [FrontCover]);
+        var picker = new FakeCoverArtPicker();
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer, picker);
+        await vm.LoadAsync([Twelve[0]]);
+
+        await vm.ReplaceArtAsync();
+        vm.ArtChanged.Should().BeFalse("cancelling the picker is not a choice");
+        vm.Error.Should().BeNull();
+
+        picker.Next = new EmbeddedPicture(new byte[TagEditorViewModel.MaxArtBytes + 1], "image/jpeg");
+        await vm.ReplaceArtAsync();
+        vm.ArtChanged.Should().BeFalse("an image that big would be embedded into the audio file");
+        vm.Error.Should().Contain("MB");
+        vm.HasChanges.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_batch_never_offers_art_and_never_writes_it_Async()
+    {
+        var writer = new FakeTagWriter();
+        foreach (TrackDto track in Twelve)
+        {
+            writer.Files[track.Path] = new TagSnapshot(track.Title, Pictures: [FrontCover]);
+        }
+
+        TagEditorViewModel vm = ViewModel(new FakeTagEditor(), writer, new FakeCoverArtPicker { Next = Picked });
+        await vm.LoadAsync(Twelve);
+
+        vm.CanEditArt.Should().BeFalse();
+        vm.HasArt.Should().BeFalse("a batch holds no covers at all");
+        vm.RemoveArt();
+        await vm.ReplaceArtAsync();
+        vm.ArtChanged.Should().BeFalse();
+        vm.BuildEdit().Pictures.Should().BeNull("a batch must not stamp one cover onto twelve tracks");
+    }
+
     [Fact]
     public async Task Confirm_moves_the_progress_bar_and_marks_every_file_in_the_list_Async()
     {
@@ -261,6 +409,14 @@ public class TagEditorViewModelTests
     }
 
     // ---- fakes -----------------------------------------------------------------------------------------------
+
+    private sealed class FakeCoverArtPicker : ICoverArtPicker
+    {
+        /// <summary>What the next pick returns; null is the user cancelling.</summary>
+        public EmbeddedPicture? Next { get; set; }
+
+        public Task<EmbeddedPicture?> PickAsync(CancellationToken ct = default) => Task.FromResult(Next);
+    }
 
     private sealed class FakeTagWriter : ITagWriter
     {

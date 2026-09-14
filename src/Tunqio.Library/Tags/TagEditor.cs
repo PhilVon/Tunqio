@@ -287,6 +287,7 @@ public sealed class TagEditor : ITagEditor
         Add(fields, edit.Genres, "genre");
         Add(fields, edit.Composer, "composer");
         Add(fields, edit.Comment, "comment");
+        Add(fields, edit.Pictures, "cover art");
 
         string what = fields.Count switch
         {

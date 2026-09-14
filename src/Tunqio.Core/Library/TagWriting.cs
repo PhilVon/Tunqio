@@ -79,6 +79,13 @@ public sealed record TagWriteResult(string Path, TagWriteOutcome Outcome, TagSna
 /// tag editor never edits ratings, so its undo has no business putting one back, and a rating set from the star
 /// control between an edit and its undo must survive the undo (E6-S7).
 /// </para>
+/// <para>
+/// <b>Pictures are captured only when asked for.</b> <see cref="Pictures"/> is <c>null</c> when the snapshot was
+/// taken without them, which is what a text-only write does: a batch of twelve must not hold twelve covers in memory
+/// for the life of the session's undo stack. <c>null</c> here means "not captured" and <see cref="ToEdit"/> leaves
+/// pictures alone for it; an empty list means "captured, and there were none", which undo restores by clearing
+/// (T-113).
+/// </para>
 /// </remarks>
 public sealed record TagSnapshot(
     string? Title = null,
@@ -91,8 +98,11 @@ public sealed record TagSnapshot(
     IReadOnlyList<string>? Genres = null,
     string? Composer = null,
     string? Comment = null,
-    int? Rating = null)
+    int? Rating = null,
+    IReadOnlyList<EmbeddedPicture>? Pictures = null)
 {
+    /// <summary>The picture Tunqio shows for the file (front cover, else the first), or <c>null</c> when it has none or they were not captured.</summary>
+    public EmbeddedPicture? Cover => EmbeddedPicture.Cover(Pictures);
     /// <summary>
     /// An edit that puts every one of these values back, clearing the ones that were absent. Undo is this edit
     /// applied to the file the snapshot came from. The rating is not part of it (see the type's remarks).
@@ -107,7 +117,9 @@ public sealed record TagSnapshot(
         DiscNo: DiscNo ?? 0,
         Genres: Genres ?? [],
         Composer: Composer ?? string.Empty,
-        Comment: Comment ?? string.Empty);
+        Comment: Comment ?? string.Empty,
+        // Null stays null: pictures that were never captured are not undone, see the type's remarks.
+        Pictures: Pictures);
 
     /// <summary>The snapshot <paramref name="edit"/> would produce from this one, for the verify step and for "is this a change at all".</summary>
     public TagSnapshot With(TagEdit edit)
@@ -125,7 +137,8 @@ public sealed record TagSnapshot(
             Composer: Text(edit.Composer, Composer),
             Comment: Text(edit.Comment, Comment),
             // Whole stars, because that is all any container keeps: an edit asking for 45 is verified against the 40 the file can say.
-            Rating: Number(edit.Rating, Rating) is { } rating ? Ratings.FromStars(Ratings.Stars(rating)) : null);
+            Rating: Number(edit.Rating, Rating) is { } rating ? Ratings.FromStars(Ratings.Stars(rating)) : null,
+            Pictures: edit.Pictures ?? Pictures);
     }
 
     /// <summary>Value equality over the fields, treating null and empty as the same absence (a format that cannot hold an empty frame reads one back as null).</summary>
@@ -142,7 +155,8 @@ public sealed record TagSnapshot(
             && Same(Comment, other.Comment)
             && Same(Artists, other.Artists)
             && Same(Genres, other.Genres)
-            && Rating == other.Rating;
+            && Rating == other.Rating
+            && EmbeddedPicture.SameSet(Pictures, other.Pictures);
     }
 
     private static string? Text(string? edited, string? current) =>

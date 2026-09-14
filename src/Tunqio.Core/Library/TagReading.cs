@@ -50,8 +50,74 @@ public sealed record TagReadResult(ScannedTrack Track, TagReadOutcome Outcome, s
     public bool IsFailure => Outcome is not (TagReadOutcome.Read or TagReadOutcome.NoTags);
 }
 
-/// <summary>An embedded picture as found in the tag; the art cache hashes and resizes it.</summary>
-public sealed record EmbeddedPicture(ReadOnlyMemory<byte> Bytes, string? MimeType);
+/// <summary>
+/// An embedded picture as found in the tag; the art cache hashes and resizes it, and the tag editor writes one
+/// back (T-113). <see cref="Kind"/> is what the tag says the picture is; the scanner and the editor both show the
+/// front cover, else the first picture (<see cref="Cover"/>).
+/// </summary>
+public sealed record EmbeddedPicture(ReadOnlyMemory<byte> Bytes, string? MimeType, PictureKind Kind = PictureKind.FrontCover)
+{
+    /// <summary>The picture Tunqio shows for a file: its front cover, else its first picture, else <c>null</c>.</summary>
+    public static EmbeddedPicture? Cover(IReadOnlyList<EmbeddedPicture>? pictures) =>
+        pictures is null || pictures.Count == 0 ? null : pictures.FirstOrDefault(p => p.Kind == PictureKind.FrontCover) ?? pictures[0];
+
+    /// <summary>Same kind and the same bytes; the MIME type is what the container was told and is not compared.</summary>
+    public bool SameAs(EmbeddedPicture other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return Kind == other.Kind && Bytes.Span.SequenceEqual(other.Bytes.Span);
+    }
+
+    /// <summary>The same pictures in the same order (<see cref="SameAs"/>); null and empty are the same absence.</summary>
+    public static bool SameSet(IReadOnlyList<EmbeddedPicture>? a, IReadOnlyList<EmbeddedPicture>? b)
+    {
+        IReadOnlyList<EmbeddedPicture> left = a ?? [];
+        IReadOnlyList<EmbeddedPicture> right = b ?? [];
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!left[i].SameAs(right[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
+/// <summary>
+/// What a picture is for, as the ID3v2 APIC type code (which FLAC's METADATA_BLOCK_PICTURE and every tagging
+/// library reuse), so a file's pictures can be read and written back exactly as they were.
+/// </summary>
+public enum PictureKind
+{
+    Other = 0,
+    FileIcon = 1,
+    OtherFileIcon = 2,
+    FrontCover = 3,
+    BackCover = 4,
+    LeafletPage = 5,
+    Media = 6,
+    LeadArtist = 7,
+    Artist = 8,
+    Conductor = 9,
+    Band = 10,
+    Composer = 11,
+    Lyricist = 12,
+    RecordingLocation = 13,
+    DuringRecording = 14,
+    DuringPerformance = 15,
+    MovieScreenCapture = 16,
+    ColouredFish = 17,
+    Illustration = 18,
+    BandLogo = 19,
+    PublisherLogo = 20,
+}
 
 /// <summary>Reader behaviour (docs/library-and-data.md "Artist splitting"; timeout from the "ReadTags" stage).</summary>
 /// <param name="SplitArtists">

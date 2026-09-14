@@ -198,7 +198,9 @@ public sealed class TagLibTagReader : ITagReader
 
         IPicture chosen = pictures.FirstOrDefault(p => p.Type == PictureType.FrontCover) ?? pictures[0];
         byte[]? data = chosen.Data?.Data;
-        return data is null || data.Length == 0 ? null : new EmbeddedPicture(data, TagValues.Clean(chosen.MimeType));
+        int type = (int)chosen.Type;
+        PictureKind kind = Enum.IsDefined((PictureKind)type) ? (PictureKind)type : PictureKind.Other;
+        return data is null || data.Length == 0 ? null : new EmbeddedPicture(data, TagValues.Clean(chosen.MimeType), kind);
     }
 
     /// <summary>

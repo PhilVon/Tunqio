@@ -411,6 +411,95 @@ public class TagLibTagWriterTests : IDisposable
         Sha256(path).Should().Be(before, "even the garbage file is left exactly as it was");
     }
 
+    // ---- pictures (T-113) -------------------------------------------------------------------------------------
+
+    /// <summary>A 1x1 PNG, so a replacement cover is bytes the fixtures do not already carry.</summary>
+    private static readonly byte[] TinyPng = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+
+    [FfmpegTheory]
+    [InlineData("flac")]
+    [InlineData("mp3")]
+    public async Task Removing_every_picture_leaves_no_attached_picture_and_the_file_still_decodes_Async(string format)
+    {
+        string path = Copy(format == "flac" ? Flac : Mp3);
+        var writer = new TagLibTagWriter();
+        TagSnapshot before = (await writer.ReadAsync(path))!;
+        before.Pictures.Should().NotBeNullOrEmpty("the fixture carries an embedded cover; without one this proves nothing");
+        before.Cover.Should().NotBeNull();
+
+        TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Pictures: []));
+
+        result.Outcome.Should().Be(TagWriteOutcome.Written);
+        result.Before!.Pictures.Should().NotBeNullOrEmpty("the snapshot on the undo stack must hold the pictures it is asked to put back");
+        (await writer.ReadAsync(path))!.Pictures.Should().BeEmpty();
+        Ffprobe.AttachedPictureCodec(path).Should().BeNull("an independent tagger must agree the picture is gone");
+        Ffprobe.Decode(path).Should().BeTrue("the audio must survive the tag rewrite");
+    }
+
+    [FfmpegTheory]
+    [InlineData("flac")]
+    [InlineData("mp3")]
+    public async Task Replacing_the_cover_writes_the_new_bytes_as_the_front_cover_Async(string format)
+    {
+        string path = Copy(format == "flac" ? Flac : Mp3);
+        var writer = new TagLibTagWriter();
+        var cover = new EmbeddedPicture(TinyPng, "image/png", PictureKind.FrontCover);
+
+        TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Pictures: [cover]));
+
+        result.Outcome.Should().Be(TagWriteOutcome.Written);
+        TagSnapshot after = (await writer.ReadAsync(path))!;
+        after.Pictures.Should().ContainSingle().Which.SameAs(cover).Should().BeTrue("the bytes come back exactly as written");
+        after.Cover!.Kind.Should().Be(PictureKind.FrontCover);
+        Ffprobe.AttachedPictureCodec(path).Should().Be("png");
+        Ffprobe.Decode(path).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("flac")]
+    [InlineData("mp3")]
+    public async Task Undoing_a_picture_edit_puts_the_original_pictures_back_byte_for_byte_Async(string format)
+    {
+        string path = Copy(format == "flac" ? Flac : Mp3);
+        var writer = new TagLibTagWriter();
+        TagSnapshot original = (await writer.ReadAsync(path))!;
+
+        TagWriteResult removed = await writer.WriteAsync(path, new TagEdit(Pictures: []));
+        // Undo is the snapshot's edit written back, the same as for the text fields.
+        TagWriteResult restored = await writer.WriteAsync(path, removed.Before!.ToEdit());
+
+        restored.Outcome.Should().Be(TagWriteOutcome.Written);
+        EmbeddedPicture.SameSet((await writer.ReadAsync(path))!.Pictures, original.Pictures).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_text_only_write_does_not_capture_pictures_so_its_undo_leaves_them_alone_Async()
+    {
+        string path = Copy(Flac);
+        var writer = new TagLibTagWriter();
+
+        TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Title: "Text only"));
+
+        result.Outcome.Should().Be(TagWriteOutcome.Written);
+        result.Before!.Pictures.Should().BeNull("a batch of twelve must not hold twelve covers on the undo stack");
+        result.Before.ToEdit().Pictures.Should().BeNull("and its undo must not rewrite them either");
+        (await writer.ReadAsync(path))!.Pictures.Should().NotBeEmpty("the picture was left in the file");
+    }
+
+    [Fact]
+    public async Task Asking_for_the_pictures_a_file_already_has_does_not_touch_it_Async()
+    {
+        string path = Copy(Mp3);
+        var writer = new TagLibTagWriter();
+        TagSnapshot before = (await writer.ReadAsync(path))!;
+        string hash = Sha256(path);
+
+        TagWriteResult result = await writer.WriteAsync(path, new TagEdit(Pictures: before.Pictures));
+
+        result.Outcome.Should().Be(TagWriteOutcome.Unchanged);
+        Sha256(path).Should().Be(hash);
+    }
+
     // ---- helpers ----------------------------------------------------------------------------------------------
 
     /// <summary>A writer that throws from the hook the moment <paramref name="stage"/> is reached.</summary>
@@ -474,6 +563,24 @@ internal static class Ffprobe
         string text = Value(tags, key);
         string digits = new([.. text.TakeWhile(char.IsAsciiDigit)]);
         return digits.Length > 0 ? int.Parse(digits, CultureInfo.InvariantCulture) : null;
+    }
+
+    /// <summary>The codec of the embedded picture ffprobe sees as an attached-picture video stream, or null when there is none.</summary>
+    public static string? AttachedPictureCodec(string path)
+    {
+        string output = Run("ffprobe", $"-v error -select_streams v -show_entries stream=codec_name:stream_disposition=attached_pic -of compact=p=0:nk=0 \"{path}\"");
+        foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!line.Contains("attached_pic=1", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? codec = line.Split('|').FirstOrDefault(part => part.StartsWith("codec_name=", StringComparison.Ordinal));
+            return codec?["codec_name=".Length..].Trim();
+        }
+
+        return null;
     }
 
     /// <summary>Decodes the whole file to nowhere; false when ffmpeg reports the stream is broken.</summary>

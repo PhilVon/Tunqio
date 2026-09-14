@@ -17,14 +17,20 @@ public sealed partial class TagEditorDialog : ContentDialog
 {
     private TagEditReport? _report;
 
+    private int _artLoad;
+
     public TagEditorDialog(TagEditorViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         ViewModel = viewModel;
         InitializeComponent();
+        ViewModel.PropertyChanged += OnViewModelChanged;
     }
 
     public TagEditorViewModel ViewModel { get; }
+
+    /// <summary>Visible when <paramref name="value"/> equals <paramref name="shown"/>; a function that returns Visibility itself, because a bool one cast in XAML does not compile (see HasError).</summary>
+    public static Visibility When(bool value, bool shown) => value == shown ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// The placeholder a box shows: "(multiple values)" while the selection disagrees on its field and the box is
@@ -86,6 +92,60 @@ public sealed partial class TagEditorDialog : ContentDialog
     {
         args.Cancel = true;
         ConfirmAsync().Forget("Tag edit");
+    }
+
+    private void OnReplaceArt(object sender, RoutedEventArgs e) => ViewModel.ReplaceArtAsync().Forget("Replace cover art");
+
+    private void OnRemoveArt(object sender, RoutedEventArgs e) => ViewModel.RemoveArt();
+
+    private void OnViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TagEditorViewModel.Art))
+        {
+            LoadArtAsync(ViewModel.Art).Forget("Load cover art preview");
+        }
+    }
+
+    /// <summary>
+    /// Shows the view model's cover in the preview. The bytes are decoded from memory rather than from the art
+    /// cache, because a picture picked for Replace is in no cache yet. A load that finishes after a newer one
+    /// began is dropped, so a slow decode cannot paint a picture the user has since removed.
+    /// </summary>
+    private async Task LoadArtAsync(Core.Library.EmbeddedPicture? picture)
+    {
+        int load = ++_artLoad;
+        if (picture is null)
+        {
+            ArtImage.Source = null;
+            return;
+        }
+
+        var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 192 };
+        using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+        using (var writer = new Windows.Storage.Streams.DataWriter(stream.GetOutputStreamAt(0)))
+        {
+            writer.WriteBytes(picture.Bytes.ToArray());
+            await writer.StoreAsync();
+            await writer.FlushAsync();
+            writer.DetachStream();
+        }
+
+        stream.Seek(0);
+        try
+        {
+            await image.SetSourceAsync(stream);
+        }
+        catch (Exception ex) when (ex is ArgumentException or System.Runtime.InteropServices.COMException)
+        {
+            // Not an image the decoder knows. The summary still says what the file holds; the box stays empty.
+            Serilog.Log.Warning(ex, "The tag editor could not decode the embedded picture for its preview");
+            return;
+        }
+
+        if (load == _artLoad)
+        {
+            ArtImage.Source = image;
+        }
     }
 
     private async Task ConfirmAsync()

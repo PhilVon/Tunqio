@@ -894,6 +894,77 @@ try {
         $problems -join '; '
     }
 
+    # ---- T-113: the art preview and Remove art, single-track shape ---------------------------------------------
+    # The fixtures carry an embedded PNG cover, so the preview has something to show and Remove has something to do.
+    # Replace is not driven here: it opens the system file picker, which this script does not reach into (the same
+    # line the M3U8 export drew); it is covered by the unit tests and by Phil's eye. Read from disk by ffprobe, the
+    # independent tagger, not through the app.
+    Write-Output ''
+    Write-Output 'T-113  the single-track dialog previews the embedded cover, and Remove art takes it out of the file'
+
+    function Get-AttachedPictureCodec([string]$path) {
+        (& ffprobe -v error -select_streams v -show_entries stream=codec_name -of default=nw=1:nk=1 $path 2>$null | Select-Object -First 1)
+    }
+
+    $script:artPath = $null
+    Test-Case 'the single-track dialog shows the embedded cover and offers Replace and Remove' {
+        $table = Get-ElementWithId $script:window 'List'
+        $rows = $table.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+        if ($rows.Count -eq 0) { return 'the Tracks table is empty' }
+        $title = ($rows[0].Current.Name -split ' by ', 2)[0]
+        $script:artPath = $pathsByTitle[$title]
+        if (-not $script:artPath) { return "could not resolve '$title' to a file on disk" }
+        $codec = Get-AttachedPictureCodec $script:artPath
+        if (-not $codec) { return "the fixture $title carries no embedded picture, so there is nothing to preview or remove" }
+        $rows[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Send-Keys '{F2}'
+        Start-Sleep -Seconds 3
+        $single = Get-Dialog
+        if (-not $single) { return 'F2 over one row did not open the dialog' }
+        $problems = @()
+        # By id: a Name on the TextBlock would replace its text in the tree, which is what the first live run found.
+        $summary = Get-ElementWithId $single 'ArtSummary'
+        if (-not $summary) { $problems += 'the dialog has no cover art summary' }
+        elseif ($summary.Current.Name -notlike 'Embedded *') { $problems += "the summary says '$($summary.Current.Name)' for a file with an embedded $codec" }
+        else { $script:detail += "summary: $($summary.Current.Name)" }
+        if (-not (Get-ElementNamed $single 'Cover art preview' 'Image')) { $problems += 'the dialog has no cover art preview image' }
+        foreach ($button in 'Replace art...', 'Remove art') {
+            $found = $null
+            foreach ($element in Get-Descendants $single) {
+                if ((Get-TypeName $element) -eq 'Button' -and ($element.Current.Name -eq $button -or $element.Current.Name -like ($button.TrimEnd('.') + '*'))) { $found = $element; break }
+            }
+            if (-not $found) { $problems += "the dialog has no '$button' button" }
+            elseif (-not $found.Current.IsEnabled) { $problems += "'$button' is disabled on a file that has art" }
+        }
+        if ($problems.Count -gt 0) {
+            (Get-ElementNamed $single 'Cancel' 'Button').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            Start-Sleep -Seconds 1
+        }
+        $problems -join '; '
+    }
+
+    Test-Case 'Remove art then Confirm leaves the file with no embedded picture' {
+        $single = Get-Dialog
+        if (-not $single) { return 'the single-track dialog is not open' }
+        if (-not $script:artPath) { return 'no file was resolved by the case before this one' }
+        $remove = Get-ElementNamed $single 'Remove art' 'Button'
+        if (-not $remove) { return 'no Remove art button' }
+        $remove.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Start-Sleep -Milliseconds 800
+        $summary = Get-ElementWithId $single 'ArtSummary'
+        if ($summary -and $summary.Current.Name -notmatch 'removed') { return "after Remove the summary says '$($summary.Current.Name)'" }
+        $confirm = Get-ElementNamed $single 'Confirm' 'Button'
+        if (-not $confirm.Current.IsEnabled) { return 'Confirm stayed disabled after Remove art' }
+        $confirm.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $deadline = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $deadline -and (Get-Dialog)) { Start-Sleep -Milliseconds 300 }
+        if (Get-Dialog) { return 'the dialog stayed open after Confirm, which means the write did not go clean' }
+        $codec = Get-AttachedPictureCodec $script:artPath
+        if ($codec) { return "ffprobe still sees an attached $codec picture in $script:artPath" }
+        $script:detail += "ffprobe sees no attached picture in $(Split-Path $script:artPath -Leaf)"
+        return $null
+    }
+
     # ---- the failure path, which is the only time the verdict column is on screen ------------------------------
     Write-Output ''
     Write-Output 'T-137  a file that cannot be written keeps the dialog up with its verdict'

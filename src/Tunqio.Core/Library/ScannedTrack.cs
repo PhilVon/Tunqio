@@ -41,6 +41,8 @@ public sealed record ScannedTrack(
 /// A partial tag edit: every property left <c>null</c> is unchanged. Written to the file by
 /// <see cref="ITagWriter"/>; the database follows by a targeted rescan of the written paths (<see cref="ITagEditor"/>,
 /// E3-S10), which is the one write path for tags. <see cref="Rating"/> is user data that lives in the database only.
+/// <see cref="Pictures"/> is the file's whole picture set (T-113): <c>null</c> leaves it alone, an empty list clears
+/// every picture, and a list replaces the set with exactly those pictures.
 /// </summary>
 public sealed record TagEdit(
     string? Title = null,
@@ -53,8 +55,10 @@ public sealed record TagEdit(
     IReadOnlyList<string>? Genres = null,
     string? Composer = null,
     string? Comment = null,
-    int? Rating = null)
+    int? Rating = null,
+    IReadOnlyList<EmbeddedPicture>? Pictures = null)
 {
     public bool IsEmpty => Title is null && Artists is null && AlbumTitle is null && AlbumArtist is null && Year is null
-        && TrackNo is null && DiscNo is null && Genres is null && Composer is null && Comment is null && Rating is null;
+        && TrackNo is null && DiscNo is null && Genres is null && Composer is null && Comment is null && Rating is null
+        && Pictures is null;
 }

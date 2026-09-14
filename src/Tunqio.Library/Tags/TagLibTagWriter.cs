@@ -87,7 +87,8 @@ public sealed class TagLibTagWriter : ITagWriter
             return null;
         }
 
-        return await RunAsync(() => Snapshot(path, Format(path)), ct).ConfigureAwait(false) is { Ok: true, Value: var snapshot } ? snapshot : null;
+        // With the pictures: this is what the dialog shows, and the art preview is one of them (T-113).
+        return await RunAsync(() => Snapshot(path, Format(path), withPictures: true), ct).ConfigureAwait(false) is { Ok: true, Value: var snapshot } ? snapshot : null;
     }
 
     public async Task<TagWriteResult> WriteAsync(string path, TagEdit edit, CancellationToken ct = default)
@@ -102,7 +103,10 @@ public sealed class TagLibTagWriter : ITagWriter
         }
 
         string format = Format(path);
-        Attempt<TagSnapshot> before = await RunAsync(() => Snapshot(path, format), ct).ConfigureAwait(false);
+        // The pictures are pulled only for an edit that touches them: the snapshot goes on the undo stack for the
+        // session, and a text-only batch must not hold every cover it passed over (TagSnapshot's remarks).
+        bool withPictures = edit.Pictures is not null;
+        Attempt<TagSnapshot> before = await RunAsync(() => Snapshot(path, format, withPictures), ct).ConfigureAwait(false);
         if (!before.Ok)
         {
             _logger.LogWarning("Tag write of {Path} could not read the current tags: {Error}", path, before.Error);
@@ -118,7 +122,7 @@ public sealed class TagLibTagWriter : ITagWriter
             return new TagWriteResult(path, TagWriteOutcome.Unchanged, current);
         }
 
-        Attempt<bool> write = await RunAsync(() => WriteIsolated(path, format, edit, wanted), ct).ConfigureAwait(false);
+        Attempt<bool> write = await RunAsync(() => WriteIsolated(path, format, edit, wanted, withPictures), ct).ConfigureAwait(false);
         if (!write.Ok)
         {
             _logger.LogWarning("Tag write of {Path} failed: {Error}", path, write.Error);
@@ -132,7 +136,7 @@ public sealed class TagLibTagWriter : ITagWriter
     /// The whole write, on the pool and inside one try. The temp file is deleted on every path out, so a run of
     /// failures does not litter the user's music folder with working copies.
     /// </summary>
-    private bool WriteIsolated(string path, string format, TagEdit edit, TagSnapshot wanted)
+    private bool WriteIsolated(string path, string format, TagEdit edit, TagSnapshot wanted, bool withPictures)
     {
         string temp = path + TempSuffix;
         try
@@ -150,7 +154,7 @@ public sealed class TagLibTagWriter : ITagWriter
 
             _onStage?.Invoke(TagWriteStage.Saved, temp);
 
-            Verify(temp, format, wanted);
+            Verify(temp, format, wanted, withPictures);
             _onStage?.Invoke(TagWriteStage.Verified, temp);
 
             _onStage?.Invoke(TagWriteStage.Replacing, temp);
@@ -214,10 +218,10 @@ public sealed class TagLibTagWriter : ITagWriter
     }
 
     /// <summary>Reads the copy back and insists it says what was asked for, and that the audio is still there.</summary>
-    private void Verify(string temp, string format, TagSnapshot wanted)
+    private void Verify(string temp, string format, TagSnapshot wanted, bool withPictures)
     {
         using TagFile file = _open(temp, format);
-        TagSnapshot written = Snapshot(file);
+        TagSnapshot written = Snapshot(file, withPictures);
         if (!written.Matches(wanted))
         {
             throw new TagWriteVerificationException($"the file did not keep the edited values (it reports {Describe(written)}, expected {Describe(wanted)})");
@@ -310,12 +314,40 @@ public sealed class TagLibTagWriter : ITagWriter
         {
             tag.Comment = Blank(comment);
         }
+
+        if (edit.Pictures is { } pictures)
+        {
+            // The whole set, so an empty list clears every picture and undo puts every one back (T-113).
+            tag.Pictures = [.. pictures.Select(ToTagLib)];
+        }
     }
 
-    private TagSnapshot Snapshot(string path, string format)
+    private static Picture ToTagLib(EmbeddedPicture picture) => new()
+    {
+        Type = (PictureType)(int)picture.Kind,
+        MimeType = picture.MimeType ?? "image/jpeg",
+        Data = new ByteVector(picture.Bytes.ToArray()),
+        Description = string.Empty,
+    };
+
+    private static EmbeddedPicture? FromTagLib(IPicture picture)
+    {
+        byte[]? data = picture.Data?.Data;
+        if (data is null || data.Length == 0)
+        {
+            return null;
+        }
+
+        // The codes are ID3's; anything TagLibSharp adds of its own (NotAPicture) is kept as Other.
+        int type = (int)picture.Type;
+        PictureKind kind = Enum.IsDefined((PictureKind)type) ? (PictureKind)type : PictureKind.Other;
+        return new EmbeddedPicture(data, TagValues.Clean(picture.MimeType), kind);
+    }
+
+    private TagSnapshot Snapshot(string path, string format, bool withPictures)
     {
         using TagFile file = _open(path, format);
-        return Snapshot(file);
+        return Snapshot(file, withPictures);
     }
 
     /// <summary>
@@ -331,11 +363,15 @@ public sealed class TagLibTagWriter : ITagWriter
     /// here the same values are about to be compared with what was written, and a "Simon, Garfunkel" the user
     /// typed as one name must read back as one name or every verify would fail.
     /// </summary>
-    private static TagSnapshot Snapshot(TagFile file)
+    private static TagSnapshot Snapshot(TagFile file, bool withPictures)
     {
         Tag tag = file.Tag;
         IReadOnlyList<string> albumArtists = TagValues.Distinct(tag.AlbumArtists);
         IReadOnlyList<string> composers = TagValues.Distinct(tag.Composers);
+        // Reading Pictures pulls every picture's bytes out of the lazily parsed tag, hence the switch.
+        IReadOnlyList<EmbeddedPicture>? pictures = withPictures
+            ? [.. (tag.Pictures ?? []).Select(FromTagLib).OfType<EmbeddedPicture>()]
+            : null;
         return new TagSnapshot(
             Title: TagValues.Clean(tag.Title),
             Artists: TagValues.Distinct(tag.Performers),
@@ -347,7 +383,8 @@ public sealed class TagLibTagWriter : ITagWriter
             Genres: TagValues.Distinct(tag.Genres),
             Composer: composers.Count > 0 ? string.Join("; ", composers) : null,
             Comment: TagValues.Clean(tag.Comment),
-            Rating: TagRatings.Read(file));
+            Rating: TagRatings.Read(file),
+            Pictures: pictures);
     }
 
     /// <summary>
@@ -386,7 +423,8 @@ public sealed class TagLibTagWriter : ITagWriter
     private static string Describe(TagSnapshot snapshot) =>
         $"title '{snapshot.Title}', artists '{string.Join("; ", snapshot.Artists ?? [])}', album '{snapshot.AlbumTitle}', " +
         $"album artist '{snapshot.AlbumArtist}', year {snapshot.Year}, track {snapshot.TrackNo}, disc {snapshot.DiscNo}, " +
-        $"genres '{string.Join("; ", snapshot.Genres ?? [])}', rating {snapshot.Rating}";
+        $"genres '{string.Join("; ", snapshot.Genres ?? [])}', rating {snapshot.Rating}" +
+        (snapshot.Pictures is { } pictures ? $", pictures [{string.Join(", ", pictures.Select(p => $"{p.Kind} {p.Bytes.Length} bytes"))}]" : string.Empty);
 
     private static string? Blank(string value) => value.Length == 0 ? null : TagValues.Clean(value);
 

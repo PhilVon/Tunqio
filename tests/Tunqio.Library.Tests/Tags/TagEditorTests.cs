@@ -20,6 +20,55 @@ public class TagEditorTests
         public void Report(TagEditProgress value) => Samples.Add(value);
     }
 
+    /// <summary>
+    /// T-113: a cover edit reaches the library through the same targeted rescan as a text edit, and that rescan
+    /// runs the art stage, so the row's art hash follows the file. This is the "album art cache is told the art
+    /// changed" the story asked for; nothing tells it, the scan simply does its job.
+    /// </summary>
+    [Fact]
+    public async Task Removing_a_cover_clears_the_row_art_hash_and_undo_brings_it_back_Async()
+    {
+        string artRoot = Path.Combine(Path.GetTempPath(), "tunqio-art-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using ScanHarness h = await ScanHarness.CreateAsync(artCache: new Tunqio.Library.Art.ArtCache(artRoot));
+            await h.ScanAsync();
+            TrackDto track = (await h.AllTracksAsync()).First(t => t.Path.EndsWith(".flac", StringComparison.OrdinalIgnoreCase) && t.ArtHash is not null);
+            var editor = new TagEditor(new TagLibTagWriter(), h.Scanner);
+            var target = TagEditTarget.For(track);
+
+            TagEditReport report = await editor.ApplyAsync([target], new TagEdit(Pictures: []));
+
+            report.Written.Should().Be(1);
+            report.Description.Should().Be("Cover art on 1 track");
+            // The track's own column, not the DTO: TrackDto.ArtHash falls back to the album's art, and the album row
+            // keeps the first hash it saw (T-207 is that gap). What this story promises is that the file's own art
+            // hash follows the file.
+            TrackArtHash(h, track.Id).Should().BeNull("the rescan's art stage found no picture in the file");
+
+            TagEditReport? undone = await editor.UndoAsync();
+
+            undone!.Written.Should().Be(1);
+            TrackArtHash(h, track.Id).Should().Be(track.ArtHash, "the same bytes hash to the same cached image");
+        }
+        finally
+        {
+            if (Directory.Exists(artRoot))
+            {
+                Directory.Delete(artRoot, recursive: true);
+            }
+        }
+    }
+
+    private static string? TrackArtHash(ScanHarness h, long trackId)
+    {
+        using Microsoft.Data.Sqlite.SqliteConnection connection = h.Db.OpenConnection();
+        using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT art_hash FROM track WHERE id = $id";
+        command.Parameters.AddWithValue("$id", trackId);
+        return command.ExecuteScalar() as string;
+    }
+
     [Fact]
     public async Task A_batch_of_12_reports_progress_and_undo_restores_the_files_and_the_rows_Async()
     {

@@ -61,9 +61,19 @@ public sealed partial class TagEditorViewModel : ObservableObject
     /// </summary>
     public const string MultipleValuesHelp = "Multiple values. The selected tracks differ on this field, and it is left as it is unless you type in it.";
 
+    /// <summary>Bigger than this and Replace art refuses: it would be embedded into the audio file itself.</summary>
+    public const int MaxArtBytes = 10 * 1024 * 1024;
+
     private readonly ITagEditor _editor;
     private readonly ITagWriter _writer;
+    private readonly ICoverArtPicker _artPicker;
     private Loaded _loaded = Loaded.Empty;
+
+    // The single track's pictures as loaded and as they will be written (T-113). The whole set, not just the cover:
+    // the file may carry a back cover or a booklet page too. Replace and Remove touch only the picture Tunqio shows
+    // (the front cover, else the first) and leave the others exactly as they are (Phil, Q-142: shown-only).
+    private IReadOnlyList<EmbeddedPicture> _loadedPictures = [];
+    private IReadOnlyList<EmbeddedPicture> _pictures = [];
 
     [ObservableProperty]
     public partial string Title { get; set; } = string.Empty;
@@ -113,12 +123,14 @@ public sealed partial class TagEditorViewModel : ObservableObject
     [ObservableProperty]
     public partial string? Error { get; set; }
 
-    public TagEditorViewModel(ITagEditor editor, ITagWriter writer)
+    public TagEditorViewModel(ITagEditor editor, ITagWriter writer, ICoverArtPicker artPicker)
     {
         ArgumentNullException.ThrowIfNull(editor);
         ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(artPicker);
         _editor = editor;
         _writer = writer;
+        _artPicker = artPicker;
     }
 
     /// <summary>The files the edit would touch, in the order they were selected — the dialog's preview list.</summary>
@@ -136,6 +148,122 @@ public sealed partial class TagEditorViewModel : ObservableObject
 
     /// <summary>Whether the progress line has anything to say.</summary>
     public bool HasProgressText => !string.IsNullOrEmpty(ProgressText);
+
+    // ---- the art preview (T-113; docs/ui-screens-and-flows.md, "Single: ... art preview with replace/remove") ----
+
+    /// <summary>The picture the preview shows: the file's cover as it will be after Confirm, or null when it will have none.</summary>
+    public EmbeddedPicture? Art => EmbeddedPicture.Cover(_pictures);
+
+    public bool HasArt => Art is not null;
+
+    /// <summary>Only the single-track shape edits art: a batch has nothing to preview, and nothing sensible to replace twelve covers with.</summary>
+    public bool CanEditArt => !IsBatch && !IsWriting && Files.Count == 1;
+
+    /// <summary>True once Replace or Remove has changed the set, so Confirm has something to write.</summary>
+    public bool ArtChanged => !EmbeddedPicture.SameSet(_pictures, _loadedPictures);
+
+    /// <summary>What the preview says under the picture: the format and size, and what Confirm will do to it.</summary>
+    public string ArtSummary
+    {
+        get
+        {
+            EmbeddedPicture? loaded = EmbeddedPicture.Cover(_loadedPictures);
+            int others = Math.Max(0, _loadedPictures.Count - (loaded is null ? 0 : 1));
+            string more = others switch
+            {
+                0 => string.Empty,
+                1 => " This file also holds one other picture.",
+                _ => $" This file also holds {others} other pictures.",
+            };
+
+            if (!ArtChanged)
+            {
+                return loaded is null ? "No embedded art." : $"Embedded {Describe(loaded)}.{more}";
+            }
+
+            if (Art is not { } art)
+            {
+                return "The art will be removed.";
+            }
+
+            if (_loadedPictures.Any(p => ReferenceEquals(p, art)))
+            {
+                // Remove took the cover off a file that holds other pictures, so one of those becomes the art. Said
+                // plainly, because it is the surprising half of shown-only (Q-142).
+                return $"The cover will be removed. The file's {KindName(art.Kind)} ({Describe(art)}) will show as its art instead.";
+            }
+
+            return $"New cover: {Describe(art)}. {(loaded is null ? "The file has none now." : "It replaces the current one.")}{(others > 0 ? " The other pictures stay." : string.Empty)}";
+        }
+    }
+
+    /// <summary>Lets the user pick an image; it becomes the front cover in place of the one shown, and the other pictures stay (Q-142). Nothing is written until Confirm.</summary>
+    public async Task ReplaceArtAsync(CancellationToken ct = default)
+    {
+        if (!CanEditArt)
+        {
+            return;
+        }
+
+        EmbeddedPicture? picked = await _artPicker.PickAsync(ct).ConfigureAwait(true);
+        if (picked is null)
+        {
+            return;
+        }
+
+        if (picked.Bytes.Length > MaxArtBytes)
+        {
+            Error = $"That image is {picked.Bytes.Length / (1024 * 1024)} MB. Pick one under {MaxArtBytes / (1024 * 1024)} MB; it is stored inside the audio file.";
+            return;
+        }
+
+        EmbeddedPicture? shown = EmbeddedPicture.Cover(_pictures);
+        _pictures = [picked with { Kind = PictureKind.FrontCover }, .. _pictures.Where(p => !ReferenceEquals(p, shown))];
+        Error = null;
+        Notify();
+    }
+
+    /// <summary>Marks the shown picture for removal and leaves any others in the file (Q-142: shown-only). Nothing is written until Confirm.</summary>
+    public void RemoveArt()
+    {
+        if (!CanEditArt || EmbeddedPicture.Cover(_pictures) is not { } shown)
+        {
+            return;
+        }
+
+        _pictures = [.. _pictures.Where(p => !ReferenceEquals(p, shown))];
+        Notify();
+    }
+
+    private static string KindName(PictureKind kind) => kind switch
+    {
+        PictureKind.FrontCover => "front cover",
+        PictureKind.BackCover => "back cover",
+        PictureKind.LeafletPage => "leaflet page",
+        PictureKind.Media => "media picture",
+        PictureKind.LeadArtist or PictureKind.Artist => "artist picture",
+        PictureKind.Band => "band picture",
+        PictureKind.BandLogo => "band logo",
+        PictureKind.PublisherLogo => "publisher logo",
+        PictureKind.Illustration => "illustration",
+        _ => "other picture",
+    };
+
+    private static string Describe(EmbeddedPicture picture)
+    {
+        string format = picture.MimeType switch
+        {
+            "image/png" => "PNG",
+            "image/jpeg" or "image/jpg" => "JPEG",
+            "image/gif" => "GIF",
+            "image/bmp" => "BMP",
+            "image/webp" => "WebP",
+            _ => "image",
+        };
+        double kb = picture.Bytes.Length / 1024.0;
+        string size = kb >= 1024 ? string.Format(CultureInfo.CurrentCulture, "{0:0.#} MB", kb / 1024) : string.Format(CultureInfo.CurrentCulture, "{0:0} KB", kb);
+        return $"{format}, {size}";
+    }
 
     // ---- which boxes the selection disagrees on ------------------------------------------------------------
     // True while the tracks differ on the field AND the box still holds what it was loaded with, which is exactly
@@ -177,6 +305,9 @@ public sealed partial class TagEditorViewModel : ObservableObject
         IsBatch = tracks.Count > 1;
         Header = IsBatch ? $"Edit tags — {tracks.Count} tracks" : "Edit tags";
         _loaded = Loaded.From(snapshots);
+        // A batch never edits art, so it never holds twelve covers either.
+        _loadedPictures = IsBatch ? [] : snapshots[0].Pictures ?? [];
+        _pictures = _loadedPictures;
 
         Title = _loaded.Title;
         Artists = _loaded.Artists;
@@ -204,7 +335,8 @@ public sealed partial class TagEditorViewModel : ObservableObject
         Year: ChangedNumber(Year, _loaded.Year),
         TrackNo: ChangedNumber(TrackNo, _loaded.TrackNo),
         DiscNo: ChangedNumber(DiscNo, _loaded.DiscNo),
-        Genres: ChangedList(Genres, _loaded.Genres));
+        Genres: ChangedList(Genres, _loaded.Genres),
+        Pictures: ArtChanged ? _pictures : null);
 
     /// <summary>
     /// Writes the edit, moving the progress bar and marking each file in the preview list as it goes. Returns
@@ -277,6 +409,11 @@ public sealed partial class TagEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(IsTrackNoMixed));
         OnPropertyChanged(nameof(IsDiscNoMixed));
         OnPropertyChanged(nameof(IsGenresMixed));
+        OnPropertyChanged(nameof(Art));
+        OnPropertyChanged(nameof(HasArt));
+        OnPropertyChanged(nameof(CanEditArt));
+        OnPropertyChanged(nameof(ArtChanged));
+        OnPropertyChanged(nameof(ArtSummary));
     }
 
     private bool IsMixed(Field field, string current, string loaded) => (_loaded.Mixed & field) != 0 && current == loaded;

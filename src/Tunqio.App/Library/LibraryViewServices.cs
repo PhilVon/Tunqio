@@ -16,6 +16,7 @@ public static class LibraryViewServices
         services.AddSingleton<IFileRevealer, ExplorerFileRevealer>();
         services.AddSingleton<ILibraryFolderPicker, WinUiFolderPicker>();
         services.AddSingleton<IPlaylistFilePicker, WinUiPlaylistFilePicker>();
+        services.AddSingleton<ICoverArtPicker, WinUiCoverArtPicker>();
         services.AddSingleton(p => new LibraryScanCoordinator(
             p.GetRequiredService<ILibraryScanner>(), p.GetService<TimeProvider>(), uiContext, p.GetService<ILogger<LibraryScanCoordinator>>()));
         // The tag editor (E3-S10). ActiveTrackFile resolves the editor lazily because the editor asks it which

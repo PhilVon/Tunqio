@@ -41,6 +41,33 @@
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Spacing="12">
+      <!--
+        The art preview (T-113), single-track shape only: the cover the file will carry after Confirm, what it is,
+        and Replace / Remove. The Image is fed from the view model's bytes in code-behind, because a BitmapImage
+        is built from a stream asynchronously and x:Bind has no async function shape.
+      -->
+      <Grid ColumnSpacing="12" Visibility="{x:Bind ViewModel.CanEditArt, Mode=OneWay}" AutomationProperties.Name="Cover art">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid Width="96" Height="96" CornerRadius="6"
+              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1">
+          <FontIcon Glyph="&#xEB9F;" FontSize="28" Opacity="0.5" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Visibility="{x:Bind library:TagEditorDialog.When(ViewModel.HasArt, x:False), Mode=OneWay}" />
+          <Image x:Name="ArtImage" Stretch="UniformToFill" AutomationProperties.Name="Cover art preview" />
+        </Grid>
+        <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center">
+          <TextBlock Text="{x:Bind ViewModel.ArtSummary, Mode=OneWay}" TextWrapping="Wrap"
+                     Style="{ThemeResource CaptionTextBlockStyle}" AutomationProperties.AutomationId="ArtSummary" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Replace art…" Click="OnReplaceArt" IsEnabled="{x:Bind ViewModel.CanEditArt, Mode=OneWay}" />
+            <Button Content="Remove art" Click="OnRemoveArt" IsEnabled="{x:Bind ViewModel.HasArt, Mode=OneWay}" />
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+
       <Grid ColumnSpacing="12" RowSpacing="8">
         <Grid.ColumnDefinitions>
           <!--
