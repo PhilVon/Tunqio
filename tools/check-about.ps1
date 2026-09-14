@@ -206,6 +206,34 @@ try {
     $frameLater = (Find-ById $overlay 'FrameTimeReadout').Current.Name
     Check 'The readout moves while the page is open' ($dropLater -ne $dropText -or $frameLater -ne $frameText) "dropouts '$dropText' -> '$dropLater'; frame '$frameText' -> '$frameLater'"
 
+    # T-71 review: the readout grid had no RowDefinitions, so its three rows drew on one line and blurred as the
+    # numbers changed. UIA cannot see pixels, but it can see where each row is and how many text blocks there are.
+    # Scrolled to the bottom so the rows are on screen (an offscreen element has no rectangle), then read after the
+    # first refresh and again after several more: the same number of text blocks, three rows one below the other.
+    Set-ScrollTo $surface 100
+    function Get-ReadoutTexts {
+        $ids = @('DropoutsReadout', 'FrameTimeReadout', 'MemoryReadout')
+        $values = @(Find-AllOfType $overlay ([System.Windows.Automation.ControlType]::Text) | Where-Object { $ids -contains $_.Current.AutomationId })
+        $labels = @(Find-AllOfType $overlay ([System.Windows.Automation.ControlType]::Text) | Where-Object { @('Dropouts', 'Frame time', 'Memory') -contains $_.Current.Name })
+        return [pscustomobject]@{ Values = $values; Labels = $labels; Count = $values.Count + $labels.Count }
+    }
+    $first = Get-ReadoutTexts
+    Start-Sleep -Milliseconds 3000
+    $later = Get-ReadoutTexts
+    Check 'The readout holds the same text blocks after several refreshes' ($first.Count -eq 6 -and $later.Count -eq $first.Count) "$($first.Count) text blocks after the first refresh, $($later.Count) after six more"
+    $rowRects = @('DropoutsReadout', 'FrameTimeReadout', 'MemoryReadout') | ForEach-Object { $e = Find-ById $overlay $_; [pscustomobject]@{ Id = $_; Rect = $(if ($e) { Get-UiaRect $e } else { $null }) } }
+    $stacked = $true
+    $rowProblems = @()
+    for ($i = 0; $i -lt $rowRects.Count; $i++) {
+        $r = $rowRects[$i].Rect
+        if (-not $r -or $r.Offscreen) { $stacked = $false; $rowProblems += "$($rowRects[$i].Id) not on screen"; continue }
+        if ($i -gt 0 -and $rowRects[$i - 1].Rect -and -not $rowRects[$i - 1].Rect.Offscreen -and $r.Top -lt ($rowRects[$i - 1].Rect.Bottom - 1)) {
+            $stacked = $false; $rowProblems += "$($rowRects[$i].Id) starts at $($r.Top), above the end of $($rowRects[$i - 1].Id) at $($rowRects[$i - 1].Rect.Bottom)"
+        }
+    }
+    Check 'The readout rows sit one below the other, not on top of each other' $stacked $(if ($rowProblems.Count) { $rowProblems -join '; ' } else { ($rowRects | ForEach-Object { "$($_.Id) $($_.Rect.Top)..$($_.Rect.Bottom)" }) -join ', ' })
+    Set-ScrollTo $surface 0
+
     # ---- open logs folder ---------------------------------------------------------------------------------------------
     Invoke-Element (Find-Named $overlay 'Open logs folder')
     Start-Sleep -Milliseconds 2500

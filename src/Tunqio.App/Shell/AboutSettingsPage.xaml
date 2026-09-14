@@ -104,7 +104,8 @@
       <!-- Performance -->
       <TextBlock Text="Performance" Style="{StaticResource SectionHeader}" />
       <TextBlock Text="The same numbers as the diagnostics overlay (Ctrl+Shift+D), read twice a second while this page is open." Style="{StaticResource Hint}" />
-      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" RowSpacing="4" Margin="0,8,0,0">
+      <!-- Three declared rows: without RowDefinitions every Grid.Row clamps to row 0 and the rows draw over each other (T-71 review). -->
+      <Grid x:Name="ReadoutGrid" RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*" ColumnSpacing="12" RowSpacing="4" Margin="0,8,0,0">
         <TextBlock Grid.Row="0" Text="Dropouts" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
         <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.Dropouts, Mode=OneWay}" Style="{StaticResource Readout}"
                    AutomationProperties.AutomationId="DropoutsReadout" />
