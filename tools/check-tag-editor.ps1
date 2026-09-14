@@ -29,7 +29,9 @@
   in the UI is a system folder picker, and driving a system folder picker by keystroke is exactly the sleep-and-hope
   this kind of script exists to avoid.
 .PARAMETER Exe
-  The built shell. Defaults to the Debug x64 output.
+  The built shell. Defaults to the Release x64 output (T-196).
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 .PARAMETER Seconds
   How long to give the window before reading the tree.
 .PARAMETER KeepScratch
@@ -44,16 +46,18 @@ param(
     [switch]$KeepScratch,
     # Window widths the open dialog is measured at, comma-separated. A string because under powershell.exe -File an
     # [int[]] of "1600,640" becomes one integer.
-    [string]$Widths = '1600,1000,640'
+    [string]$Widths = '1600,1000,640',
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, Microsoft.VisualBasic
 
 # Resolved in the body rather than in the param default: $PSScriptRoot is empty there under powershell.exe -File (T-158).
-if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
+# Release, the build main's merge gate rebuilds: a Debug default drove a build a merge had left stale (T-196).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\release_win-x64\Tunqio.exe' }
 $Exe = (Resolve-Path $Exe -ErrorAction SilentlyContinue).Path
-if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
+if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
 
 # T-161: a harness driving a build that predates its own source reports the OLD binary's behaviour, and every
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.
@@ -290,10 +294,11 @@ Write-Output ''
 
 # Refuse rather than kill. This script writes tags, and it used to do that through whatever instance happened to be
 # running - including the one its author had open, with their own music in it (2026-09-12). An app already running is
-# somebody using it. There is no override, and this script never closes a shell it did not launch (T-189).
-$running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
-if ($running.Count -gt 0) {
-    throw ("Tunqio is already running (pid $($running.Id -join ', ')). This script writes tags to files through the " +
+# somebody using it. There is no override, and this script never closes a shell it did not launch (T-189). It waits
+# within -WaitMinutes for that app to exit before refusing (T-196).
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    $running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
+    throw ("Tunqio is still running after $WaitMinutes minute(s) (pid $($running.Id -join ', ')). This script writes tags to files through the " +
            'shell it launches, so it will not run beside a session somebody is using, and it never closes a ' +
            'shell it did not launch. Close the app and run again.')
 }

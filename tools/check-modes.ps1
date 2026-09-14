@@ -23,7 +23,9 @@ param(
     [int]$Seconds = 10,
     # Also press Ctrl+1/2/3, F11 and Esc at the window. Off by default: keystrokes go to whatever holds the
     # foreground, so this is for a machine nobody is using (T-163's refusal guards each key regardless).
-    [switch]$Keys
+    [switch]$Keys,
+    # T-196: how long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing.
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,9 +35,10 @@ $resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
 if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'uia-geometry.ps1') # Wait-TunqioExited (T-196)
 
-if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
-    throw 'Tunqio is already running. This script switches the mode of the instance it launches and plays through it, so it will not touch one somebody is using.'
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    throw "Tunqio is still running after $WaitMinutes minute(s). This script switches the mode of the instance it launches and plays through it, so it will not touch one somebody is using."
 }
 
 $A = [System.Windows.Automation.AutomationElement]

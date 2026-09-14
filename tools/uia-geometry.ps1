@@ -114,6 +114,28 @@ function Get-UiaClippedControls([object[]]$Readings, [string[]]$Stretch = @(), [
     return $problems
 }
 
+# Waits for every running Tunqio to exit before a harness launches its own (T-196). A Tunqio already running is
+# somebody using it, so a harness never closes, activates or reads it; it checks again every $PollSeconds, for at most
+# $WaitMinutes (T-174: every wait has an end, and a count), and returns $true once none is left, or $false if one is
+# still running at the deadline, for the caller to refuse with its own message. -WaitMinutes 0 checks once.
+#
+# Its own lines go to the host, not the pipeline, so the return value is only the verdict: capture it, never pipe it.
+function Wait-TunqioExited([int]$WaitMinutes = 10, [int]$PollSeconds = 30) {
+    if ($WaitMinutes -lt 0) { $WaitMinutes = 0 }
+    if ($PollSeconds -lt 1) { $PollSeconds = 1 }
+    $deadline = (Get-Date).AddMinutes($WaitMinutes)
+    $maxChecks = [int][Math]::Ceiling($WaitMinutes * 60 / $PollSeconds) + 1
+    for ($check = 1; $check -le $maxChecks; $check++) {
+        $running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
+        if ($running.Count -eq 0) { return $true }
+        if ($check -eq $maxChecks -or (Get-Date) -ge $deadline) { break }
+        Write-Host ("  wait  Tunqio is running (pid {0}); checking again in {1} s, until {2}" -f
+            ($running.Id -join ', '), $PollSeconds, $deadline.ToString('HH:mm'))
+        Start-Sleep -Seconds $PollSeconds
+    }
+    return (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -eq 0)
+}
+
 # Closes the shell a harness launched and says whether it exited cleanly (T-188). Closes $Window through its
 # WindowPattern when given one, else the process's main window; waits up to $TimeoutSeconds for the process to exit.
 # Returns $null on a clean exit, otherwise a one-line problem the caller adds to its failures (it has also been
