@@ -13,7 +13,10 @@ tunqio/
   Directory.Packages.props         Central NuGet versions (Windows App SDK pinned here)
   global.json                      .NET SDK pin
   .editorconfig                    C# style and naming; C++ indentation
-  THIRD-PARTY-NOTICES.md           Vendored components with versions, licences and SHA-256
+  THIRD-PARTY-NOTICES.md           Every third-party component the MSIX ships, with licences; vendored sources with SHA-256.
+                                   Shipped as licenses/THIRD-PARTY-NOTICES.md and parsed by the About page (E6-S5)
+  README.md                        User install and data locations; developer clone-to-run steps (T-86)
+  assets/brand/                    tunqio-icon.svg and icon-assets.json, the source of every icon (tools/IconGen, T-191)
   artifacts/                       All build output (bin/, obj/, native/<Config>/<Platform>/, msix/); not committed
   native/
     mpcore/                        C++20 DLL project (mpcore.vcxproj)
@@ -45,18 +48,26 @@ tunqio/
     Tunqio.Core.Tests/
     Tunqio.Interop.Tests/     Round-trips every ABI call against the real mpcore with the BASS "no sound" device
     Tunqio.Library.Tests/     In-memory SQLite + fixture library
-    Tunqio.App.Tests/         View-model tests; UI automation smoke (tagged)
-    Tunqio.Benchmarks/        BenchmarkDotNet: query builder, search, interop call overhead
+    Tunqio.App.Tests/         View-model and shell-logic tests over fakes, icon asset parsing. As built: no UI automation
+                              smoke here; the on-screen checks are the UIA harnesses tools/check-*.ps1 (below)
+    Tunqio.Benchmarks/        BenchmarkDotNet gates run with --gate: search, library open, upsert batch, curation,
+                              preset switch ([Budget] attributes; build-test-release.md, "Performance verification")
     fixtures/
   tools/
-    LatencyHarness/                C# console over Interop; measures audio-to-frame latency (ADR-012)
+    LatencyRunner/                 C# console over Interop; measures audio-to-picture latency (ADR-012). Written as
+                                   "LatencyHarness" in the original plan; decisions.md, ADR-012 "As built"
     SoakRunner/                    C# console over Interop; 24 h playback soak with dropout logging
     FixtureGen/                    Generates the fixture library and 100k database
-    fetch-native.ps1               Downloads BASS packages into native/bass/ with hash verification
+    IconGen/                       Renders assets/brand/tunqio-icon.svg into every icon asset; build-time only, not shipped
+    fetch-native.ps1               Downloads BASS packages into native/bass/ with hash verification (tools/native-deps.json)
+    fetch-ffmpeg.ps1               Pinned ffmpeg for the tag-writer tests (tools/ffmpeg-dep.json)
     build.ps1                      Two-step local build (MSBuild.exe for native, dotnet for managed) with -Test
     check-format.ps1               clang-format --dry-run --Werror over native/ (-Fix rewrites)
     check-asan.ps1                 Runs the tagged use-after-free test on the ASan build and requires ASan to report it
     check-presets.ps1              Fails when a built app has no presets/ beside mpcore.dll; ignores MPCORE_PRESET_ROOT
+    check-package.ps1              Engine, BASS, licences and icons in the unpackaged output and inside the .msix (T-128)
+    check-*.ps1 (the rest)         UI Automation harnesses over the running shell on a scratch --data-root
+    uia-geometry.ps1               Shared UIA readers, resizer and Close-TunqioShell for those harnesses
   docs/
   .github/workflows/
 ```
@@ -134,12 +145,12 @@ App ──► Interop ──► Core
 Interop ──► mpcore.dll (native, via LibraryImport)
 ```
 
-- `Core` references nothing but the BCL and System.Reactive.
+- `Core` references nothing but the BCL, System.Reactive and Microsoft.Extensions.Logging.Abstractions, and targets plain `net8.0`.
 - `Interop` is the only C# project with `DllImport`/`LibraryImport` of `mpcore`; nothing else names the DLL.
 - `Library` references `Core` and its own NuGet packages; it never touches the engine.
-- `App` is the only project that references WinUI, Windows App SDK, H.NotifyIcon and CsWin32, and the only place with `DispatcherQueue` calls.
-- Inside `mpcore`, `render/` may include `analysis/` headers (frame store); `audio/` and `analysis/` never include `render/`. Enforced by include-path layout and a Catch2 test that greps includes.
-- Managed rules are enforced by a NetArchTest test in `Core.Tests`.
+- `App` is the only project that references WinUI, Windows App SDK and H.NotifyIcon, and the only place with `DispatcherQueue` calls. As built: CsWin32 was never adopted; the shell's few Win32 calls (user32, kernel32) are hand-written `DllImport`s in `Activation/NativeWindowing.cs` and beside the code that needs them.
+- Inside `mpcore`, `render/` may include `analysis/` headers (frame store); `audio/` and `analysis/` never include `render/`, and only `audio/` includes BASS headers. Enforced by include-path layout and `native/mpcore.tests/src/test_architecture.cpp` (tag `[architecture]`), which greps includes.
+- Managed rules are enforced twice: `TunqioLayeringGuard` in `Directory.Build.targets` fails the build on a forbidden `ProjectReference`, and `ArchitectureTests` (NetArchTest) in `Core.Tests` fails when `Core` depends on the layers above it, on Windows or on SQLite/TagLib types.
 
 ## Key managed contracts (in Core)
 
