@@ -478,6 +478,23 @@ function Invoke-PersistencePhase {
             if ($problem) { return $problem }
             if (-not (Wait-For { Get-ElementNamed 'Thickness, 4 px' 'Slider' } 5)) { return "the sliders read [$(Get-SliderList)]" }
         }
+        Test-Case 'launch 1: Ease rise and fall switches on and Rise moves from 20 ms to 60 ms, stored as viz.temporal* (T-184)' {
+            $toggle = Wait-For { Get-ElementNamed 'Ease rise and fall' } 10
+            if (-not $toggle) { return 'no Ease rise and fall switch on the page' }
+            $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+            if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { return 'temporal smoothing was already on in a fresh profile' }
+            $pattern.Toggle()
+            Start-Sleep -Milliseconds 500
+            $problem = Set-SliderNamed 'Rise, 20 ms' 60
+            if ($problem) { return $problem }
+            if (-not (Wait-For { Get-ElementNamed 'Rise, 60 ms' 'Slider' } 5)) { return "the sliders read [$(Get-SliderList)]" }
+            $json = Wait-For { $j = Read-ScratchSettings $root; if ($j -and $j.'viz.temporalSmoothing' -eq $true -and $j.'viz.temporalAttackMs' -eq 60) { $j } } 10
+            if (-not $json) {
+                $j = Read-ScratchSettings $root
+                return "settings.json holds viz.temporalSmoothing='$($j.'viz.temporalSmoothing')' viz.temporalAttackMs='$($j.'viz.temporalAttackMs')'"
+            }
+            Write-Host "        viz.temporalSmoothing=$($json.'viz.temporalSmoothing') viz.temporalAttackMs=$($json.'viz.temporalAttackMs') viz.temporalDecayMs=$($json.'viz.temporalDecayMs')"
+        }
         Test-Case 'launch 1: back on Spectrum Bars the slider reads Bars, 96 again' {
             Select-ListRow 'Presets' 'Spectrum Bars'
             if (-not (Wait-For { Get-ElementNamed 'Bars, 96' 'Slider' } 5)) { return "after the switch back the sliders read [$(Get-SliderList)]" }
@@ -503,6 +520,13 @@ function Invoke-PersistencePhase {
         }
         Test-Case 'launch 2: Bars reads 96 with nothing touched (reapplied after the preset loaded)' {
             if (-not (Wait-For { Get-ElementNamed 'Bars, 96' 'Slider' } 10)) { return "the sliders read [$(Get-SliderList)]" }
+        }
+        Test-Case 'launch 2: Ease rise and fall is still on and Rise reads 60 ms with nothing touched (T-184)' {
+            $toggle = Wait-For { Get-ElementNamed 'Ease rise and fall' } 10
+            if (-not $toggle) { return 'no Ease rise and fall switch on the page' }
+            $state = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState
+            if ($state -ne [System.Windows.Automation.ToggleState]::On) { return "the switch reads $state after a relaunch" }
+            if (-not (Wait-For { Get-ElementNamed 'Rise, 60 ms' 'Slider' } 5)) { return "the sliders read [$(Get-SliderList)]" }
         }
         Test-Case 'launch 2: Waveform reads Thickness, 4 px, and Spectrum Bars reads Bars, 96 after switching back' {
             Select-ListRow 'Presets' 'Waveform'
@@ -540,6 +564,13 @@ function Invoke-PersistencePhase {
             $reapplied = @($lines | Where-Object { $_ -match 'Reapplied [1-9][0-9]* stored parameter' })
             foreach ($line in $reapplied) { Write-Host "        $($line.Substring($line.IndexOf('Reapplied')))" }
             if ($reapplied.Count -eq 0) { return "no 'Reapplied N stored parameter(s)' line with N above 0 in $($lines.Count) log line(s)" }
+        }
+        Test-Case 'the log shows the stored temporal smoothing given to the renderer at attach (T-184)' {
+            $lines = @()
+            foreach ($log in @(Get-ChildItem (Join-Path $root 'logs') -Filter '*.log' -ErrorAction SilentlyContinue)) { $lines += @(Get-Content $log.FullName) }
+            $restored = @($lines | Where-Object { $_ -match 'Temporal smoothing restored: rise 60 ms' })
+            foreach ($line in $restored) { Write-Host "        $($line.Substring($line.IndexOf('Temporal smoothing')))" }
+            if ($restored.Count -eq 0) { return "no 'Temporal smoothing restored: rise 60 ms' line in $($lines.Count) log line(s)" }
         }
     }
     finally {

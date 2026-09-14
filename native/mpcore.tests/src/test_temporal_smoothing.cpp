@@ -82,13 +82,11 @@ std::vector<point> draw_step(double hz, envelope_times times, double fall_at, do
 
 // The value a curve has at time t, found by instant rather than by index.
 const point& at_time(const std::vector<point>& curve, double t) {
-    for (const point& p : curve) {
-        if (std::fabs(p.t - t) < 1e-6) {
-            return p;
-        }
-    }
-    FAIL("no frame at t = " << t);
-    return curve.front();
+    const auto found =
+        std::find_if(curve.begin(), curve.end(), [t](const point& p) { return std::fabs(p.t - t) < 1e-6; });
+    INFO("no frame at t = " << t);
+    REQUIRE(found != curve.end());
+    return *found;
 }
 
 bool finite_and_normal(float v) {
