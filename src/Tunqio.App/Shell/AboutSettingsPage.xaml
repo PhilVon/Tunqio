@@ -103,9 +103,9 @@
 
       <!-- Crash reporting -->
       <TextBlock Text="Crash reporting" Style="{StaticResource SectionHeader}" />
-      <ToggleSwitch x:Name="CrashReportingSwitch" Header="Send crash reports"
+      <ToggleSwitch x:Name="CrashReportingSwitch" Header="Save crash reports on this PC"
                     IsOn="{x:Bind ViewModel.CrashReporting, Mode=TwoWay}"
-                    AutomationProperties.Name="Send crash reports" />
+                    AutomationProperties.Name="Save crash reports on this PC" />
       <TextBlock Text="{x:Bind shell:AboutSettingsViewModel.CrashReportingHint}" Style="{StaticResource Hint}"
                  AutomationProperties.AutomationId="CrashReportingHint" />
 

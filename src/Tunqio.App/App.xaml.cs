@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Serilog;
 using Tunqio.App.Activation;
+using Tunqio.App.Crash;
 using Tunqio.App.JumpLists;
 using Tunqio.App.Library;
 using Tunqio.App.Notifications;
@@ -31,6 +32,9 @@ public partial class App : Application
 {
     /// <summary>Identifies this process's lines in the shared daily log file.</summary>
     public static readonly Guid SessionId = Guid.NewGuid();
+
+    /// <summary>The session's last 200 log lines, which a crash report carries (E8-S5).</summary>
+    private static readonly CrashLogBuffer CrashLog = new(AppLogging.OutputTemplate);
 
     private IHost? _host;
     private Window? _window;
@@ -76,7 +80,7 @@ public partial class App : Application
         var paths = dataRootSwitch is { } dataRoot ? new AppPaths(dataRoot) : new AppPaths();
         paths.EnsureCreated();
 
-        Log.Logger = AppLogging.Create(paths, SessionId);
+        Log.Logger = AppLogging.Create(paths, SessionId, CrashLog);
 
         // Captured here rather than inside ConfigureServices: OnLaunched is the XAML thread, and the registrations
         // that hand it on must not be at the mercy of which thread the host happens to build the collection on.
@@ -102,6 +106,11 @@ public partial class App : Application
             "{Product} {Version} session {SessionId} started: launch #{LaunchCount}, previous session {PreviousSession}, data root {DataRoot}",
             Identity.ProductName, typeof(App).Assembly.GetName().Version?.ToString(3), SessionId, launchCount,
             previousSession ?? "none", paths.DataRoot);
+
+        // Crash reporting (E8-S5): here rather than in the constructor, because the data root the reports go under and the
+        // opt-in that decides whether anything is captured are only known once the settings are open.
+        CrashReportStore crashReports = _host.Services.GetRequiredService<CrashReportStore>();
+        new CrashReporter(crashReports, CrashLog, settings, typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", SessionId).Install();
 
         if (LibrarySpikeRunner.IsRequested(commandLine))
         {
@@ -156,7 +165,9 @@ public partial class App : Application
                 launchCount - 1,
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } music ? music : null),
             // The rater (E6-S7): the container's one, whose events the library pages also follow.
-            _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRater>());
+            _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRater>(),
+            // The crash report dialog (E8-S5), after the welcome: whether a report is offered is the view model's decision.
+            new CrashReportViewModel(crashReports, settings));
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         _mediaControls = StartMediaControls(logger);
@@ -345,6 +356,36 @@ public partial class App : Application
             // --export-diagnostics FILE (E6-S5): after audio, so system-info.txt names the output the engine opened,
             // and whether or not audio came up, so a machine with no sound still exports.
             await ExportDiagnosticsIfRequestedAsync(logger, commandLine).ConfigureAwait(true);
+            // --crash-test (E8-S5): last, once mpcore is loaded, so a native crash lands in the real core.
+            RunCrashTestIfRequested(window, logger, commandLine);
+        }
+    }
+
+    /// <summary>
+    /// The crash reporter's harness switch (<see cref="CrashTestSwitch"/>): crashes this process the way it asks. Only with
+    /// <c>TUNQIO_CRASH_TEST=1</c> and a <c>--data-root</c>, and this process's own crash dialog is suppressed first, so a crash
+    /// that was asked for puts nothing on the desktop.
+    /// </summary>
+    private static void RunCrashTestIfRequested(MainWindow window, ILogger<App> logger, string[] commandLine)
+    {
+        if (CrashTestSwitch.Requested(commandLine) is not { } kind)
+        {
+            return;
+        }
+
+        CrashTestSwitch.SuppressCrashDialogsForThisProcess();
+        logger.LogWarning("Crash test: forcing a {Kind} crash ({Switch} with {Variable}=1)", kind, CrashTestSwitch.Name, CrashTestSwitch.EnvironmentVariable);
+        switch (kind)
+        {
+            case CrashTestKind.Managed:
+                new Thread(() => throw new InvalidOperationException("Forced managed crash (--crash-test managed)")) { IsBackground = true, Name = "Crash test" }.Start();
+                break;
+            case CrashTestKind.Xaml:
+                window.DispatcherQueue.TryEnqueue(() => throw new InvalidOperationException("Forced XAML crash (--crash-test xaml)"));
+                break;
+            case CrashTestKind.Native:
+                new Thread(Tunqio.Interop.NativeCrashTest.CrashOnCoreThread) { IsBackground = true, Name = "Crash test" }.Start();
+                break;
         }
     }
 
@@ -685,11 +726,24 @@ public partial class App : Application
         }
     }
 
-    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e) =>
+    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    {
         LogFatal("XAML", e.Exception, e.Message);
+        // Unhandled here, XAML ends the process with a stowed exception (a fail-fast no filter sees), so this is the only chance.
+        if (!e.Handled)
+        {
+            CrashReporter.CaptureUnhandled("XAML", e.Exception);
+        }
+    }
 
-    private static void OnDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e) =>
+    private static void OnDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+    {
         LogFatal("AppDomain", e.ExceptionObject as Exception, $"{e.ExceptionObject} (terminating {e.IsTerminating})");
+        if (e.IsTerminating)
+        {
+            CrashReporter.CaptureUnhandled("AppDomain", e.ExceptionObject as Exception);
+        }
+    }
 
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e) =>
         LogFatal("Unobserved task", e.Exception, e.Exception.Message);

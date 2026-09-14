@@ -111,6 +111,7 @@ public sealed class CommandRouter
     private static readonly FrozenSet<string> ValueSwitches = new[]
     {
         "--data-root", "--export-diagnostics", "--library-spike", "--seconds", "--step", "--out", "--resizes",
+        Crash.CrashTestSwitch.Name,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>

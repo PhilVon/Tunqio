@@ -147,7 +147,7 @@ $crashBefore = $null
 $crashChanged = $false
 $reachedEnd = $false
 $startedAt = Get-Date
-$controlNames = @('Licence list', 'Licence text', 'Open licences folder', 'Redact paths in the export', 'Open logs folder', 'Export diagnostics', 'Send crash reports')
+$controlNames = @('Licence list', 'Licence text', 'Open licences folder', 'Redact paths in the export', 'Open logs folder', 'Export diagnostics', 'Save crash reports on this PC')
 
 try {
     $crashBefore = Get-StoredCrashReporting
@@ -220,7 +220,8 @@ try {
     $redact = Find-Named $overlay 'Redact paths in the export'
     Check 'Redact paths is on by default' ($redact -and (Get-ToggleState $redact) -eq 'On') "$(if ($redact) { Get-ToggleState $redact })"
     $hint = Find-ById $overlay 'CrashReportingHint'
-    Check 'The crash reporting text says nothing is sent yet' ($hint -and $hint.Current.Name -like 'Nothing is sent yet*') "$(if ($hint) { $hint.Current.Name.Substring(0, [math]::Min(50, $hint.Current.Name.Length)) })"
+    # E8-S5 (T-84): the text says what is captured and that nothing leaves the machine unless the user sends it.
+    Check 'The crash reporting text says what is captured and that nothing leaves the PC' ($hint -and $hint.Current.Name -like 'Off (the default)*' -and $hint.Current.Name -like '*crash dump*' -and $hint.Current.Name -like '*last 200 lines*' -and $hint.Current.Name -like '*Nothing leaves this PC unless you send it*') "$(if ($hint) { $hint.Current.Name.Substring(0, [math]::Min(60, $hint.Current.Name.Length)) })"
 
     # ---- readout ------------------------------------------------------------------------------------------------------
     $dropouts = Find-ById $overlay 'DropoutsReadout'
@@ -272,13 +273,13 @@ try {
     Check 'Open logs folder opened the logs directory in Explorer' ($closedExplorer -ge 1) "$closedExplorer Explorer window(s) on $logDir, closed again"
 
     # ---- crash reporting ----------------------------------------------------------------------------------------------
-    $crash = Find-Named $overlay 'Send crash reports'
+    $crash = Find-Named $overlay 'Save crash reports on this PC'
     $stateBefore = Get-ToggleState $crash
     Set-Toggle $crash
     $crashChanged = $true
     Start-Sleep -Milliseconds 1500
     $storedOn = Get-StoredCrashReporting
-    Set-Toggle (Find-Named $overlay 'Send crash reports')
+    Set-Toggle (Find-Named $overlay 'Save crash reports on this PC')
     Start-Sleep -Milliseconds 1500
     $storedOff = Get-StoredCrashReporting
     $expectOn = ($stateBefore -eq 'Off')
@@ -337,7 +338,7 @@ try {
         $missing = @($controlNames | Where-Object { -not $seen.ContainsKey($_) })
         Check "At $width px every control was on screen at some scroll position" ($missing.Count -eq 0) $(if ($missing.Count) { "never seen: $($missing -join ', ')" } else { "$($seen.Count) controls measured" })
     }
-    $clipped = @(Get-UiaClippedControls -Readings $readings -Stretch @('Licence list', 'Licence text', 'Redact paths in the export', 'Send crash reports'))
+    $clipped = @(Get-UiaClippedControls -Readings $readings -Stretch @('Licence list', 'Licence text', 'Redact paths in the export', 'Save crash reports on this PC'))
     Check 'No control is cut off by its container at any width' ($clipped.Count -eq 0) $(if ($clipped.Count) { $clipped -join '; ' } else { "$($readings.Count) readings across $($widthList.Count) widths" })
     Set-UiaWindowSize -ProcessId $process.Id -Width 1616 -Height 900
     Start-Sleep -Milliseconds 800
@@ -360,12 +361,12 @@ finally {
                 $open = Find-Named $window 'Settings overlay'
                 if (-not $open) { Invoke-Element (Find-Named $window 'Open settings'); Start-Sleep -Milliseconds 800; $open = Find-Named $window 'Settings overlay' }
                 Select-AboutSection $open
-                Set-Toggle (Wait-Until { Find-Named $open 'Send crash reports' } 8 'the crash reporting switch')
+                Set-Toggle (Wait-Until { Find-Named $open 'Save crash reports on this PC' } 8 'the crash reporting switch')
                 Start-Sleep -Milliseconds 1200
                 Write-Output "cleanup: diagnostics.crashReporting back to '$(Get-StoredCrashReporting)'"
             }
         }
-        catch { Write-Output "WARNING: cleanup did not finish: $($_.Exception.Message). Check Settings > About & Diagnostics > Send crash reports." }
+        catch { Write-Output "WARNING: cleanup did not finish: $($_.Exception.Message). Check Settings > About & Diagnostics > Save crash reports on this PC." }
     }
     # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
     $closeProblem = Close-TunqioShell $process $window 15

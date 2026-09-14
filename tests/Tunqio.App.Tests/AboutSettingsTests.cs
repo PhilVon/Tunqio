@@ -180,7 +180,10 @@ public sealed class AboutSettingsTests : IAsyncLifetime
         _settings.GetValue(SettingsKeys.DiagnosticsCrashReporting, false).Should().BeTrue();
         changed.Should().Equal(SettingsKeys.DiagnosticsCrashReporting);
         About().CrashReporting.Should().BeTrue("a new view model reads the stored choice");
-        AboutSettingsViewModel.CrashReportingHint.Should().Contain("Nothing is sent yet");
+        // E8-S5 (AC-532): exactly what is captured, and that nothing leaves the machine unless the user sends it.
+        AboutSettingsViewModel.CrashReportingHint.Should().StartWith("Off (the default): nothing is captured beyond what Windows itself records.")
+            .And.Contain("crash dump").And.Contain("file paths and track names").And.Contain("last 200 lines of its log")
+            .And.Contain("keep or delete it").And.Contain("Nothing leaves this PC unless you send it yourself");
     }
 
     // ---- export -------------------------------------------------------------------------------------------------------

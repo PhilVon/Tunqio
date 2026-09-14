@@ -60,6 +60,7 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
     private readonly string? _userProfile;
     private readonly SynchronizationContext? _ui;
     private readonly TimeProvider _time;
+    private readonly Crash.CrashReportStore? _crashReports;
     private ITimer? _timer;
     private bool _seeding;
     private bool _disposed;
@@ -76,7 +77,7 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
     [ObservableProperty]
     public partial string LicenceText { get; set; } = string.Empty;
 
-    /// <summary><c>diagnostics.crashReporting</c>. Nothing reads it yet: E8-S5 implements the reporting.</summary>
+    /// <summary><c>diagnostics.crashReporting</c>: whether a crash saves a report on this PC (E8-S5, <see cref="Crash.CrashReporter"/>).</summary>
     [ObservableProperty]
     public partial bool CrashReporting { get; set; }
 
@@ -116,6 +117,7 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
     /// <param name="clock">Drives the readout; a fake clock is how a test advances it.</param>
     /// <param name="workingSet">The process's working set in bytes; the real one by default.</param>
     /// <param name="userProfile">The profile directory the export redacts; the real one by default, empty for none.</param>
+    /// <param name="crashReports">The crash folder (E8-S5), whose kept reports the export includes; null exports none.</param>
     public AboutSettingsViewModel(
         AboutEnvironment environment,
         IPlaybackSessionSource source,
@@ -126,8 +128,10 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
         SynchronizationContext? ui = null,
         TimeProvider? clock = null,
         Func<long>? workingSet = null,
-        string? userProfile = null)
+        string? userProfile = null,
+        Crash.CrashReportStore? crashReports = null)
     {
+        _crashReports = crashReports;
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(settings);
@@ -178,9 +182,12 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
     /// <summary>The name the save picker suggests.</summary>
     public string SuggestedExportName => DiagnosticsExport.SuggestedFileName(_time.GetLocalNow());
 
-    /// <summary>The text under the crash-reporting switch: the truth about what the switch does today.</summary>
+    /// <summary>The switch's header and automation name.</summary>
+    public const string CrashReportingHeader = "Save crash reports on this PC";
+
+    /// <summary>The text under the crash-reporting switch (E8-S5): exactly what is captured, where it goes, and that it stays here.</summary>
     public static string CrashReportingHint =>
-        "Nothing is sent yet. The choice is stored now so that crash reporting, when it arrives, starts out the way you set it here; until then a crash only writes to the log.";
+        "Off (the default): nothing is captured beyond what Windows itself records. On: if Tunqio crashes, it saves a report in the crashes folder of its data folder: a crash dump (a copy of part of Tunqio's memory, which can contain file paths and track names) and the last 200 lines of its log. The next time Tunqio starts, it shows you what was saved and lets you keep or delete it. Nothing leaves this PC unless you send it yourself, for example in a diagnostics export.";
 
     // ---- licences ---------------------------------------------------------------------------------------------------
 
@@ -356,7 +363,8 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
                 redact = DiagnosticsExport.Placeholders(_userProfile, [.. folders.Select(f => f.Path)]);
             }
 
-            var request = new DiagnosticsExportRequest(_paths.LogsDirectory, _paths.SettingsPath, SystemInfo(), redact);
+            IReadOnlyList<string> kept = _crashReports is null ? [] : [.. _crashReports.KeptReports().Select(r => r.Folder)];
+            var request = new DiagnosticsExportRequest(_paths.LogsDirectory, _paths.SettingsPath, SystemInfo(), redact, kept);
             DiagnosticsExportResult result = await DiagnosticsExport.WriteAsync(zipPath, request, ct);
             Serilog.Log.Information("Diagnostics exported to {Path}: {Entries} entries, {Redactions} path redactions", result.ZipPath, result.Entries.Count, result.Redactions);
             SetNotice(Inv($"Diagnostics written to {result.ZipPath} ({result.Entries.Count} files{(RedactPaths ? Inv($", {result.Redactions} paths redacted") : string.Empty)})."), error: false);

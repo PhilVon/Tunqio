@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Tunqio.App.Crash.CrashReportDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:crash="using:Tunqio.App.Crash"
+    Title="Tunqio closed unexpectedly"
+    AutomationProperties.Name="Tunqio closed unexpectedly"
+    PrimaryButtonText="Keep report"
+    CloseButtonText="Delete report"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnKeep"
+    CloseButtonClick="OnDelete"
+    Closing="OnClosing">
+  <!--
+    The crash report dialog (E8-S5), shown on the launch after a crash while diagnostics.crashReporting is on. It says what
+    was captured: the exception, the log lines (readable in the box), and the dump's size and location with what a dump can
+    hold. Keep report and Delete report are named by their text, which is what tools/check-crash-report.ps1 invokes. Esc keeps.
+  -->
+  <ContentDialog.Resources>
+    <Style x:Key="Hint" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+      <Setter Property="Opacity" Value="0.75" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </ContentDialog.Resources>
+
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Width="480" Spacing="8">
+      <TextBlock Text="{x:Bind ViewModel.Summary}" TextWrapping="Wrap"
+                 AutomationProperties.AutomationId="CrashReportSummary" />
+
+      <TextBlock Text="What went wrong" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,4,0,0" />
+      <TextBlock Text="{x:Bind ViewModel.ExceptionLine}" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                 AutomationProperties.AutomationId="CrashReportException" />
+
+      <TextBlock Text="{x:Bind ViewModel.LogCaption}" Style="{StaticResource Hint}" Margin="0,4,0,0"
+                 AutomationProperties.AutomationId="CrashReportLogCaption" />
+      <TextBox Text="{x:Bind ViewModel.LogText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+               FontFamily="Consolas" FontSize="12" Height="200"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
+               AutomationProperties.Name="Crash report log lines" />
+
+      <TextBlock Text="{x:Bind ViewModel.DumpLine}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,4,0,0"
+                 AutomationProperties.AutomationId="CrashReportDump" />
+      <TextBlock Text="{x:Bind crash:CrashReportViewModel.ChoiceLine}" Style="{StaticResource Hint}"
+                 AutomationProperties.AutomationId="CrashReportChoice" />
+    </StackPanel>
+  </ScrollViewer>
+</ContentDialog>

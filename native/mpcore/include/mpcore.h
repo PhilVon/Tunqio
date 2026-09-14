@@ -129,6 +129,11 @@
  * nothing for D-33's minimum-size table to freeze - two floats are arguments rather than a struct precisely so that
  * nothing does. Behaviour for an existing caller is unchanged: the envelope is off until a caller turns it on, and
  * off draws the analysis frame exactly as 0.18 did.
+ * 0.20 a test-only crash (T-84, E8-S5): mp_debug_crash. One appended export and no type, so a minor by the plainest
+ * reading of the rule at the top. It exists because nothing else can crash inside mpcore on purpose: every export runs
+ * under the SEH guard, which turns an access violation into MP_E_INTERNAL, so the crash reporter's native path could not
+ * be proven against the real core without it. The shell reaches it only through a switch that needs an environment
+ * variable and a scratch --data-root; no caller in the product calls it.
  */
 #pragma once
 
@@ -151,7 +156,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 19u
+#define MP_ABI_MINOR 20u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -801,6 +806,15 @@ MP_API mp_result MP_CALL mp_renderer_set_temporal_smoothing(mp_renderer* rendere
 /* The two time constants in force, after the clamp. Both 0 until mp_renderer_set_temporal_smoothing is called. */
 MP_API mp_result MP_CALL mp_renderer_get_temporal_smoothing(mp_renderer* renderer, float* out_attack_ms,
                                                             float* out_decay_ms);
+
+/* ---- test-only crash (ABI 0.20; T-84, E8-S5) -----------------------------------------------------
+ *
+ * ENDS THE PROCESS. Starts a thread inside mpcore.dll that writes through a null pointer, outside any guard, so the
+ * access violation is unhandled and its faulting module is mpcore.dll: the shape of a genuine crash on one of the
+ * core's own threads (audio, analysis, render), which is what the host's crash reporter has to catch. The caller's
+ * thread waits for it. Returns MP_E_INTERNAL only if the process is somehow still alive 10 s later. For the crash
+ * reporter's harness only; nothing in the product calls it. */
+MP_API mp_result MP_CALL mp_debug_crash(void);
 
 #ifdef __cplusplus
 } /* extern "C" */
