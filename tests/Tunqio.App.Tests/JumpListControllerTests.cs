@@ -229,7 +229,9 @@ public sealed class JumpListControllerTests : IDisposable
         {
             Started++;
             _pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable VSTHRD003 // The write this call started, finished when the test releases it.
             return _pending.Task;
+#pragma warning restore VSTHRD003
         }
 
         public void Release() => _pending.TrySetResult();

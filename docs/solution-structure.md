@@ -238,7 +238,7 @@ Logging: Serilog through `Microsoft.Extensions.Logging` for C#; `mpcore` logs th
    g. After 3 s idle: incremental library scan.
 ```
 
-Activation while running (file, protocol, jump list, toast button) lands in `OnActivated` on the main instance and is routed to `PlaybackSession` via a `CommandRouter` that understands `play <paths>`, `enqueue <paths>`, `playlist <id>`, `track <path>`, `toggle`, `next`, `previous`.
+Activation while running (file, protocol, jump list, toast button) lands in `OnActivated` on the main instance and is routed to `PlaybackSession` via a `CommandRouter` that understands `play <paths>`, `enqueue <paths>`, `playlist <id>`, `track <path>`, `toggle`, `next`, `previous`. As built (E7-S5, T-78), the jump list's two are `tunqio://track?id=<track id>` and `tunqio://playlist?id=<playlist id>` in the router's URI grammar, by id rather than path (windows-integration.md, "As built (E7-S5)"); the jump list controller starts after the window is shown and is the first thing shutdown stops.
 
 **As built (E7-S1, T-74).** Step 2a runs before the XAML app exists, not in `OnLaunched`:
 

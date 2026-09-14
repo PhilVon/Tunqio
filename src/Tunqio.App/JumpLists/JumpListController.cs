@@ -103,7 +103,9 @@ public sealed class JumpListController : IDisposable
         {
             lock (_gate)
             {
+#pragma warning disable VSTHRD003 // Handed to a test to wait on; the controller itself never awaits it.
                 return _lastRefresh;
+#pragma warning restore VSTHRD003
             }
         }
     }

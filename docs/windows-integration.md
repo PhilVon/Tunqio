@@ -725,7 +725,52 @@ public class SystemMediaTransportManager
 
 ## Jump List Integration
 
-### Windows 11 Jump List Implementation
+### As built (E7-S5)
+
+- **API and identity.** `Windows.UI.StartScreen.JumpList` (ADR-006). It needs package identity: Microsoft Learn ("Add items to
+  the Windows jump list", updated 2026-07-06) says it works in MSIX packages and packages with external location and is not
+  available to unpackaged apps. Measured (T-78) in a process with no identity: `JumpList.IsSupported()` returns true and
+  `LoadCurrentAsync()` returns a list, so neither says whether the list can be written, and `SaveAsync` was not called because
+  it writes the shell's jump list store. Phil's answer to Q-119 was skip-until-release: `WinRtJumpList.WhyUnavailable` asks
+  `Package.Current` for the package and requires the name `Tunqio`. Without it (the unpackaged development build, or a process
+  started under another package's identity) the app logs one line, `Jump list: skipped, this process has no package identity
+  (the unpackaged build); the taskbar jump list needs the installed package (E8-S1)`, and never calls the API.
+- **The list.** `JumpLists/JumpListController.cs`, behind `IJumpList`, unit tested over a fake (`JumpListControllerTests`). A
+  **Recent tracks** group: up to ten tracks, newest first, from the query behind Library › Recently played
+  (`JumpListController.RecentTracksQuery` is `TracksSpec.RecentlyPlayed`'s query with the cap at ten, asserted by a test), so
+  played tracks only, each once, tracks missing at the last scan left out; each item reads "Title - Artist". Then a **Pinned
+  playlists** group: every pinned playlist, in the repository's order. `WinRtJumpList` clears Tunqio's items, sets
+  `SystemGroupKind` to `None` (Windows' own Recent group lists shell-opened files, which these are not), and gives each item
+  `Assets/TunqioLogo.png` as its picture. The sample below is superseded.
+- **Refreshes.** At start-up once the window is shown, when `PlaybackSession.PlayRecorded` says a finished listen reached the
+  play history (so Recently played already has it), and when `IPlaylistRepository.Changed` fires (a pin, and a rename or delete
+  of a pinned playlist). Requests are coalesced: the first starts a 2 s wait, the rest join it, and the list is written once; a
+  request made during a write gets one more write after it. A failed build or write is one warning and the list keeps what it
+  had.
+- **Items and launches.** A track item's arguments are `tunqio://track?id=<track id>` and a playlist item's are
+  `tunqio://playlist?id=<playlist id>`, built by `CommandRouter.TrackUri` and `PlaylistUri` so the list and the router share one
+  grammar. Windows starts Tunqio with them; `Program.Main` redirects to the running instance through E7-S1's key or starts the
+  app, and `CommandRouter` runs them on `SessionCommandTarget`: a track plays at the current position with the queue kept (flow
+  2, as a file from Explorer does), a playlist replaces the queue from its first track, and both bring the window forward. Ids
+  rather than the `track <path>` docs/solution-structure.md sketched: recent tracks are library rows and playlists are ids, and
+  playing a path is already `tunqio://play?path=`. A malformed id is refused by the router; a track no longer in the library or
+  missing at the last scan, a playlist that no longer exists, and an empty playlist are refused by the target before it waits for
+  audio. Each refusal is one warning line and nothing throws.
+- **Pinning.** Playlist detail's **Pin to jump list** toggle (`PinToJumpList`) calls `IPlaylistRepository.SetPinnedAsync`, which
+  sets or clears `playlist.pinned`, leaves `modified_at` alone, and raises `Changed` only when the flag changed. Pinned
+  playlists are listed first, as the repository already sorted them.
+- **Shutdown.** The jump list is the first step, before the toasts (T-188's order): a refresh reads the library database, which
+  must not be read while it closes. What was last written stays on the taskbar.
+- **Proved unpackaged (T-78).** The pin action, the ten-track list, the refresh triggers, the coalescing and the router commands
+  in unit tests (`PlaylistRepositoryTests`, `PlaylistChangedTests`, `PlaylistViewModelTests`, `JumpListControllerTests`,
+  `CommandRouterTests`, `SessionCommandTargetTests`, `PlaybackHistoryTests`), and `tools/check-jump-list.ps1` on a scratch
+  `--data-root`: a cold start with a playlist item's arguments plays it, the toggle sets and clears the flag in `library.db`, a
+  second process with a track item's arguments and then a playlist item's plays each in the running window, a missing track and
+  a missing playlist are each refused with one line, and the app logs the skip line and never fails on the jump list.
+- **Waits for E8-S1 (T-80).** The real taskbar list: that it appears, how it reads, and that clicking its items launches
+  them, in the installed, signed package.
+
+### Windows 11 Jump List Implementation (original sketch, superseded by E7-S5)
 
 ```csharp
 public class JumpListManager
