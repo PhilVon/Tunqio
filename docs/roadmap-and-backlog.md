@@ -564,7 +564,7 @@ As built: `AboutSettingsPage` over `AboutSettingsViewModel`, last in the setting
 - [x] Licences listed from `THIRD-PARTY-NOTICES.md`; export diagnostics zip contains logs, settings (redacted paths optional) and system info
 
 ### E6-S6 · First-run welcome · **S** · `ui`
-- [ ] Flow 1 completes from a fresh profile to first sound with no dead ends
+- [x] Flow 1 completes from a fresh profile to first sound with no dead ends (T-72: `tools/check-first-run.ps1` on a `--data-root` scratch profile; the dialog's look is Phil's to confirm)
 
 ### E6-S7 · Ratings · **S** · `library` `ui`
 - [ ] Rate from Now Playing, Tracks view and shortcuts; optional write-to-file per OQ-7

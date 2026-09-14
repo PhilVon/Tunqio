@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Tunqio.App.Shell.FirstRunWelcomeDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:shell="using:Tunqio.App.Shell"
+    Title="Welcome to Tunqio"
+    AutomationProperties.Name="Welcome to Tunqio"
+    PrimaryButtonText="Skip this step"
+    SecondaryButtonText="Back"
+    CloseButtonText="Skip all"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimaryClick"
+    SecondaryButtonClick="OnSecondaryClick"
+    CloseButtonClick="OnCloseClick"
+    Closing="OnClosing">
+  <!--
+    The first-run welcome (E6-S6). A ContentDialog over the empty shell: three steps, each reusing a settings page's view
+    model, so what is chosen here is the setting the page edits. Next and Back cancel the dialog's own close; Done, Skip
+    all and Esc close it, and every way out records ui.welcomeShown. The dialog's buttons are named by their text, which is
+    what tools/check-first-run.ps1 invokes.
+  -->
+  <ContentDialog.Resources>
+    <Style x:Key="Hint" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+      <Setter Property="Opacity" Value="0.75" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </ContentDialog.Resources>
+
+  <StackPanel Width="440" Spacing="8">
+    <TextBlock Text="{x:Bind ViewModel.StepCaption, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}"
+               AutomationProperties.AutomationId="WelcomeStepCaption" />
+
+    <!-- Step 1: folders. The Music folder is pre-filled; the box also takes a typed path. -->
+    <StackPanel Spacing="8" Visibility="{x:Bind shell:FirstRunWelcomeDialog.Shows(ViewModel.Step, 0), Mode=OneWay}"
+                AutomationProperties.Name="Add your music step">
+      <TextBlock Text="Add your music" Style="{StaticResource SubtitleTextBlockStyle}" />
+      <TextBlock Style="{StaticResource Hint}"
+                 Text="Tunqio plays the music in the folders you choose. Adding one starts a scan straight away, and albums appear in the library as they are found." />
+      <TextBox Header="Folder" Text="{x:Bind ViewModel.FolderPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+               PlaceholderText="C:\Users\you\Music" AutomationProperties.Name="Folder to add" />
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Content="Add this folder" Click="OnAddFolder" IsEnabled="{x:Bind shell:FirstRunWelcomeDialog.Not(ViewModel.IsAdding), Mode=OneWay}"
+                Style="{StaticResource AccentButtonStyle}" AutomationProperties.Name="Add this folder" />
+        <Button Content="Add another folder…" Click="OnPickFolder" IsEnabled="{x:Bind shell:FirstRunWelcomeDialog.Not(ViewModel.IsAdding), Mode=OneWay}"
+                AutomationProperties.Name="Add another folder" />
+      </StackPanel>
+      <TextBlock Text="{x:Bind ViewModel.FolderNotice, Mode=OneWay}" Style="{StaticResource Hint}"
+                 Visibility="{x:Bind ViewModel.HasFolderNotice, Mode=OneWay}"
+                 AutomationProperties.AutomationId="WelcomeFolderNotice" />
+      <ItemsControl ItemsSource="{x:Bind ViewModel.AddedFolders, Mode=OneWay}" AutomationProperties.Name="Folders added"
+                    Visibility="{x:Bind ViewModel.HasAddedFolders, Mode=OneWay}" />
+      <TextBlock Text="{x:Bind ViewModel.Library.ScanStatus, Mode=OneWay}" Style="{StaticResource Hint}"
+                 AutomationProperties.AutomationId="WelcomeScanStatus" />
+      <TextBlock Style="{StaticResource Hint}" Text="You can add or remove folders at any time in Settings › Library." />
+    </StackPanel>
+
+    <!-- Step 2: output device. The same list and setting as Settings › Output. -->
+    <StackPanel Spacing="8" Visibility="{x:Bind shell:FirstRunWelcomeDialog.Shows(ViewModel.Step, 1), Mode=OneWay}"
+                AutomationProperties.Name="Choose where sound plays step">
+      <TextBlock Text="Choose where sound plays" Style="{StaticResource SubtitleTextBlockStyle}" />
+      <TextBlock Style="{StaticResource Hint}"
+                 Text="The system default follows whatever Windows is using. Pick a device to keep Tunqio on it." />
+      <TextBlock Text="Audio is not available yet, so there is no device to choose. You can choose one later in Settings › Output."
+                 Style="{StaticResource Hint}" Visibility="{x:Bind shell:FirstRunWelcomeDialog.Unless(ViewModel.Output.HasAudio), Mode=OneWay}" />
+      <ComboBox x:Name="DeviceList" Header="Output device" HorizontalAlignment="Stretch"
+                ItemsSource="{x:Bind ViewModel.Output.Devices, Mode=OneWay}" SelectedItem="{x:Bind SelectedDeviceObject, Mode=TwoWay}"
+                IsEnabled="{x:Bind ViewModel.Output.HasAudio, Mode=OneWay}" AutomationProperties.Name="Output device" />
+      <Button Content="Play test tone" Click="OnTestTone" IsEnabled="{x:Bind ViewModel.Output.HasAudio, Mode=OneWay}"
+              AutomationProperties.Name="Play test tone" ToolTipService.ToolTip="A short tone through the device above" />
+      <TextBlock Text="{x:Bind ViewModel.Output.Notice, Mode=OneWay}" Style="{StaticResource Hint}"
+                 Visibility="{x:Bind ViewModel.Output.HasNotice, Mode=OneWay}" />
+      <TextBlock Style="{StaticResource Hint}" Text="Exclusive mode and the buffer are in Settings › Output." />
+    </StackPanel>
+
+    <!-- Step 3: theme. The same choice as Settings › Appearance; the window repaints as it changes. -->
+    <StackPanel Spacing="8" Visibility="{x:Bind shell:FirstRunWelcomeDialog.Shows(ViewModel.Step, 2), Mode=OneWay}"
+                AutomationProperties.Name="Choose a theme step">
+      <TextBlock Text="Choose a theme" Style="{StaticResource SubtitleTextBlockStyle}" />
+      <RadioButtons x:Name="ThemeChoices" SelectedIndex="{x:Bind ViewModel.Appearance.ThemeIndex, Mode=TwoWay}"
+                    AutomationProperties.Name="Theme" />
+      <TextBlock Style="{StaticResource Hint}" Text="The window changes as you choose. Settings › Appearance has this and more." />
+    </StackPanel>
+  </StackPanel>
+</ContentDialog>

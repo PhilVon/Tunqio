@@ -49,7 +49,9 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Stopwatch startup = Stopwatch.StartNew();
-        var paths = new AppPaths();
+        string[] commandLine = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        // --data-root PATH (E6-S6): a scratch profile for a harness, read before anything is opened under the default one.
+        var paths = DataRootSwitch.Path(commandLine) is { } dataRoot ? new AppPaths(dataRoot) : new AppPaths();
         paths.EnsureCreated();
 
         Log.Logger = new LoggerConfiguration()
@@ -90,7 +92,6 @@ public partial class App : Application
             Identity.ProductName, typeof(App).Assembly.GetName().Version?.ToString(3), SessionId, launchCount,
             previousSession ?? "none", paths.DataRoot);
 
-        string[] commandLine = Environment.GetCommandLineArgs().Skip(1).ToArray();
         if (LibrarySpikeRunner.IsRequested(commandLine))
         {
             // E3-S3 measurement mode over a chosen database; the shell window is not shown.
@@ -124,7 +125,20 @@ public partial class App : Application
             // picture above it come out of one decode.
             _host.Services.GetService<IArtCache>(),
             // The mode (E5-S1): the container's one, which reads and writes ui.mode.
-            _host.Services.GetRequiredService<ShellState>());
+            _host.Services.GetRequiredService<ShellState>(),
+            // The first-run welcome (E6-S6), over the settings pages' own view models so its choices are theirs. Given the
+            // launch count as it was before this launch counted itself: whether it shows is its decision (the once-only
+            // rule and the existing-profile guard are on FirstRunWelcomeViewModel.ShouldShow).
+            new FirstRunWelcomeViewModel(
+                settings,
+                _host.Services.GetRequiredService<Tunqio.Core.Library.ILibraryFolderRepository>(),
+                _host.Services.GetRequiredService<LibrarySettingsViewModel>(),
+                _host.Services.GetRequiredService<OutputSettingsViewModel>(),
+                _host.Services.GetRequiredService<AppearanceSettingsViewModel>(),
+                _host.Services.GetRequiredService<ILibraryFolderPicker>(),
+                _host.Services.GetRequiredService<IPlaybackSessionSource>(),
+                launchCount - 1,
+                Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } music ? music : null));
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
