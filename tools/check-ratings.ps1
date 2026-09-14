@@ -204,6 +204,31 @@ function Set-RatingColumnVisible($window, [bool]$visible) {
     return $was
 }
 
+function Find-RepeatButton($window) {
+    $window.FindAll($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, $CT::Button))) |
+        Where-Object { $_.Current.Name -like 'Repeat *' } | Select-Object -First 1
+}
+
+# Cycles the Repeat button (off -> all -> one) until it says "Repeat one". Invoke where the button offers it, Toggle
+# otherwise; the name carries the state, so the loop reads it back rather than counting presses.
+function Set-RepeatOne($window) {
+    for ($i = 0; $i -lt 6; $i++) {
+        $button = Find-RepeatButton $window
+        if (-not $button -or -not $button.Current.IsEnabled) { Start-Sleep -Milliseconds 300; continue }
+        if ($button.Current.Name -eq 'Repeat one') { return }
+        $invoke = $null
+        $toggle = $null
+        if ($button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) { $invoke.Invoke() }
+        elseif ($button.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) { $toggle.Toggle() }
+        Start-Sleep -Milliseconds 300
+    }
+}
+
+function Find-NowPlayingOn($window, [string]$title) {
+    $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+        Where-Object { $_.Current.Name -like "Now playing: $title*" } | Select-Object -First 1
+}
+
 function Open-Section($window, [string]$name) {
     Select-Element (Wait-For { Find-NamedOfType $window $name 'ListItem' } 15 "the navigation offered $name")
     Start-Sleep -Milliseconds 800
@@ -362,21 +387,23 @@ try {
 
     # ---- Now Playing, by playing the album from its detail page ---------------------------------------------------
     Open-Section $window 'Albums'
-    Invoke-Element (Wait-For { Find-Named $window $tileName } 30 "the Albums grid showed '$tileName'")
-    # The library grid's tile plays the album (AlbumsGrid.OnTileClick raises Play); other harnesses have met tiles that
-    # open album detail instead, whose Play album button then starts it. Either way ends with First Light playing.
+    Wait-For { Find-Named $window $tileName } 30 "the Albums grid showed '$tileName'" | Out-Null
+    # The fixture tracks are one second long, so an album left to play is past First Light before the rest of this
+    # script has looked; run 3 cleared nothing because Now Playing had moved on by then. Repeat one holds it: the tile
+    # is invoked (AlbumsGrid.OnTileClick plays the album; detail's Play album is used if a tile opens detail instead),
+    # Repeat is cycled to one at once, and the attempt counts only if First Light is still showing 2.5 s later. Repeat
+    # is queue state, which lives in the scratch library.db, so nothing of it outlives the run.
     $nowPlaying = $null
-    $playedFromDetail = $false
-    $deadline = (Get-Date).AddSeconds(30)
-    while (-not $nowPlaying -and (Get-Date) -lt $deadline) {
-        $nowPlaying = $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -like 'Now playing: First Light*' } | Select-Object -First 1
-        if (-not $nowPlaying -and -not $playedFromDetail) {
-            $play = Find-Named $window 'Play album'
-            if ($play) { Invoke-Element $play; $playedFromDetail = $true }
-        }
-        if (-not $nowPlaying) { Start-Sleep -Milliseconds 400 }
+    for ($attempt = 1; $attempt -le 6 -and -not $nowPlaying; $attempt++) {
+        $tile = Find-Named $window $tileName
+        if ($tile) { Invoke-Element $tile }
+        else { $play = Find-Named $window 'Play album'; if ($play) { Invoke-Element $play } }
+        Set-RepeatOne $window
+        Start-Sleep -Milliseconds 2500
+        $nowPlaying = Find-NowPlayingOn $window 'First Light'
     }
-    if (-not $nowPlaying) { throw 'waited 30s and Now Playing never showed First Light, whether the tile played the album or opened its detail' }
+    if (-not $nowPlaying) { throw "after 6 attempts Now Playing was not holding First Light (repeat is '$((Find-RepeatButton $window).Current.Name)')" }
+    Write-Output "  note  Now Playing holds First Light with '$((Find-RepeatButton $window).Current.Name)'"
     $npStars = Wait-Stars { Find-Stars $nowPlaying } 4 15 'Now Playing showed the four stars the row set'
     Check 'Now Playing shows the rating the Tracks row set, without a rescan' ($npStars.Current.Name -eq 'Rating, 4 of 5 stars') "'$($npStars.Current.Name)'"
 
@@ -399,7 +426,10 @@ try {
     Open-Section $window 'Tracks'
     $rowStars = Wait-Stars { $r = Find-Row $window $rowPrefix; if ($r) { Find-Stars $r } } 2 30 'the Tracks row showed two stars'
     Check 'The Tracks row shows a rating set in Now Playing' ($rowStars.Current.Name -eq 'Rating, 2 of 5 stars') "'$($rowStars.Current.Name)'"
+    Check 'Now Playing is still holding First Light before the clear' ($null -ne (Find-NowPlayingOn $window 'First Light')) "'$($nowPlaying.Current.Name)'"
     Set-Stars $npStars 0
+    $npStars = Wait-Stars { Find-Stars $nowPlaying } 0 10 'Now Playing cleared its own stars'
+    Check 'Clearing in Now Playing clears its own control' ($npStars.Current.Name -eq 'Rating, not rated') "'$($npStars.Current.Name)'"
     $rowStars = Wait-Stars { $r = Find-Row $window $rowPrefix; if ($r) { Find-Stars $r } } 0 10 'the Tracks row cleared'
     Check 'Clearing from Now Playing clears the row' ($rowStars.Current.Name -eq 'Rating, not rated') "'$($rowStars.Current.Name)'"
     Set-Stars $rowStars 3

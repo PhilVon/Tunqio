@@ -39,6 +39,13 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     private TrackDto? _sessionTrack;
     private bool _disposed;
 
+    /// <summary>
+    /// Every rating the rater has announced this session, by track id. The session resolves a track's row when it is
+    /// queued, so the copy a later snapshot carries can be older than the library: a track rated while it waited in
+    /// the queue, or rated and then replayed by repeat-one, would otherwise come back on the panel with its old stars.
+    /// </summary>
+    private readonly Dictionary<long, int?> _ratings = [];
+
     [ObservableProperty]
     public partial TrackDto? Track { get; set; }
 
@@ -250,6 +257,7 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     /// </summary>
     private void OnRatingChanged(object? sender, RatingChange change) => Post(() =>
     {
+        _ratings[change.TrackId] = change.Rating;
         if (Track is { } track && track.Id == change.TrackId && track.Rating != change.Rating)
         {
             Track = track with { Rating = change.Rating };
@@ -264,6 +272,12 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     /// </summary>
     internal void Show(TrackDto? track)
     {
+        // The session's copy of the row may predate a rating set since it was queued; the rater's word is newer.
+        if (track is { } shown && _ratings.TryGetValue(shown.Id, out int? rating) && shown.Rating != rating)
+        {
+            track = shown with { Rating = rating };
+        }
+
         Track = track;
         OnPropertyChanged(nameof(HasTrack));
         OnPropertyChanged(nameof(IsEmpty));

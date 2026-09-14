@@ -78,6 +78,14 @@ public sealed class NowPlayingViewModelTests : IAsyncLifetime
 
         _rater.RaiseChanged(11, null);
         _vm.Stars.Should().Be(0, "cleared");
+
+        // Track 12 was resolved by the session when it was queued, before it was rated. When it becomes current the
+        // panel must show the rating it has now, not the copy the queue holds (the same holds for a repeat-one replay).
+        _tracks.Rows.Single(t => t.Id == 12).Rating.Should().BeNull("arrange: the session's copy of the row has no rating");
+        await _session.NextAsync();
+        await TickAsync();
+        _vm.Track!.Id.Should().Be(12);
+        _vm.Stars.Should().Be(4, "the rating announced while the track waited in the queue wins over the queue's older copy");
     }
 
     [Fact]
