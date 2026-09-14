@@ -145,7 +145,7 @@ GitHub Actions, `windows-2025-vs2026` runners (Visual Studio 2026 with MSVC v145
 
 **Release** (`release.yml`, on tag `v*`): build, test, sign, produce `Tunqio_<ver>_x64.msix`, `.appinstaller` manifest, SBOM (CycloneDX for NuGet plus a hand-maintained native list), release notes from conventional commits, GitHub Release with assets and symbol archive.
 
-> **As built (E8-S1, T-80).** `.github/workflows/release.yml` runs only on `push: tags: ['v*']` (Q-128; ordinary pushes stay under D-25), on ci.yml's runner, one job, in this order:
+> **As built (E8-S1, T-80).** `.github/workflows/release.yml` runs only on `push: tags: ['v*']` (Q-128; ordinary pushes run only ci.yml, D-35), on ci.yml's runner, one job, in this order:
 >
 > 1. Checkout with full history and tags.
 > 2. `tools/release-version.ps1 -Apply` stamps the tag's versions (below) into `Directory.Build.props` and the manifest, and hands them to later steps.

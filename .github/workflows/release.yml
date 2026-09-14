@@ -1,5 +1,5 @@
 # Release (docs/build-test-release.md, "Release", as built by T-80 / E8-S1). Runs only when a version tag v* is pushed; ordinary
-# pushes stay under D-25's freeze (Q-128). It builds and tests exactly as ci.yml does, then stamps, signs and publishes:
+# pushes run ci.yml only (Q-128, D-35). It builds and tests exactly as ci.yml does, then stamps, signs and publishes:
 #
 #   tag vM.m.p       -> MSIX M.m.p.0      tag vM.m.p-rc.N  -> MSIX M.m.p.N      (tools/release-version.ps1)
 #

@@ -305,7 +305,7 @@ both secrets, and tell users to remove the old one from Trusted People.
 powershell -ExecutionPolicy Bypass -File tools\release-dry-run.ps1 -FullBuild
 ```
 
-**6. Push main, then tag.** Pushing main runs `ci.yml` once (D-25). Pushing the tag runs `release.yml`:
+**6. Push main, then tag.** Pushing main runs `ci.yml` (D-35). Pushing the tag runs `release.yml`:
 
 ```powershell
 git push origin main
