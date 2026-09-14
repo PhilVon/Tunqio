@@ -19,10 +19,30 @@ namespace Tunqio.App.Shell;
 /// </remarks>
 public sealed partial class TransportControls : UserControl
 {
-    /// <summary>The arrow keys move the thumb; the seek is committed when the key comes back up.</summary>
+    /// <summary>How long the arrow keys have to be quiet before the keyboard scrub is committed as one seek.</summary>
+    private static readonly TimeSpan KeyboardScrubSettle = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>The arrow keys move the thumb; the seek is committed once they have stopped. A field: a local timer is collected before it ticks.</summary>
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _keyboardScrubTimer;
+
     private bool _keyboardScrub;
 
-    public TransportControls() => InitializeComponent();
+    public TransportControls()
+    {
+        InitializeComponent();
+        // Registered here and not as XAML attributes (T-208): Slider handles the pointer and the arrow keys inside
+        // its own template and marks those events handled, so an attribute handler never ran, BeginScrub never
+        // happened, and every drag or key press was ignored as "a snapshot moving the binding" and snapped back.
+        Scrubber.AddHandler(PointerPressedEvent, new PointerEventHandler(OnScrubberPressed), handledEventsToo: true);
+        Scrubber.AddHandler(PointerCaptureLostEvent, new PointerEventHandler(OnScrubberReleased), handledEventsToo: true);
+        Scrubber.AddHandler(PointerCanceledEvent, new PointerEventHandler(OnScrubberReleased), handledEventsToo: true);
+        Scrubber.AddHandler(KeyDownEvent, new KeyEventHandler(OnScrubberKeyDown), handledEventsToo: true);
+        Scrubber.AddHandler(KeyUpEvent, new KeyEventHandler(OnScrubberKeyUp), handledEventsToo: true);
+        _keyboardScrubTimer = DispatcherQueue.CreateTimer();
+        _keyboardScrubTimer.Interval = KeyboardScrubSettle;
+        _keyboardScrubTimer.IsRepeating = false;
+        _keyboardScrubTimer.Tick += OnKeyboardScrubSettled;
+    }
 
     /// <summary>Set by the shell once the panel is in the tree; null before that, which XAML tolerates.</summary>
     public TransportViewModel? ViewModel
@@ -69,15 +89,33 @@ public sealed partial class TransportControls : UserControl
 
     // ---- the scrubber ------------------------------------------------------------------------------------------------
 
-    private void OnScrubberPressed(object sender, PointerRoutedEventArgs e) => ViewModel?.BeginScrub();
+    /// <summary>
+    /// The slider's own press handling runs first and, for a click on the track, has already moved the value by the
+    /// time this fires; that ValueChanged was refused because no scrub had begun. So the hold is taken and the
+    /// slider's value read back, which makes a click a seek and not only a drag (T-208).
+    /// </summary>
+    private void OnScrubberPressed(object sender, PointerRoutedEventArgs e)
+    {
+        ViewModel?.BeginScrub();
+        ViewModel?.ScrubTo(Scrubber.Value);
+    }
 
-    private void OnScrubberReleased(object sender, PointerRoutedEventArgs e) => Run(vm => vm.CommitScrubAsync());
+    private void OnScrubberReleased(object sender, PointerRoutedEventArgs e)
+    {
+        ViewModel?.ScrubTo(Scrubber.Value);
+        // Logged where the gesture ends, so tools/check-scrubber.ps1 can tell a seek that happened from a thumb that
+        // merely moved and snapped back.
+        Serilog.Log.Debug("Scrubber released at {Seconds:0.0} s", Scrubber.Value);
+        Run(vm => vm.CommitScrubAsync());
+    }
 
     private void OnScrubberValueChanged(object sender, RangeBaseValueChangedEventArgs e) => ViewModel?.ScrubTo(e.NewValue);
 
     /// <summary>
-    /// Keyboard scrubbing: the arrows move the thumb, and the seek is committed when the user stops rather than on
-    /// every key repeat — holding Right would otherwise be a seek storm.
+    /// Keyboard scrubbing: the arrows move the thumb, and the seek is committed once the keys have been quiet for
+    /// <see cref="KeyboardScrubSettle"/> rather than on every press. Ten quick presses are one seek of ten seconds;
+    /// committing each press raced the snapshots of the seek before it, and the thumb ended a second or two on
+    /// (the first live run of tools/check-scrubber.ps1).
     /// </summary>
     private void OnScrubberKeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -86,23 +124,35 @@ public sealed partial class TransportControls : UserControl
             return;
         }
 
+        _keyboardScrubTimer.Stop();
         if (!_keyboardScrub)
         {
             _keyboardScrub = true;
             ViewModel.BeginScrub();
-            ((Slider)sender).KeyUp += OnScrubberKeyUp;
         }
+
+        // The slider has already stepped its value (its own handler ran first); the hold is told where it is.
+        ViewModel.ScrubTo(Scrubber.Value);
     }
 
     private void OnScrubberKeyUp(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != VirtualKey.Left && e.Key != VirtualKey.Right)
+        if (_keyboardScrub && (e.Key == VirtualKey.Left || e.Key == VirtualKey.Right))
+        {
+            _keyboardScrubTimer.Start();
+        }
+    }
+
+    private void OnKeyboardScrubSettled(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    {
+        if (!_keyboardScrub)
         {
             return;
         }
 
         _keyboardScrub = false;
-        ((Slider)sender).KeyUp -= OnScrubberKeyUp;
+        ViewModel?.ScrubTo(Scrubber.Value);
+        Serilog.Log.Debug("Scrubber released at {Seconds:0.0} s", Scrubber.Value);
         Run(vm => vm.CommitScrubAsync());
     }
 

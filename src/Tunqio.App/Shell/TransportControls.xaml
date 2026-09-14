@@ -60,11 +60,7 @@
               IsThumbToolTipEnabled="True"
               ThumbToolTipValueConverter="{StaticResource SecondsToTimeConverter}"
               AutomationProperties.Name="{x:Bind ViewModel.ScrubberLabel, Mode=OneWay}"
-              ValueChanged="OnScrubberValueChanged"
-              PointerPressed="OnScrubberPressed"
-              PointerCaptureLost="OnScrubberReleased"
-              PointerCanceled="OnScrubberReleased"
-              KeyDown="OnScrubberKeyDown" />
+              ValueChanged="OnScrubberValueChanged" />
       <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.DurationText, Mode=OneWay}"
                  Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center"
                  AutomationProperties.Name="Track length" />
