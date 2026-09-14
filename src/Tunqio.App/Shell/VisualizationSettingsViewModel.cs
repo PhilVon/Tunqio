@@ -150,6 +150,7 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
     private readonly PresetParameterMemory _memory;
     private string? _parametersPresetId;
     private bool _seeding;
+    private bool _toldNoRenderer;
 
     public VisualizationSettingsViewModel(
         IVisualizationHost host, ISettingsStore settings, IAppPaths paths, PresetParameterMemory memory)
@@ -162,6 +163,8 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         _settings = settings;
         _paths = paths;
         _memory = memory;
+        // A switch can come from somewhere other than this page (Ctrl+V, T-185), and the page's selection follows it.
+        _host.PresetChanged += OnHostPresetChanged;
     }
 
     /// <summary>Where a user's own presets go. Shown on the page, because "drop one in" needs a path.</summary>
@@ -261,6 +264,61 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         ShowNotice(Parameters.Count == 0
             ? "This preset has nothing to reset."
             : $"{SelectedPreset?.Name} back to its defaults.");
+    }
+
+    /// <summary>
+    /// The Next preset shortcut (Ctrl+V, T-185): switches to the preset after the one drawing, in the catalogue order
+    /// this page lists, wrapping from the last to the first. It goes through the same switch as choosing a row here, so
+    /// the choice is stored as <c>viz.preset</c>, a preset that does not compile leaves the old one drawing and says why
+    /// on this page, and <see cref="PresetParameterMemory"/> gives the new preset its stored values on the host's
+    /// <c>PresetChanged</c>. Works whether or not the page has ever been opened.
+    /// </summary>
+    /// <returns>
+    /// True when a switch was attempted. False when there is nothing to switch: no renderer attached (logged once until
+    /// one is), or a catalogue with fewer than two presets.
+    /// </returns>
+    public bool NextPreset()
+    {
+        IReadOnlyList<PresetInfo> catalogue;
+        string? active;
+        try
+        {
+            if (!_host.IsAttached)
+            {
+                TellNoRenderer();
+                return false;
+            }
+
+            catalogue = _host.Presets;
+            active = _host.ActivePresetId;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            Serilog.Log.Warning(ex, "Next preset: the visualizer could not be asked for its presets");
+            return false;
+        }
+
+        _toldNoRenderer = false;
+        if (catalogue.Count < 2)
+        {
+            Serilog.Log.Debug("Next preset: {Count} preset(s) in the catalogue, so there is nothing to switch to", catalogue.Count);
+            return false;
+        }
+
+        int index = -1;
+        for (int i = 0; i < catalogue.Count; i++)
+        {
+            if (string.Equals(catalogue[i].Id, active, StringComparison.Ordinal))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        string next = catalogue[(index + 1) % catalogue.Count].Id;
+        Serilog.Log.Information("Next preset: {From} -> {To}", active, next);
+        SwitchToAsync(next).Forget("Next preset");
+        return true;
     }
 
     /// <summary>Dismisses the <c>InfoBar</c>.</summary>
@@ -386,32 +444,27 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         // Fire-and-forget by the repository's no-async-void rule, and synchronous in fact: the native call
         // compiles and swaps on the calling thread, so SetPresetAsync hands back a completed task and the body
         // below has already run by the time this returns.
-        SelectPresetAsync(value).Forget("Switch preset");
+        SwitchToAsync(value.Id).Forget("Switch preset");
     }
 
-    private async Task SelectPresetAsync(PresetRow value)
+    /// <summary>
+    /// The one switch path, for a row chosen on this page and for <see cref="NextPreset"/> alike, so the two cannot
+    /// differ in what they store or in how a preset that fails is reported.
+    /// </summary>
+    private async Task SwitchToAsync(string id)
     {
         try
         {
-            await _host.SetPresetAsync(value.Id).ConfigureAwait(true);
+            await _host.SetPresetAsync(id).ConfigureAwait(true);
         }
         catch (PresetCompilationException ex)
         {
             // AC-117's payoff, and the only place the compiler's words ever reach a person: the preset that was
             // drawing is still drawing, so the selection is put back to it rather than left on a preset that is
             // not on screen.
+            Serilog.Log.Warning("Preset {Preset} did not compile; the previous preset is still drawing", id);
             ShowNotice(ex.CompilerMessage, error: true);
-            _seeding = true;
-            try
-            {
-                SelectedPreset = Presets.FirstOrDefault(r => r.Id == _host.ActivePresetId);
-            }
-            finally
-            {
-                _seeding = false;
-            }
-
-            LoadParameters(SelectedPreset?.Id);
+            FollowActivePreset(_host.ActivePresetId);
             return;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -420,10 +473,54 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
             return;
         }
 
-        _settings.SetValue(SettingsKeys.VizPreset, value.Id);
+        _settings.SetValue(SettingsKeys.VizPreset, id);
         _settings.FlushAsync().Forget("Save the chosen preset");
         ClearNotice();
-        // The switch above raised PresetChanged, so the stored values are already on the renderer; the controls read them.
-        LoadParameters(value.Id);
+        // The switch above raised PresetChanged, so the stored values are already on the renderer and the handler below
+        // has normally loaded the controls already; this covers a host that raised nothing.
+        FollowActivePreset(id);
+    }
+
+    private void OnHostPresetChanged(object? sender, string id) => FollowActivePreset(id);
+
+    /// <summary>
+    /// Puts the selection and the controls on <paramref name="id"/>, applying nothing: the renderer is already there.
+    /// Nothing happens while the page has no catalogue loaded, because <see cref="Load"/> reads the active preset when
+    /// the page next appears.
+    /// </summary>
+    private void FollowActivePreset(string? id)
+    {
+        if (Presets.Count == 0)
+        {
+            return;
+        }
+
+        PresetRow? row = Presets.FirstOrDefault(r => r.Id == id);
+        if (!ReferenceEquals(row, SelectedPreset))
+        {
+            _seeding = true;
+            try
+            {
+                SelectedPreset = row;
+            }
+            finally
+            {
+                _seeding = false;
+            }
+        }
+
+        if (!string.Equals(_parametersPresetId, row?.Id, StringComparison.Ordinal))
+        {
+            LoadParameters(row?.Id);
+        }
+    }
+
+    private void TellNoRenderer()
+    {
+        if (!_toldNoRenderer)
+        {
+            _toldNoRenderer = true;
+            Serilog.Log.Information("Next preset: no visualizer is attached, so the key does nothing");
+        }
     }
 }

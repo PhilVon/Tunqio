@@ -262,6 +262,104 @@ public sealed class VisualizationSettingsViewModelTests
         vm.Notice.Should().Contain("3 presets");
     }
 
+    // ---- T-185: Next preset (Ctrl+V) --------------------------------------------------------------------------------
+
+    [Fact]
+    public void Next_preset_walks_the_catalogue_in_the_pages_order_and_wraps_from_the_last_to_the_first()
+    {
+        FakeVisualizer host = Attached();
+        var settings = new FakeSettings();
+        VisualizationSettingsViewModel vm = Build(host, settings);
+
+        // The page has never been opened: the shortcut works from the host's catalogue, which is what the page lists.
+        vm.NextPreset().Should().BeTrue();
+        host.ActivePresetId.Should().Be("waveform");
+        settings.GetValue(SettingsKeys.VizPreset, "unset").Should().Be("waveform");
+
+        vm.NextPreset().Should().BeTrue();
+        vm.NextPreset().Should().BeTrue();
+
+        host.Switched.Should().Equal("waveform", "ambient-glow", "spectrum-bars");
+        settings.GetValue(SettingsKeys.VizPreset, "unset").Should().Be("spectrum-bars");
+    }
+
+    [Fact]
+    public void Next_preset_with_no_renderer_does_nothing_and_throws_nothing()
+    {
+        var host = new FakeVisualizer { IsAttached = false };
+        var settings = new FakeSettings();
+        VisualizationSettingsViewModel vm = Build(host, settings);
+
+        vm.Invoking(v => v.NextPreset()).Should().NotThrow();
+        vm.NextPreset().Should().BeFalse();
+
+        host.Switched.Should().BeEmpty();
+        settings.Contains(SettingsKeys.VizPreset).Should().BeFalse();
+        vm.HasNotice.Should().BeFalse("a key pressed with the visualizer off is not an error to put on the page");
+    }
+
+    [Fact]
+    public void Next_preset_gives_the_new_preset_its_stored_parameter_values()
+    {
+        FakeVisualizer host = Attached();
+        var settings = new FakeSettings();
+        settings.SetValue(SettingsKeys.VizParam("waveform", "thickness"), 4f);
+        VisualizationSettingsViewModel vm = Build(host, settings);
+        vm.Load();
+
+        vm.NextPreset();
+
+        host.Applied.Should().Contain(("thickness", 4f), "T-157's PresetChanged restore covers a switch made by the shortcut");
+        vm.Parameters.Single(p => p.Name == "thickness").Value.Should().BeApproximately(4, 1e-6);
+    }
+
+    [Fact]
+    public void The_pages_selection_follows_a_switch_it_did_not_make()
+    {
+        FakeVisualizer host = Attached();
+        VisualizationSettingsViewModel vm = Build(host);
+        vm.Load();
+
+        vm.NextPreset();
+
+        vm.SelectedPreset!.Id.Should().Be("waveform");
+        vm.Parameters.Select(p => p.Name).Should().Equal("thickness", "colour");
+        // Following the selection must not switch again.
+        host.Switched.Should().Equal("waveform");
+    }
+
+    [Fact]
+    public async Task The_pages_selection_follows_a_switch_made_straight_on_the_host_Async()
+    {
+        FakeVisualizer host = Attached();
+        var settings = new FakeSettings();
+        VisualizationSettingsViewModel vm = Build(host, settings);
+        vm.Load();
+
+        await host.SetPresetAsync("ambient-glow");
+
+        vm.SelectedPreset!.Id.Should().Be("ambient-glow");
+        vm.Parameters.Select(p => p.Name).Should().Equal("smoothing");
+        host.Switched.Should().Equal("ambient-glow");
+    }
+
+    [Fact]
+    public void Next_preset_onto_one_that_does_not_compile_behaves_as_choosing_it_on_the_page()
+    {
+        FakeVisualizer host = Attached();
+        host.FailsToCompile.Add("waveform");
+        var settings = new FakeSettings();
+        VisualizationSettingsViewModel vm = Build(host, settings);
+        vm.Load();
+
+        vm.NextPreset().Should().BeTrue();
+
+        host.ActivePresetId.Should().Be("spectrum-bars");
+        settings.Contains(SettingsKeys.VizPreset).Should().BeFalse("a preset that is not drawing is not the chosen one");
+        vm.NoticeIsError.Should().BeTrue();
+        vm.Notice.Should().Contain("error X3004");
+        vm.SelectedPreset!.Id.Should().Be("spectrum-bars");
+    }
 
     private sealed class FakePaths : IAppPaths
     {
