@@ -345,7 +345,64 @@ public class SystemTrayManager : IDisposable
 }
 ```
 
-### Windows 11 Toast Notifications
+### As built (E7-S4)
+
+- **API.** Windows App SDK app notifications (`Microsoft.Windows.AppNotifications` and `.Builder`, ADR-006). The
+  `DesktopNotificationManagerCompat` sample below is superseded and its hand-written registry entries are gone.
+- **The rules.** `Notifications/ToastController.cs`, behind `IToastNotifier`, unit tested over a fake (`ToastControllerTests`).
+  With `ui.toastOnTrackChange` on (off by default), a new queue item that is playing with its row loaded shows one toast: the
+  title, the artist and the album as three lines, the cached 96 px album art as the app logo override, and Previous, Play/Pause and
+  Next buttons. The queue restored at launch and a Next while paused say nothing until the music starts, and each item is decided
+  once. Every toast carries tag `now-playing` and group `tunqio`, so the next one replaces it, and it is silent. The picture is the
+  art cache's file when the file exists and `Assets/TunqioLogo.png` otherwise, which covers a file dropped from outside the
+  library (D-24, no art hash) and a cleared cache. No toast in Focus mode, and none while a visible, not minimised Tunqio window is
+  the foreground window (`NativeWindowing.ThisProcessIsInForeground`; the mini player counts, since it already shows the track).
+  A window hidden to the tray, minimised or behind another window gets a toast. Both rules are read when the toast would be shown.
+- **The switch.** Settings › Appearance, under Window beside the tray switches (Q-111): "Show a notification when the track
+  changes", with a line saying when it shows and when it does not.
+- **Registration.** `WinUiToastNotifier` runs every call on one queue on the thread pool. Tunqio registers only while the setting is
+  on, at start-up or when it is turned on, so a profile that never turns it on never touches the notification platform. Unpackaged,
+  the SDK's `Register` writes Tunqio's own entries under HKEY_CURRENT_USER: `Software\Classes\AppUserModelId\<key from the exe path>`
+  (`NotificationGUID`), `Software\Classes\AppUserModelId\<that GUID>` (`DisplayName`, `IconUri`, `CustomActivator`) and
+  `Software\Classes\CLSID\{activator}\LocalServer32` (`"<Tunqio.exe>" ----AppNotificationActivated:`). Even reading
+  `AppNotificationManager.Default` creates the first of those, so nothing touches it while the setting is off. Packaged, `Register`
+  writes nothing: `Package.appxmanifest` declares `windows.toastNotificationActivation` and a `windows.comServer` for
+  `Tunqio.exe` with the same argument and CLSID `A50CBD6A-91AB-4045-8EBD-F7FE4C9BE29C`, which `tools/check-package.ps1` asserts.
+- **Turning it off** removes the toast and calls `Unregister`, which only stops this process receiving presses. It does not call
+  `UnregisterAll`: that deletes the notification identity Windows keeps the user's own choices for Tunqio under (Settings ›
+  System › Notifications), so turning toasts back on would arrive as a new app with those choices forgotten. `Tunqio.exe
+  --unregister-notifications` runs `UnregisterAll` and exits, for removing it for good. Measured (T-77): `UnregisterAll` removes the
+  AUMID key and the CLSID key, and keeps the per-path `NotificationGUID` key on purpose, so the same Tunqio.exe keeps its
+  identity; Windows keeps its own `Notifications\Settings\<AUMID>` key from the first toast shown. Neither launches anything.
+  The SDK also caches the icon as `%LOCALAPPDATA%\Microsoft\WindowsAppSDK\<AUMID>.png`.
+- **Presses.** The values are the `tunqio://` commands (`previous`, `toggle`, `next`, and `show` for the toast's body), so a press
+  goes through `Program.Inbox` and the same `CommandRouter` as every other activation (E7-S1): the three buttons drive
+  `PlaybackSession` and leave the window where it is, and only the body brings it forward. A press on a running, registered Tunqio
+  reaches `ToastActivation`'s `NotificationInvoked` handler in that process (the handler is added before `Register`, so the SDK
+  registers the activator for many uses and no second process starts). A press when no Tunqio is registered (toasts turned off,
+  or Tunqio not running) makes COM start `Tunqio.exe ----AppNotificationActivated:`. That process is a trampoline
+  (`Program.DeliverToastPress`): it registers without a handler before reading its activation, as the SDK requires, reads the
+  press, and starts Tunqio.exe again with the press as a `tunqio://` command and the press's `--data-root` (carried as `dataRoot`
+  only when Tunqio runs on one), then exits with 0. That launch is an ordinary one: it redirects to the running instance through
+  E7-S1's key and exits with 0, or starts the app. A press it cannot read starts nothing.
+- **Why a trampoline.** COM starts the press process from the path the SDK registered in LocalServer32, which the SDK writes in
+  lowercase, and AppInstance's single-instance key does not find an instance started from the real spelling of the same path.
+  Measured on a scratch profile: a second launch from the lowercased path started a second instance on the same data root
+  (launch #2), and the same launch from the real path redirected and exited with 0. So the trampoline relaunches from the path
+  as the file system spells it (`ExecutablePath.WithTrueCase`, `GetFinalPathNameByHandle`). The same limit applies to any
+  launch of Tunqio from a differently cased path, which is E7-S1's to settle.
+- **Shutdown.** The toasts are the first step, before the tray icon (T-188's order): the toast is removed from the notification
+  centre, presses stop, and the queue drains for at most a few seconds.
+- **Proof.** `tools/check-toasts.ps1` on a scratch `--data-root` with the setting seeded on: no toast for a Next pressed through
+  UIA with the window in front; a toast for the next track once the window is hidden to the tray, whose payload has the title,
+  artist, picture, silence and the three buttons; each button's own arguments delivered through the COM activator the
+  registration names (`INotificationActivationCallback.Activate`, which is what the notification platform calls) change the track,
+  pause and play with the window still hidden; with the setting turned off in Settings, a press starts a second process that exits
+  with 0 and the running instance plays or pauses; a clean exit with the toasts stopped before the tray; then
+  `--unregister-notifications` and a read-only registry check that every key the registration created is gone. How the toast
+  looks, and a real click in the notification centre, are AC-497, for a person.
+
+### Windows 11 Toast Notifications (original sketch, superseded by E7-S4)
 
 ```csharp
 public class ToastNotificationManager

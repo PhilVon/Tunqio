@@ -607,6 +607,7 @@ the window in the background. See windows-integration.md, "As built (E7-S2)".
 
 ### E7-S4 · Toast notifications · **S** · `windows`
 - [ ] Opt-in toast on track change with working Previous/Play-Pause/Next buttons; suppressed in Focus mode and when the window is in the foreground
+- As built (T-77): Windows App SDK app notifications behind `IToastNotifier`; `ToastController` owns the show rules (a new track playing, not in Focus mode, no Tunqio window in the foreground), the art-or-logo picture and the tag and group that make each toast replace the last, and is unit tested over a fake; the switch is on Settings › Appearance under Window; the buttons are the `tunqio://` previous, toggle and next commands and reach `PlaybackSession` through `CommandRouter`, in process when Tunqio is registered and by AppInstance redirection from a second process when it is not; registration follows the setting, turning it off unregisters the process only, and `Tunqio.exe --unregister-notifications` removes the user-level registration; `tools/check-toasts.ps1` proves the rules and every button on a scratch profile and removes the registration again. How the toast looks and a real click in the notification centre are AC-497, for a person. See windows-integration.md, "As built (E7-S4)".
 
 ### E7-S5 · Jump list · **S** · `windows`
 - [ ] Ten recent tracks and pinned playlists appear in the taskbar jump list and launch correctly

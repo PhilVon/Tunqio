@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Serilog;
 using Tunqio.App.Activation;
 using Tunqio.App.Library;
+using Tunqio.App.Notifications;
 using Tunqio.App.Playback;
 using Tunqio.App.Shell;
 using Tunqio.App.Tray;
@@ -34,6 +35,7 @@ public partial class App : Application
     private Window? _window;
     private SmtcBridge? _mediaControls;
     private TrayController? _tray;
+    private ToastController? _toasts;
     private bool _hiddenOnMinimise;
     private static nint _mainWindowHandle;
 
@@ -66,8 +68,10 @@ public partial class App : Application
     {
         Stopwatch startup = Stopwatch.StartNew();
         string[] commandLine = Environment.GetCommandLineArgs().Skip(1).ToArray();
-        // --data-root PATH (E6-S6): a scratch profile for a harness, read before anything is opened under the default one.
-        var paths = DataRootSwitch.Path(commandLine) is { } dataRoot ? new AppPaths(dataRoot) : new AppPaths();
+        // --data-root PATH (E6-S6): a scratch profile for a harness, read before anything is opened under the default one. Toasts
+        // carry it in their presses (E7-S4), so a press that has to start Tunqio again starts it on the same root.
+        string? dataRootSwitch = DataRootSwitch.Path(commandLine);
+        var paths = dataRootSwitch is { } dataRoot ? new AppPaths(dataRoot) : new AppPaths();
         paths.EnsureCreated();
 
         Log.Logger = AppLogging.Create(paths, SessionId);
@@ -155,6 +159,7 @@ public partial class App : Application
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         _mediaControls = StartMediaControls(logger);
         _tray = StartTray(window, settings, logger);
+        _toasts = StartToasts(settings, dataRootSwitch, logger);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
         _window.Closed += OnWindowClosed;
         if (databaseNotice is not null)
@@ -425,6 +430,47 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// The now-playing toast (E7-S4, ADR-006): <see cref="ToastController"/> over Windows App SDK app notifications. It registers
+    /// only while <c>ui.toastOnTrackChange</c> is on, so a profile that never turns it on never touches the notification
+    /// platform or the registry. Presses reach <see cref="Program.Inbox"/> and the same <see cref="CommandRouter"/> as every
+    /// other activation. A machine that will not give notifications costs the toast, not the launch.
+    /// </summary>
+    private ToastController? StartToasts(ISettingsStore settings, string? dataRoot, ILogger<App> logger)
+    {
+        WinUiToastNotifier? notifier = null;
+        try
+        {
+            ILogger<ToastController> log = _host!.Services.GetRequiredService<ILogger<ToastController>>();
+            ShellState shell = _host.Services.GetRequiredService<ShellState>();
+            notifier = new WinUiToastNotifier(dataRoot, log);
+            var toasts = new ToastController(
+                _host.Services.GetRequiredService<IPlaybackSessionSource>(),
+                notifier,
+                settings,
+                _host.Services.GetService<IArtCache>(),
+                // T-191's logo, beside the executable in both shapes: the picture for a track with no art.
+                Path.Combine(AppContext.BaseDirectory, "Assets", "TunqioLogo.png"),
+                () => shell.Mode == ShellMode.Focus,
+                () =>
+                {
+                    // Read once per track that would get a toast, and logged: what the rule saw is the evidence (check-toasts).
+                    NativeWindowing.ForegroundWindow foreground = NativeWindowing.Foreground();
+                    log.LogInformation("Toasts: foreground window {Foreground}", foreground);
+                    return foreground.IsThisProcess;
+                },
+                log);
+            logger.LogInformation("Toasts: controller started (ui.toastOnTrackChange {Enabled})", toasts.IsEnabled);
+            return toasts;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            notifier?.Dispose();
+            logger.LogError(e, "Toasts unavailable; no notification will be shown on a track change this session");
+            return null;
+        }
+    }
+
     /// <summary>A close of the main window by any means: hidden instead while <c>ui.closeToTray</c> is on and Exit was not chosen.</summary>
     private void OnMainWindowClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
@@ -529,6 +575,11 @@ public partial class App : Application
             // Each step is logged before it runs (T-188), so the last line of a session that dies here names the step.
             // The tray icon before that (E7-S3): its menu must not reach a session being torn down either, and disposing it
             // removes the icon, so none is left in the notification area after the process has gone.
+            // The toast before both (E7-S4): a press must not reach a session being torn down, and a now-playing toast for a player
+            // that has gone is removed rather than left in the notification centre.
+            Log.Information("Shutdown: toasts");
+            _toasts?.Dispose();
+            _toasts = null;
             Log.Information("Shutdown: tray icon");
             if (_window is not null && _tray is not null)
             {

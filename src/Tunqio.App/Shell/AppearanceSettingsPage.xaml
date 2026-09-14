@@ -53,6 +53,13 @@
                     AutomationProperties.Name="Minimise to the tray" />
       <TextBlock Text="Minimising the window hides it to the notification area instead of the taskbar. Click the Tunqio icon there to bring it back."
                  Style="{StaticResource Hint}" />
+
+      <!-- E7-S4: ui.toastOnTrackChange, beside the window switches (Q-111 put window behaviour here). Name used by tools/check-toasts.ps1. -->
+      <ToggleSwitch x:Name="ToastOnTrackChangeSwitch" Header="Show a notification when the track changes" Margin="0,12,0,0"
+                    IsOn="{x:Bind ViewModel.ToastOnTrackChange, Mode=TwoWay}"
+                    AutomationProperties.Name="Show a notification when the track changes" />
+      <TextBlock Text="When a new track starts while you are using another window, or Tunqio is minimised or in the tray, a Windows notification shows its title, artist and art, with Previous, Play/Pause and Next buttons. Nothing is shown while Tunqio's window is in front or in Focus mode."
+                 Style="{StaticResource Hint}" />
     </StackPanel>
   </ScrollViewer>
 </Page>
