@@ -585,8 +585,8 @@ As built (T-74): the manifest declares the `tunqio-audio` association for every 
 `tools/check-package.ps1`; `CommandRouter` and `SessionCommandTarget` in `Tunqio.App/Activation`; single instance in
 `Program.Main`, keyed by data root. Details in [windows-integration.md](windows-integration.md) and
 [solution-structure.md](solution-structure.md). **Proven unpackaged:** the router by unit tests, and by
-`tools/check-single-instance.ps1` the redirection of a file path, of `tunqio://queue`, `toggle` and `next`, and of 50
-paths from one command line into one instance with a 50-item queue, plus a second data root being its own instance. That
+`tools/check-single-instance.ps1` the redirection of a file path, of `tunqio://play?path=`, `queue`, `toggle` and
+`next`, and of 50 paths from one command line into one instance with a 50-item queue, plus a second data root being its own instance. That
 is the command-line half of the third box. **Waits on an installed package:** the first two boxes and the browser half of
 the third are what Windows does for an installed MSIX, and installing one means trusting its self-signed certificate.
 Phil chose to leave that until E8-S1 gives the package a real signature (Q-105, skip-until-release), so those checks

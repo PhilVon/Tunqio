@@ -261,8 +261,8 @@ Activation while running (file, protocol, jump list, toast button) lands in `OnA
 - The router's commands and what it refuses are in [windows-integration.md](windows-integration.md), "Protocol
   activation". The playlist, track and toast verbs above arrive with E7-S3 and E7-S4.
 - Proven unpackaged by `tools/check-single-instance.ps1`: on a scratch root, second processes with a file, with
-  `tunqio://queue`, `toggle` and `next`, and with 50 paths each exit with code 0 while root A keeps one process and one
-  window that plays, pauses, skips and holds a 50-item queue; a launch on a second scratch root gets its own window.
+  `tunqio://queue`, `toggle` and `next`, with 50 paths, and with `tunqio://play?path=` each exit with code 0 while root A
+  keeps one process and one window that plays, pauses, skips, holds a 50-item queue and replaces it again; a launch on a second scratch root gets its own window.
 
 ## Shutdown sequence
 

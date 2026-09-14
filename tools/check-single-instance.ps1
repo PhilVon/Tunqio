@@ -11,6 +11,7 @@
     3. a second process with tunqio://queue?path=<the second FLAC>, then one with tunqio://toggle: the transport offers
        Play (paused); then tunqio://next: Now Playing shows the second title;
     4. a second process with 50 file paths: it exits, one instance remains, and the log says the queue holds 50 items;
+       then one with tunqio://play?path=<the first FLAC>: Now Playing shows its title again;
     5. a process on scratch root B: it does not exit, and it has a window of its own;
   then closes both windows it launched (Close-TunqioShell, which fails the run on a hang or a crash code) and reads root
   A's log for the redirect, receive and route lines.
@@ -219,6 +220,12 @@ try {
     Check 'The fifty files replace the queue in the running window' ($null -ne $fiftyShown) "$(if ($fiftyShown) { "'Fifty' shown" } else { 'not shown within 30 s' })"
     Start-Sleep -Seconds 3
 
+    # ---- 4b. tunqio://play?path= from the command line replaces the queue (AC-153) --------------------------------------
+    Invoke-Second 'tunqio://play' (Quote ('tunqio://play?path=' + [Uri]::EscapeDataString($trackOne)))
+    $replayed = $null
+    try { $replayed = Wait-Until { Find-Named $window $titleOne } 15 "Now Playing showed '$titleOne' again" } catch { }
+    Check 'tunqio://play?path= plays that file in the running window' ($null -ne $replayed) "$(if ($replayed) { "'$titleOne' shown" } else { 'not shown within 15 s' })"
+
     # ---- 5. a different data root is a different instance -------------------------------------------------------------
     $other = Start-Shell ("--data-root {0}" -f (Quote $rootB))
     $script:launched += $other
@@ -247,8 +254,8 @@ try {
     $refused = @($log | Where-Object { $_ -match 'Activation input refused|Activation command .* refused' })
     $queue50 = $log | Where-Object { $_ -match 'queue replaced from 50 path\(s\); queue now 50 item\(s\)' } | Select-Object -Last 1
     $foreground = @($log | Where-Object { $_ -match 'main window activated \(foreground granted' })
-    Check 'Root A logged five redirected activations from the second processes' ($redirected.Count -eq 5) "$($redirected.Count) redirect line(s)"
-    Check 'The running instance received all five' ($received.Count -eq 5) "$($received.Count) receive line(s)"
+    Check 'Root A logged six redirected activations from the second processes' ($redirected.Count -eq 6) "$($redirected.Count) redirect line(s)"
+    Check 'The running instance received all six' ($received.Count -eq 6) "$($received.Count) receive line(s)"
     Check 'Nothing the harness sent was refused' ($refused.Count -eq 0) "$(if ($refused.Count) { $refused[0] } else { 'no refusal lines' })"
     Check 'Fifty paths from one launch became a 50-item queue in one instance' ($null -ne $queue50) "$(if ($queue50) { 'queue now 50 item(s)' } else { 'no such line' })"
     Check 'The play and file activations asked for the foreground' ($foreground.Count -ge 2) "$($foreground.Count) line(s); last: $(if ($foreground.Count) { $foreground[-1].Substring($foreground[-1].IndexOf('main window')) } else { 'none' })"
