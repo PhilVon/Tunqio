@@ -385,12 +385,15 @@ public class SystemTrayManager : IDisposable
   press, and starts Tunqio.exe again with the press as a `tunqio://` command and the press's `--data-root` (carried as `dataRoot`
   only when Tunqio runs on one), then exits with 0. That launch is an ordinary one: it redirects to the running instance through
   E7-S1's key and exits with 0, or starts the app. A press it cannot read starts nothing.
-- **Why a trampoline.** COM starts the press process from the path the SDK registered in LocalServer32, which the SDK writes in
-  lowercase, and AppInstance's single-instance key does not find an instance started from the real spelling of the same path.
-  Measured on a scratch profile: a second launch from the lowercased path started a second instance on the same data root
-  (launch #2), and the same launch from the real path redirected and exited with 0. So the trampoline relaunches from the path
-  as the file system spells it (`ExecutablePath.WithTrueCase`, `GetFinalPathNameByHandle`). The same limit applies to any
-  launch of Tunqio from a differently cased path, which is E7-S1's to settle.
+- **Why a trampoline.** A press process is a COM activation, which a relaunch cannot carry, and COM starts it from the path
+  the SDK registered in LocalServer32, which the SDK writes in lowercase. So the trampoline reads the press and relaunches from
+  the path as the file system spells it (`ExecutablePath.WithTrueCase`, `GetFinalPathNameByHandle`).
+- **Why the spelling matters (T-192).** AppInstance scopes every key by an app id hashed from the process's exact module path
+  (`ComputeAppId` over `GetModuleFileNameW`; the key's mutex is `App.<hash>_<key>_Mutex`), so a Tunqio started from a
+  lowercase path looks in another app's instance list and opens a second instance on the same data root. The SDK's GitHub
+  source lowercases the path first (PR #5696), but the 1.8.260804001 runtime Tunqio ships does not: with an instance started
+  from the real path, the mutex under the exact path's hash existed and none under the lowercased path's. `Program.Main`
+  therefore relaunches any unpackaged launch whose path is not the file system's spelling (see solution-structure.md).
 - **Shutdown.** The toasts are the first step, before the tray icon (T-188's order): the toast is removed from the notification
   centre, presses stop, and the queue drains for at most a few seconds.
 - **Proof.** `tools/check-toasts.ps1` on a scratch `--data-root` with the setting seeded on: no toast for a Next pressed through

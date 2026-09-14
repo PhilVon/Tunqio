@@ -248,6 +248,11 @@ Activation while running (file, protocol, jump list, toast button) lands in `OnA
   `"main"`: `InstanceKey` hashes the normalised full path of `--data-root`, or of `%LocalAppData%\Tunqio` without it. So
   there is one Tunqio per profile, and a harness on a scratch `--data-root` is always a separate instance that can never
   redirect into the app Phil is using.
+- **Another spelling of Tunqio.exe (T-192):** before the key, an unpackaged launch whose own path differs from the file
+  system's spelling (letter case, as COM's lowercase LocalServer32 path for a toast press, a shortcut or a script) starts
+  Tunqio.exe again from the true spelling with the same arguments, passes the foreground on and exits with 0. AppInstance
+  hashes the exact module path into every key's scope, so without it that launch would not find the running instance. The
+  relaunched process carries `TUNQIO_CANONICAL_RELAUNCH` and never relaunches again. A packaged launch is left alone.
 - **Not the current instance:** it passes the foreground on (`AllowSetForegroundWindow` to the running process), calls
   `RedirectActivationToAsync` on the thread pool with a 10 s cap, writes one line to the profile's log, and returns 0
   without starting XAML.

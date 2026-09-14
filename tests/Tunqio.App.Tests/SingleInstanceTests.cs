@@ -21,6 +21,63 @@ public sealed class SingleInstanceTests
         InstanceKey.ForDataRoot(@"C:\Scratch\Other\..\Profile").Should().Be(key, "and so does a path through ..");
     }
 
+    // ---- T-192: the executable's own spelling --------------------------------------------------------------------------
+
+    [Fact]
+    public void A_launch_from_another_spelling_of_the_executable_is_relaunched_from_the_true_one()
+    {
+        const string truePath = @"D:\Apps\Tunqio\Tunqio.exe";
+
+        ExecutablePath.RelaunchTarget(@"d:\apps\tunqio\tunqio.exe", truePath, packaged: false, relaunched: false).Should().Be(truePath,
+            "AppInstance hashes the exact module path, so a lowercase launch would miss the running instance");
+        ExecutablePath.RelaunchTarget(@"D:\Apps\TUNQIO\Tunqio.exe", truePath, packaged: false, relaunched: false).Should().Be(truePath,
+            "one directory segment in another case is another app to the SDK too");
+        ExecutablePath.RelaunchTarget(@"D:\Apps\Tunqio\tunqio.EXE", truePath, packaged: false, relaunched: false).Should().Be(truePath);
+    }
+
+    [Fact]
+    public void A_launch_from_the_true_spelling_carries_on_in_this_process()
+    {
+        ExecutablePath.RelaunchTarget(@"D:\Apps\Tunqio\Tunqio.exe", @"D:\Apps\Tunqio\Tunqio.exe", packaged: false, relaunched: false).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_packaged_or_already_relaunched_process_never_relaunches()
+    {
+        ExecutablePath.RelaunchTarget(@"d:\apps\tunqio\tunqio.exe", @"D:\Apps\Tunqio\Tunqio.exe", packaged: true, relaunched: false).Should().BeNull(
+            "Windows starts a packaged Tunqio from the manifest's path, and a relaunch would lose its file or protocol activation");
+        ExecutablePath.RelaunchTarget(@"d:\apps\tunqio\tunqio.exe", @"D:\Apps\Tunqio\Tunqio.exe", packaged: false, relaunched: true).Should().BeNull(
+            "a relaunched process that still does not match must not start a loop");
+        ExecutablePath.RelaunchTarget(null, @"D:\Apps\Tunqio\Tunqio.exe", packaged: false, relaunched: false).Should().BeNull();
+        ExecutablePath.RelaunchTarget(@"D:\Apps\Tunqio\Tunqio.exe", " ", packaged: false, relaunched: false).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_real_file_reached_through_a_lowercase_path_is_relaunched_from_its_own_spelling()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "Tunqio.T192." + Guid.NewGuid().ToString("N"), "Release_Win-x64");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            string file = Path.Combine(folder, "Tunqio.exe");
+            File.WriteAllText(file, "not a program");
+            string lower = Path.Combine(folder.ToLowerInvariant(), "tunqio.exe");
+
+            string? target = ExecutablePath.RelaunchTarget(lower, ExecutablePath.WithTrueCase(lower), packaged: false, relaunched: false);
+
+            target.Should().NotBeNull();
+            Path.GetFileName(target).Should().Be("Tunqio.exe", "the file name comes back as the file system spells it");
+            target!.Contains("Release_Win-x64", StringComparison.Ordinal).Should().BeTrue("so does each directory segment: {0}", target);
+            string.Equals(target, file, StringComparison.OrdinalIgnoreCase).Should().BeTrue();
+            ExecutablePath.RelaunchTarget(target, ExecutablePath.WithTrueCase(target!), packaged: false, relaunched: false).Should().BeNull(
+                "the relaunched process runs from the true spelling, so it stops there");
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(folder)!, recursive: true);
+        }
+    }
+
     [Fact]
     public void Different_data_roots_are_different_instances()
     {
