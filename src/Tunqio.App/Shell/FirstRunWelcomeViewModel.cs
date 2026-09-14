@@ -303,7 +303,9 @@ public sealed partial class FirstRunWelcomeViewModel : ObservableObject, IDispos
 
     private static async Task LogScanAsync(FolderAdded added)
     {
+#pragma warning disable VSTHRD003 // The scan was started by Settings › Library's add on this context and handed over to be watched; nothing blocks on it.
         ScanReport? report = await added.Scan;
+#pragma warning restore VSTHRD003
         Serilog.Log.Information(
             "First-run scan of {Folder} ended: {Report}",
             added.Folder.Path, report is null ? "no report" : LibraryScanCoordinator.Describe(report));

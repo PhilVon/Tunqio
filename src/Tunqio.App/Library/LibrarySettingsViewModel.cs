@@ -204,7 +204,9 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
     public async Task AddFolderAsync(string path, CancellationToken ct = default)
     {
         FolderAdded added = await BeginAddFolderAsync(path, ct);
+#pragma warning disable VSTHRD003 // Started by BeginAddFolderAsync just above, on this context.
         await added.Scan;
+#pragma warning restore VSTHRD003
     }
 
     /// <summary>

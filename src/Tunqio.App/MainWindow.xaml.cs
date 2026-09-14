@@ -645,7 +645,7 @@ public sealed partial class MainWindow : Window
             XamlRoot = Root.XamlRoot,
             RequestedTheme = Root.ActualTheme,
         };
-        Windows.Foundation.TypedEventHandler<FrameworkElement, object> follow =(_, _) => dialog.RequestedTheme = Root.ActualTheme;
+        Windows.Foundation.TypedEventHandler<FrameworkElement, object> follow = (_, _) => dialog.RequestedTheme = Root.ActualTheme;
         Root.ActualThemeChanged += follow;
         try
         {
