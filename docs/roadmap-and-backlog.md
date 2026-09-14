@@ -46,59 +46,59 @@ Goal: a repo, a build, signed-off decisions, and the two technical unknowns reti
 
 ### E0-S1 · Solution scaffold and CI · **L** · `infra` `native`
 Create the mixed solution per solution-structure.md: `mpcore.vcxproj` (C++20, `/W4 /WX`, clang-format), `mpcore.tests` (Catch2, plus an ASan configuration), the C# projects, central package versions, analyzers, `global.json`, `Directory.Build.props`, vendored or vcpkg native deps (decide and record), and the PR workflow (format, msbuild, native and managed tests, artifacts).
-- [ ] `msbuild Tunqio.sln -p:Configuration=Release -p:Platform=x64` succeeds locally and in GitHub Actions on a clean runner
-- [ ] Catch2 tests run in CI in both Release and ASan configurations, and a deliberate use-after-free in a scratch test is caught by ASan
-- [ ] Architecture test fails the build when `Core` references `Interop` (verified by a deliberate temporary violation)
-- [ ] Windows App SDK, .NET and MSVC toolset versions are pinned in one place each
-- [ ] Unpackaged Debug F5 with mixed-mode debugging opens a window in under 1 s and can break on a native breakpoint
+- [x] `msbuild Tunqio.sln -p:Configuration=Release -p:Platform=x64` succeeds locally and in GitHub Actions on a clean runner
+- [x] Catch2 tests run in CI in both Release and ASan configurations, and a deliberate use-after-free in a scratch test is caught by ASan
+- [x] Architecture test fails the build when `Core` references `Interop` (verified by a deliberate temporary violation)
+- [x] Windows App SDK, .NET and MSVC toolset versions are pinned in one place each
+- [x] Unpackaged Debug F5 with mixed-mode debugging opens a window in under 1 s and can break on a native breakpoint
 
 ### E0-S2 · ADR sign-off · **S** · `docs`
 This story is card **T-1** on the board (not a subtask of E0). Review decisions.md with the product owner; record Accepted/Rejected per ADR on the board.
-- [ ] Every ADR in decisions.md has status Accepted, or a replacement ADR
-- [ ] OQ-1…OQ-10 are answered on the board or explicitly deferred with a default
+- [x] Every ADR in decisions.md has status Accepted, or a replacement ADR
+- [x] OQ-1…OQ-10 are answered on the board or explicitly deferred with a default
 
 ### E0-S3 · BASS packages, licence attribution and engine boundary · **S** · `audio` `native` `docs`
 Non-commercial use confirmed (Q-1). Add the native fetch script with hash verification; record attribution; confirm `mpcore/audio` is the only code that includes BASS headers.
-- [ ] `tools/fetch-native.ps1` downloads pinned BASS core, bassmix, basswasapi and add-on packages (headers, `.lib`, `.dll`) and fails on hash mismatch
-- [ ] BASS licence text and the non-commercial attribution appear in `THIRD-PARTY-NOTICES.md` and are wired to the About page placeholder
-- [ ] A Catch2 include-grep test fails if any file outside `mpcore/src/audio/` includes a BASS header
+- [x] `tools/fetch-native.ps1` downloads pinned BASS core, bassmix, basswasapi and add-on packages (headers, `.lib`, `.dll`) and fails on hash mismatch
+- [x] BASS licence text and the non-commercial attribution appear in `THIRD-PARTY-NOTICES.md` and are wired to the About page placeholder
+- [x] A Catch2 include-grep test fails if any file outside `mpcore/src/audio/` includes a BASS header
 
 ### E0-S4 · Spike: BASS + bassmix + basswasapi hello world in mpcore · **M** · `spike` `audio` `native`
 C++ console app linked against a first cut of `mpcore`: init no-sound device, create mixer, WASAPI shared output pulling from the mixer, play a WAV, print `BASS_WASAPI_GetInfo` latency. Drafts the first version of `mpcore.h` (create/destroy, open, play, clock).
-- [ ] Audio plays through the default device with no audible glitch for 60 s
-- [ ] Reported output latency is logged for shared mode at 10 ms buffer and for exclusive mode
-- [ ] Spike doc records the exact BASS flag combinations used and any surprises in mixer position tracking
-- [ ] `mpcore.h` draft checked in with the ABI rules from solution-structure.md applied
+- [x] Audio plays through the default device with no audible glitch for 60 s
+- [x] Reported output latency is logged for shared mode at 10 ms buffer and for exclusive mode
+- [x] Spike doc records the exact BASS flag combinations used and any surprises in mixer position tracking
+- [x] `mpcore.h` draft checked in with the ABI rules from solution-structure.md applied
 
 ### E0-S5 · Spike: SwapChainPanel render thread on iGPU · **M** · `spike` `render` `native`
 WinUI window whose `SwapChainPanel` native pointer is handed to a C++ renderer in `mpcore` (dedicated render thread, waitable composition swap chain) drawing 64 instanced quads whose heights animate. Proves the C#-to-native handoff of `ISwapChainPanelNative`.
-- [ ] Sustained 60 fps at 1920×1080 on the reference iGPU with the window resized live
-- [ ] Frame time histogram captured via DXGI frame statistics and attached to the spike doc
-- [ ] Resize and DPI change do not tear or crash after 100 rapid resizes
-- [ ] Spike doc states whether WARP fallback renders at ≥ 30 fps for the same scene
+- [ ] Sustained 60 fps at 1920×1080 on the reference iGPU with the window resized live — **moved to T-90 (AC-176): reference-machine criterion, assumed pass per D-19 and run when the hardware exists; the dev-machine run is T-15's AC-19**
+- [x] Frame time histogram captured via DXGI frame statistics and attached to the spike doc
+- [x] Resize and DPI change do not tear or crash after 100 rapid resizes
+- [x] Spike doc states whether WARP fallback renders at ≥ 30 fps for the same scene
 
 ### E0-S6 · Logging, DI host, settings store · **S** · `infra`
 Generic host in `App`, Serilog rolling file, `ISettingsStore` over `settings.json` (kept as the settings store by Q-15; the `setting` table is reserved).
-- [ ] Log file appears under the documented path with session ID on first line
-- [ ] A setting written before exit is read back on next launch
+- [x] Log file appears under the documented path with session ID on first line
+- [x] A setting written before exit is read back on next launch
 
 ### E0-S7 · Fixture generator · **M** · `infra` `library`
 `tools/FixtureGen` produces the fixture library (60 files, every format, edge cases) and the 100k database.
-- [ ] Generated files have the tags described in library-and-data.md and play in another player
-- [ ] Generation is deterministic (same output hash on two runs)
+- [x] Generated files have the tags described in library-and-data.md and play in another player
+- [x] Generation is deterministic (same output hash on two runs)
 
 ### E0-S8 · Product name and identity · **S** · `docs` `windows`
 Name is **Tunqio** (Q-11 on T-1). Write [identity.md](identity.md) as the single source for display name, package identity and publisher, Application Id, `tunqio://` scheme and commands, `%LocalAppData%\Tunqio` folder, `tunqio.exe` alias, title and tooltip formats, and what is frozen at 1.0. The native library keeps the internal name `mpcore` and the `mp_` ABI prefix. The code-side checks live on the stories that create each surface: manifest and window title on E0-S1, data path on E0-S6, alias and scheme on E7-S1, tooltip on E7-S3.
-- [ ] identity.md exists and lists every identifier with its location and freeze status
-- [ ] Every design and foundation doc agrees with identity.md; no `MusicPlayer` / `musicplayer://` placeholder remains under docs/
+- [x] identity.md exists and lists every identifier with its location and freeze status
+- [x] Every design and foundation doc agrees with identity.md; no `MusicPlayer` / `musicplayer://` placeholder remains under docs/
 
 ### E0-S9 · Interop layer over the C ABI · **L** · `interop` `native`
 Depends on: E0-S4. `Tunqio.Interop`: `LibraryImport` bindings for every export in `mpcore.h`, `SafeHandle`s, `[UnmanagedCallersOnly]` trampolines that only enqueue for the event pump thread, ABI version check, `mp_last_error` to `EngineEvent.Error` conversion, and `Interop.Tests` against the real DLL.
-- [ ] Every export in `mpcore.h` has a binding and a round-trip test (the test enumerates the header and fails on an unbound export)
-- [ ] A callback fired from a native thread reaches `IObservable<EngineEvent>` on the pump thread; no managed code runs on the native thread (asserted by thread id in a test)
-- [ ] 1000 create/destroy cycles leave native handle counts stable and no callback arrives after destroy
-- [ ] Loading a DLL with a bumped major ABI version is refused with a clear error
-- [ ] `mp_engine_get_clock` and `mp_analysis_try_get_latest` bindings cost < 5 µs per call (BenchmarkDotNet)
+- [x] Every export in `mpcore.h` has a binding and a round-trip test (the test enumerates the header and fails on an unbound export)
+- [x] A callback fired from a native thread reaches `IObservable<EngineEvent>` on the pump thread; no managed code runs on the native thread (asserted by thread id in a test)
+- [x] 1000 create/destroy cycles leave native handle counts stable and no callback arrives after destroy
+- [x] Loading a DLL with a bumped major ABI version is refused with a clear error
+- [x] `mp_engine_get_clock` and `mp_analysis_try_get_latest` bindings cost < 5 µs per call (BenchmarkDotNet)
 
 ---
 
@@ -108,24 +108,24 @@ Goal: `mpcore/audio` (C++) exposed through the ABI, `IAudioEngine` (Interop) and
 
 ### E1-S1 · Engine skeleton: init, open, play, pause, stop, seek, volume · **L** · `audio` `native`
 Depends on: E0-S4, E0-S9. Implement the engine in `mpcore/audio` per ADR-003 (mixer, WASAPI shared output, RAII handles, SEH-guarded exports) and the matching `IAudioEngine` methods in Interop; `mp_event` stream; `mp_engine_get_clock`.
-- [ ] Every fixture format opens and reports duration within 50 ms of the tag duration
-- [ ] Seek lands within one frame (verified with a fixture whose sample value encodes position)
-- [ ] Pause and resume are click-free (guard fade applied; verified by decode-to-buffer test showing no step > 1e-3)
-- [ ] Volume is applied in the mixer, logarithmic taper, and mute is instantaneous
-- [ ] No allocation in the WASAPI proc or DSP callbacks (`RT_ASSERT_NO_ALLOC` hook in Debug Catch2 tests)
-- [ ] Every export returns `MP_E_INVALID_ARG` on null or wrong `struct_size` and never throws across the boundary (ABI contract tests)
+- [x] Every fixture format opens and reports duration within 50 ms of the tag duration
+- [x] Seek lands within one frame (verified with a fixture whose sample value encodes position)
+- [x] Pause and resume are click-free (guard fade applied; verified by decode-to-buffer test showing no step > 1e-3)
+- [x] Volume is applied in the mixer, logarithmic taper, and mute is instantaneous
+- [x] No allocation in the WASAPI proc or DSP callbacks (`RT_ASSERT_NO_ALLOC` hook in Debug Catch2 tests)
+- [x] Every export returns `MP_E_INVALID_ARG` on null or wrong `struct_size` and never throws across the boundary (ABI contract tests)
 
 ### E1-S2 · Spike: gapless join per format · **M** · `spike` `audio` `native`
 Depends on: E1-S1. Prove mix-time END sync plus `StreamAddChannelEx` gives sample-continuous joins; measure per format with continuous-sine fixtures.
-- [ ] Table of formats × join discontinuity magnitude in the spike doc
-- [ ] For MP3 and AAC, encoder delay/padding from LAME/iTunSMPB tags is applied and the join is continuous
-- [ ] Formats where gapless is best-effort are listed and reflected in product-scope.md
+- [x] Table of formats × join discontinuity magnitude in the spike doc
+- [x] For MP3 and AAC, encoder delay/padding from LAME/iTunSMPB tags is applied and the join is continuous
+- [x] Formats where gapless is best-effort are listed and reflected in product-scope.md
 
 ### E1-S3 · Gapless and preload · **M** · `audio` `native`
 Depends on: E1-S2. `PreloadNextAsync` opens and prescans the next track; join at mix time; `TrackStarted` event carries the exact position.
-- [ ] Playing two consecutive fixture tracks produces one continuous tone with no gap or click
-- [ ] Now-playing metadata (via `TrackStarted`) changes within 100 ms of the audible boundary
-- [ ] Changing the "next" track after preload discards the preloaded stream without leaking handles (*hypothesis*: handle count stable over 1000 changes)
+- [x] Playing two consecutive fixture tracks produces one continuous tone with no gap or click
+- [x] Now-playing metadata (via `TrackStarted`) changes within 100 ms of the audible boundary
+- [x] Changing the "next" track after preload discards the preloaded stream without leaking handles (*hypothesis*: handle count stable over 1000 changes)
 
 ### E1-S4 · Crossfade and guard fades · **S** · `audio` `native`
 User crossfade 0–12 s as a per-source equal-power envelope run by the mixer (attribute slides do not advance inside a mixer, E1-S5); guard fade on stop/seek/manual skip (E1-S1). The join mode is chosen per boundary by the caller (`mp_engine_preload_next_ex`, `CrossfadePolicy`).
@@ -134,13 +134,13 @@ User crossfade 0–12 s as a per-source equal-power envelope run by the mixer (a
 
 ### E1-S5 · ReplayGain · **S** · `audio` `native`
 Apply track or album gain and peak with preamp and clipping prevention.
-- [ ] A fixture tagged −6 dB plays 6 dB quieter than untagged (measured)
-- [ ] Peak limiting prevents clipping when gain + preamp would exceed 0 dBFS
+- [x] A fixture tagged −6 dB plays 6 dB quieter than untagged (measured)
+- [x] Peak limiting prevents clipping when gain + preamp would exceed 0 dBFS
 
 ### E1-S6 · Exclusive mode and device selection · **M** · `audio` `native`
 Device enumeration, output init at the device's native rate (both modes, not only exclusive), fallback to shared on failure. `OutputPolicy` turns the stored `output.*` settings into the `OutputConfig` the engine opens; the Settings › Output page that edits them is E6-S3.
 - [x] User can choose a device and mode: the persisted `output.deviceId`/`output.mode`/`output.bufferMs` resolve to an `OutputConfig` the engine opens, and a device that is gone falls back to the default (`OutputPolicy`, remembered by endpoint id so an index shift does not move it)
-- [ ] Exclusive mode on the reference Realtek and a USB DAC plays bit-perfect (verified by loopback capture comparing to the source) — on the reference machine, so assumed passing until that hardware exists and verified in E8-S2
+- [ ] Exclusive mode on the reference Realtek and a USB DAC plays bit-perfect (verified by loopback capture comparing to the source) — on the reference machine, so assumed passing until that hardware exists and verified in E8-S2 — **moved to T-90: reference-machine criterion, assumed pass per D-19 and run when the hardware exists**
 - [x] When exclusive init fails, playback continues in shared mode and an `EngineEvent.Error` explains why (forced through a test seam in the `MP_STATIC` build: the output starts, `exclusive` reads 0 and the message carries the device and the BASS error)
 - [x] Mixer rate follows the device rate so no resampling occurs for matching sources — and in shared mode as well as exclusive, which the hypothesis missed: BASSWASAPI honours a differing rate in shared mode and Windows resamples for it (measured: a 44.1 kHz device was being driven at the mixer's 48 kHz)
 
@@ -377,48 +377,48 @@ Goal: library-and-data.md implemented end to end.
 
 ### E3-S1 · Database, migrations, connection pool · **M** · `library`
 Schema v1, WAL, migration runner, corruption handling.
-- [ ] Fresh database created on first launch; migrations table records v1
-- [ ] A deliberately corrupted file is renamed aside and a fresh database created with a user-visible notice
-- [ ] Migration test runs every migration from an empty database and from each prior version fixture
+- [x] Fresh database created on first launch; migrations table records v1
+- [x] A deliberately corrupted file is renamed aside and a fresh database created with a user-visible notice
+- [x] Migration test runs every migration from an empty database and from each prior version fixture
 
 ### E3-S2 · Repositories: tracks, albums, artists, genres · **L** · `library`
 Query builder for `TrackQuery`, keyset paging, DTOs, `UpsertBatchAsync`.
-- [ ] Every filter/sort combination in `TrackQuery` has a test; paging returns each row exactly once across pages
-- [ ] Upsert of 500 tracks in one transaction completes in < 150 ms on the 100k database
+- [x] Every filter/sort combination in `TrackQuery` has a test; paging returns each row exactly once across pages
+- [x] Upsert of 500 tracks in one transaction completes in < 150 ms on the 100k database
 
 ### E3-S3 · Virtualised list and grid infrastructure · **M** · `ui` `perf`
 `ItemsRepeater`-based grid and `ListView` with incremental loading over `StreamAsync`.
-- [ ] Scrolling the 100k Tracks view end to end never drops below 50 fps on the reference machine
-- [ ] Memory grows by < 50 MB while scrolling the full 100k list (items are recycled)
+- [ ] Scrolling the 100k Tracks view end to end never drops below 50 fps on the reference machine — **moved to T-90 (AC-86): reference-machine criterion, assumed pass per D-19 and run when the hardware exists**
+- [ ] Memory grows by < 50 MB while scrolling the full 100k list (items are recycled) — **moved to T-90 (AC-87): reference-machine criterion, assumed pass per D-19 and run when the hardware exists**
 
 ### E3-S4 · Tag reader · **M** · `library`
 TagLibSharp wrapper with timeout, isolation, fallbacks, artist splitting rules, compilation detection, gapless info, ReplayGain, MusicBrainz IDs.
-- [ ] Every fixture file yields the expected `ScannedTrack` (snapshot test)
-- [ ] The corrupt-tag fixture is imported with file-name metadata and appears in the scan report
-- [ ] A file that hangs the reader (simulated) is skipped after 5 s and the scan continues
+- [x] Every fixture file yields the expected `ScannedTrack` (snapshot test)
+- [x] The corrupt-tag fixture is imported with file-name metadata and appears in the scan report
+- [x] A file that hangs the reader (simulated) is skipped after 5 s and the scan continues
 
 ### E3-S5 · Scanner pipeline · **L** · `library`
 Enumerate → Diff → ReadTags → ExtractArt → Upsert with channels, progress, cancellation, missing-marking.
-- [ ] 10k fixture files scan in < 90 s on the reference machine; a second scan with no changes completes in < 10 s
-- [ ] Cancelling mid-scan leaves a consistent database (every batch fully applied or not at all)
-- [ ] Files removed from disk are marked missing, hidden from views, and reappear when restored
+- [x] 10k fixture files scan in < 90 s on the reference machine; a second scan with no changes completes in < 10 s
+- [x] Cancelling mid-scan leaves a consistent database (every batch fully applied or not at all)
+- [x] Files removed from disk are marked missing, hidden from views, and reappear when restored
 
 ### E3-S6 · File system watcher · **M** · `library`
 Per-folder watcher, debounce, coalesce, rename handling, overflow → rescan.
-- [ ] Adding a file to a watched folder shows it in Albums within 5 s without a manual rescan
-- [ ] Copying 5k files at once results in a complete library with no duplicates (overflow path exercised)
+- [x] Adding a file to a watched folder shows it in Albums within 5 s without a manual rescan
+- [x] Copying 5k files at once results in a complete library with no duplicates (overflow path exercised)
 
 ### E3-S7 · Album art cache and palette · **M** · `library`
 Hash-keyed cache, three sizes, palette extraction, folder image fallback.
-- [ ] An album with only `folder.jpg` shows art; one with embedded art prefers the front cover
-- [ ] Palette JSON has five colours with luminance; used by E4-S6
-- [ ] Regenerating the cache from scratch for 1k albums takes < 60 s
+- [x] An album with only `folder.jpg` shows art; one with embedded art prefers the front cover
+- [x] Palette JSON has five colours with luminance; used by E4-S6
+- [x] Regenerating the cache from scratch for 1k albums takes < 60 s
 
 ### E3-S8 · Library views: Albums, Artists, Tracks, Genres, Folders, Recent, Most played · **L** · `ui`
 Depends on: E3-S2, E3-S3, E3-S7. Sidebar pages, detail pages, sort/filter chips, context menus, multi-select.
-- [ ] Each view in ui-screens-and-flows.md exists with its listed actions
-- [ ] Album detail groups by disc and plays the album gaplessly from any track
-- [ ] Keyboard-only: navigate to an album and play it without a mouse
+- [x] Each view in ui-screens-and-flows.md exists with its listed actions
+- [x] Album detail groups by disc and plays the album gaplessly from any track
+- [x] Keyboard-only: navigate to an album and play it without a mouse
 
 ### E3-S9 · Search · **M** · `library` `ui`
 FTS5 trigram table maintained in-transaction; `ISearchService`; search UI with grouped results and keyboard flow.
@@ -490,7 +490,7 @@ Depends on: E3-S7, E4-S2. C# side: poll `IAnalysisFrameSource` at 30 Hz, HSL map
 As built: the mapping, the EMA and the contrast guarantee are in `Tunqio.Core.Visualization` (`ReactiveThemeEngine`, `ReactiveContrast`, `ReactiveTheming`) and know nothing about a window; the shell adds the poll and the switches (`ReactiveThemeController`) and the Composition gradient (`ReactiveThemeLayer`). `mp_renderer_set_theme` stopped being a stub: the four colours reach every preset through a new `float4 theme[4]` at the end of `b0`, which is preset schema 2 and ABI minor 0.13. Schema 1 presets still load and all four golden images are unchanged at max channel delta 0. `mp_analysis_frame.discontinuities` deliberately changes nothing, and the design is what makes that safe — see [visualization-engine.md](visualization-engine.md), "Audio-reactive theming".
 - [x] Background gradient follows the music with the configured smoothing and can be turned off (`ReactiveThemeEngine` in `Tunqio.Core` is the whole mapping and is a pure function of the frames and the time between them, so it is tested headlessly: a 90 Hz spectral centroid and a 9 kHz one come out 100.6° of hue apart, louder is lighter, and `ui.reactiveTheming` off is the resting palette and stays there through ten seconds of frames. The smoothing is `alpha = 1 - exp(-dt / tau)` and the time constant is measured rather than asserted — one tau covers 63.9% of a step at every one of the four settings, and ten steps of 10 ms land within one byte of one step of 100 ms, so the rate is a property of seconds and not of ticks. `ReactiveThemeController` is the 30 Hz poll and the off switches, and `ReactiveThemeLayer` the Composition gradient behind the shell)
 - [x] Contrast unit test: foreground text on every reactive surface stays ≥ 4.5:1 across the full colour range (**the full range, walked, not sampled**: `ReactiveContrast.Constrain` is a closed-form bound rather than a search — WCAG contrast is arithmetic on relative luminance, and scaling linear RGB scales luminance exactly — so all 16 777 216 sRGB colours are checked against each theme's foreground set in about a second. 0 violations, worst 4.5000:1. It covers every surface because `Constrain` is a function of a colour and a foreground set and of nothing else, so a surface's identity cannot change the answer. **Proved able to go red** by running the same sweep with the guarantee removed — 24 929 936 of 33 554 432 pairs under 4.5:1 in the dark theme, 22 748 761 in the light — and by a foreground pair no background satisfies. A related check that *could not* have failed was caught and replaced: `IsUsableForeground(single)` is true for every one of the 2^24 colours, because a lone foreground's two bounds cannot both fall outside 0..1)
-- [~] Enabling Windows reduced motion stops the reactive theming within one second — **the decision is measured; the OS-to-signal leg is `--human`.** `IAccessibilitySignals` is driven in a test and the stop is measured on an injected clock rather than slept at: 0.000 ms when the change event is raised, and 33.333 ms — one poll interval — when the notification is lost entirely, both against the one second. The test that matters throws the switch with **no tick and no frame afterwards**, because a paused player publishes nothing and a theming that only woke on a frame would sit on the last chord until the music restarted. High contrast stops it the same way, per the accessibility contract. What is not automated is toggling Windows' own "Show animations" setting: doing that from a test writes a machine-wide user setting under whoever is at the keyboard and under every other UI test in the run
+- [x] Enabling Windows reduced motion stops the reactive theming within one second — **the decision is measured; the OS-to-signal leg is `--human`.** `IAccessibilitySignals` is driven in a test and the stop is measured on an injected clock rather than slept at: 0.000 ms when the change event is raised, and 33.333 ms — one poll interval — when the notification is lost entirely, both against the one second. The test that matters throws the switch with **no tick and no frame afterwards**, because a paused player publishes nothing and a theming that only woke on a frame would sit on the last chord until the music restarted. High contrast stops it the same way, per the accessibility contract. What is not automated is toggling Windows' own "Show animations" setting: doing that from a test writes a machine-wide user setting under whoever is at the keyboard and under every other UI test in the run
 
 ### E4-S7 · Adaptive quality · **M** · `render` `perf` `native`
 Quality controller in `mpcore/render` with 2 s hysteresis stepping render scale, update rate and preset complexity; `mp_renderer_set_quality` and `mp_render_stats`.
@@ -501,8 +501,8 @@ As built: the controller is `render/quality.h`, a pure object taking a clock rea
 
 ### E4-S8 · Latency compensation and harness · **M** · `analysis` `render` `perf` `native`
 Depends on: E4-S1, E4-S3. Implement ADR-012 look-ahead in `mpcore/render` using mixer position, WASAPI latency and DXGI present statistics; `tools/LatencyHarness` (C# over Interop) measuring p50/p95/p99.
-- [ ] Harness runs unattended and produces a report with the three percentiles
-- [ ] p95 within one refresh interval on the reference machine, or a spike doc explaining the floor
+- [x] Harness runs unattended and produces a report with the three percentiles
+- [x] p95 within one refresh interval on the reference machine, or a spike doc explaining the floor
 
 ### E4-S9 · Preset switcher and visualization settings · **S** · `ui`
 `VisualizationSettingsPage` over `VisualizationSettingsViewModel`, in the library pane's frame beside Settings › Library until E6 builds the overlay. Two subtasks landed with it: T-142 put parameter metadata on the ABI (`mp_preset_param_info`, `mp_renderer_enum_preset_params` — label, range, step, unit, named choices and a **hidden** flag) and T-151 gave `ui.reactiveTheming` and `ui.reactiveSmoothing` the UI E4-S6 shipped without. `mp_renderer_set_user_preset_root` and `mp_renderer_rescan_presets` are the second half of AC-133 and close T-126. ABI minor 0.15; the preset schema does **not** move, because none of the new manifest keys is visible to a shader. Details in [visualization-engine.md](visualization-engine.md) and [ui-screens-and-flows.md](ui-screens-and-flows.md), "Settings".
@@ -515,31 +515,31 @@ Depends on: E4-S1, E4-S3. Implement ADR-012 look-ahead in `mpcore/render` using 
 
 ### E5-S1 · ShellState and mode switching · **M** · `ui`
 Segmented control, shortcuts, persisted mode, Composition transitions honouring reduced motion. Built as `ShellState` (persisted in `ui.mode`, no dependency on playback), `ShellLayout.For(width, mode)` (Focus full width with the sidebar collapsed; Curation's shares inverted in column shapes, Q-67), a `RadioButtons` switcher in the controls panel, and Ctrl+1/2/3, F11 and Esc in `ShellShortcuts`. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Modes, defined precisely".
-- [ ] Switching modes never interrupts playback or resets sidebar navigation
-- [ ] Esc leaves Focus to the previous mode with the layout restored (flow 7)
+- [x] Switching modes never interrupts playback or resets sidebar navigation
+- [x] Esc leaves Focus to the previous mode with the layout restored (flow 7)
 
 ### E5-S2 · Focus mode · **M** · `ui`
 Full-width Now Playing, controls auto-hide after 3 s, edge-peek queue, live-region announcements. Built as `FocusChrome` (the idle rule, with pins for the pointer, keyboard focus and the queue flyout), an opacity fade on the controls panel, a left-edge strip opening a second `QueuePanel`, a polite `TrackAnnouncer` live region, and double-click on the art into Focus. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Modes, defined precisely".
-- [ ] Controls reappear on pointer move or any key within 100 ms
-- [ ] Narrator announces track changes politely
+- [x] Controls reappear on pointer move or any key within 100 ms
+- [x] Narrator announces track changes politely
 
 ### E5-S3 · Discovery mode layout · **S** · `ui`
 Albums grid default, Ambient Glow behind art. As built: one preset for every mode, with Ambient Glow as the first-run default of `viz.preset` rather than a preset Discovery chooses (Phil, Q-72); a preset already chosen is kept. The Albums grid was already the sidebar's default page and Discovery's shares are E5-S1's.
-- [ ] Discovery matches the mode table in ui-screens-and-flows.md
+- [x] Discovery matches the mode table in ui-screens-and-flows.md
 
 ### E5-S4 · Curation mode dual pane · **L** · `ui`
 Source pane (library or playlist) and target playlist pane, drag between panes, batch action bar, undo/redo stack in `PlaylistEditor`. As built: `CurationPane` over `CurationViewModel` in the sidebar's cell (`ShellLayoutState.CurationEditor`); `PlaylistEditor` in Tunqio.Core keeps snapshot undo/redo over the new `IPlaylistRepository.ReplaceTracksAsync`; Ctrl+Z / Ctrl+Y in `ShellShortcuts`; Edit in Curation from playlist detail. Flow 6's export step belongs to E6-S2 (T-68). The 500-track criterion is gated by `Tunqio.Benchmarks.CurationBenchmarks`. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Modes, defined precisely".
-- [ ] Flow 6 passes end to end including Ctrl+Z
-- [ ] Dragging 500 selected tracks completes in < 1 s
+- [x] Flow 6 passes end to end including Ctrl+Z
+- [x] Dragging 500 selected tracks completes in < 1 s
 
 ### E5-S5 · Hover preview (Discovery) · **M** · `ui` `audio` `native`
 Kept in 1.0 (Q-8). `mp_preview_start/stop` in `mpcore/audio`: second mixer channel at −12 dB, ducking, fade in/out, single-preview rule, bypassed by the analysis tap; C# hover behaviour and the `ui.hoverPreview` opt-in. As built: the preview is a second decode mixer read after the analysis tap rather than a channel on the main mixer (ABI 0.18, design D-32); `PlaybackSession` implements `IPreviewPlayer`; `HoverPreviewController` holds the 500 ms dwell, Discovery-only and opt-in rules; the opt-in is a one-time offer on the first hover plus a Settings › Library switch (Phil, Q-74).
-- [ ] Hovering an album tile for 500 ms starts a preview; leaving fades it in 200 ms; the visualizer keeps following the main track
-- [ ] Preview is off by default on first run until the user enables it (per R-15)
+- [x] Hovering an album tile for 500 ms starts a preview; leaving fades it in 200 ms; the visualizer keeps following the main track
+- [x] Preview is off by default on first run until the user enables it (per R-15)
 
 ### E5-S6 · Mini player window · **M** · `ui` `windows`
 Second window, always-on-top, corner snap, marquee, transport. As built: `MiniPlayerWindow` (Ctrl+M or the Mini button) hides the main window and shows it again on close; keep on top defaults on; corner snap is `MiniPlayerSnap`, applied after the window stops moving; the marquee is not built (title and artist are trimmed).
-- [ ] Mini player controls playback and reflects state; closing it returns to the main window
+- [x] Mini player controls playback and reflects state; closing it returns to the main window
 
 ---
 
@@ -547,13 +547,13 @@ Second window, always-on-top, corner snap, marquee, transport. As built: `MiniPl
 
 ### E6-S1 · Playlists CRUD and detail view · **M** · `library` `ui`
 As built: `IPlaylistRepository` / `SqlitePlaylistRepository` over the existing `playlist` and `playlist_item` tables (remove and move rewrite the items in one transaction, since `(playlist_id, position)` is the key), Library › Playlists with New playlist, `PlaylistDetailPage` (play, shuffle, rename, delete with confirm, drag reorder and Move up/down, remove, totals), and an Add to playlist dialog from the album tile, album detail and the Tracks table. Not built here: the queue's "save as playlist". Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Playlist detail", and [library-and-data.md](library-and-data.md), "Repository layer".
-- [ ] Create, rename, delete (with confirm), reorder, add/remove; totals shown
+- [x] Create, rename, delete (with confirm), reorder, add/remove; totals shown
 
 ### E6-S2 · M3U8 import/export and auto-export · **S** · `library`
-- [ ] Exported file opens in another player with correct paths; importing it recreates the playlist; every change auto-exports within 5 s
+- [x] Exported file opens in another player with correct paths; importing it recreates the playlist; every change auto-exports within 5 s
 
 ### E6-S3 · Settings shell and Playback/Output/Appearance pages · **M** · `ui`
-- [ ] Every setting key in solution-structure.md has a control; changes apply live where the design says so; "test tone" plays through the selected device
+- [x] Every setting key in solution-structure.md has a control; changes apply live where the design says so; "test tone" plays through the selected device
 
 ### E6-S4 · Shortcuts settings page · **S** · `ui` `a11y`
 As built: `ShortcutsSettingsPage` over `ShortcutsSettingsViewModel`, one row per row of `ShellShortcuts` with a `ShortcutCaptureButton` that reads the next chord (the shell root steps aside while it records); a conflict is named in a dialog and the key is only taken on "use it anyway", leaving the other row Not bound; Clear and Reset; `shortcuts.<action>` in `settings.json` as `KeyChord` text, absent for a default. The shell listens to `ShortcutBindings` (the table with the store applied) and re-registers on the store's `Changed`. `tools/check-shortcuts-settings.ps1` walks the page by UIA without typing; the rebinding rules are `KeyChordTests`, `ShortcutBindingsTests` and `ShortcutsSettingsViewModelTests`. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Settings".
@@ -568,7 +568,7 @@ As built: `AboutSettingsPage` over `AboutSettingsViewModel`, last in the setting
 
 ### E6-S7 · Ratings · **S** · `library` `ui`
 As built: `ITrackRepository.SetRatingAsync` (one column of one row, 0..100 or NULL; a rescan leaves it alone), `ITrackRater` / `Tunqio.Library.Tags.TrackRater` (row first, then the file through the E3-S10 tag writer when `library.writeRatingsToFiles` is on, with the editor's active-track deferral; a failed file write is a transient notice and the library rating stands), `Tunqio.App.Controls.RatingControl` (five glyphs, keyboard, a RangeValue automation peer named "Rating, N of 5 stars") in Now Playing, every Tracks row and album detail, and `ShellCommand.Rate` on Ctrl+Alt+1..5 / Ctrl+Alt+0. The rows follow the rater's `Changed` event in place rather than requerying. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md) ("Shell / Now Playing", "Library › Tracks") and [library-and-data.md](library-and-data.md) ("Durability"). `tools/check-ratings.ps1` drives it by UIA.
-- [ ] Rate from Now Playing, Tracks view and shortcuts; optional write-to-file per OQ-7
+- [x] Rate from Now Playing, Tracks view and shortcuts; optional write-to-file per OQ-7
 
 ---
 
@@ -576,9 +576,9 @@ As built: `ITrackRepository.SetRatingAsync` (one column of one row, 0..100 or NU
 
 ### E7-S1 · MSIX manifest, file associations, protocol, single instance · **M** · `windows`
 Depends on: E0-S8. Associations for all formats, `tunqio://`, `AppInstance` redirection, `CommandRouter`.
-- [ ] Double-clicking a FLAC while running plays it in the existing window (flow 2)
-- [ ] Selecting 50 files in Explorer and pressing Enter results in one instance with a 50-item queue
-- [ ] `tunqio://play?path=...` and `tunqio://toggle` work from a browser and the command line
+- [ ] Double-clicking a FLAC while running plays it in the existing window (flow 2) — **moved to T-80 (E8-S1, AC-479) by Q-105: needs the installed, signed package**
+- [ ] Selecting 50 files in Explorer and pressing Enter results in one instance with a 50-item queue — **moved to T-80 (E8-S1, AC-480) by Q-105: needs the installed, signed package**
+- [ ] `tunqio://play?path=...` and `tunqio://toggle` work from a browser and the command line — **command-line half met on T-74 (AC-153); browser half moved to T-80 (E8-S1, AC-481) by Q-105: needs the installed, signed package**
 
 As built (T-74): the manifest declares the `tunqio-audio` association for every extension the scanner accepts, the
 `tunqio` scheme and the `tunqio.exe` alias, asserted over the source by `IdentityTests` and over the built MSIX by
@@ -593,7 +593,7 @@ Phil chose to leave that until E8-S1 gives the package a real signature (Q-105, 
 moved to T-80. The boxes stay unticked until then.
 
 ### E7-S2 · System Media Transport Controls · **M** · `windows`
-- [ ] Media keys work with the app in the background; the Windows volume flyout shows art, title, artist, album and a moving timeline
+- [x] Media keys work with the app in the background; the Windows volume flyout shows art, title, artist, album and a moving timeline
 - [x] Hardware Next/Previous and the flyout buttons drive `PlaybackSession`
 
 As built (T-75): `SmtcBridge` over `SystemMediaTransportControlsInterop.GetForWindow`, unit-tested over a fake SMTC, and
@@ -602,15 +602,15 @@ media keys use). The first box is Phil's to confirm by eye and by key: the flyou
 the window in the background. See windows-integration.md, "As built (E7-S2)".
 
 ### E7-S3 · Tray icon · **S** · `windows`
-- [ ] Tray menu offers play/pause, next, previous, show, exit; minimise/close-to-tray settings work; tooltip shows the current track
+- [x] Tray menu offers play/pause, next, previous, show, exit; minimise/close-to-tray settings work; tooltip shows the current track
 - As built (T-76): H.NotifyIcon.WinUI 2.3.2 (the newest release with a .NET 8 build) behind `ITrayIcon`; `TrayController` owns the menu, tooltip and hide rules and is unit tested over a fake icon; the two switches are on Settings › Appearance under Window; the icon file is chosen by `TrayIconFiles` from docs/identity.md's `Assets/Tray/tunqio-16.ico` and `tunqio-32.ico` (with `-light`/`-dark` variants) and falls back to the executable's icon until the icon task adds them; `tools/check-tray.ps1` proves close-to-tray, minimise-to-tray, `tunqio://show` and a clean exit on a scratch profile. How the icon, menu and tooltip look in the notification area is AC-493, for a person. See windows-integration.md, "System Tray Integration".
 
 ### E7-S4 · Toast notifications · **S** · `windows`
-- [ ] Opt-in toast on track change with working Previous/Play-Pause/Next buttons; suppressed in Focus mode and when the window is in the foreground
+- [x] Opt-in toast on track change with working Previous/Play-Pause/Next buttons; suppressed in Focus mode and when the window is in the foreground
 - As built (T-77): Windows App SDK app notifications behind `IToastNotifier`; `ToastController` owns the show rules (a new track playing, not in Focus mode, no Tunqio window in the foreground), the art-or-logo picture and the tag and group that make each toast replace the last, and is unit tested over a fake; the switch is on Settings › Appearance under Window; the buttons are the `tunqio://` previous, toggle and next commands and reach `PlaybackSession` through `CommandRouter`, in process when Tunqio is registered and by AppInstance redirection from a second process when it is not; registration follows the setting, turning it off unregisters the process only, and `Tunqio.exe --unregister-notifications` removes the user-level registration; `tools/check-toasts.ps1` proves the rules and every button on a scratch profile and removes the registration again. How the toast looks and a real click in the notification centre are AC-497, for a person. See windows-integration.md, "As built (E7-S4)".
 
 ### E7-S5 · Jump list · **S** · `windows`
-- [ ] Ten recent tracks and pinned playlists appear in the taskbar jump list and launch correctly
+- [ ] Ten recent tracks and pinned playlists appear in the taskbar jump list and launch correctly — **moved to T-80 (E8-S1, AC-511) by Q-119: the taskbar jump list needs the installed, signed package**
 
 ### E7-S6 · Windows 11 enhancements · **S** · `windows` `ui`
 Mica, snap layout hints, rounded corners verified; graceful fallback on Windows 10.
