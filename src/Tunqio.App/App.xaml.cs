@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Serilog;
 using Tunqio.App.Activation;
+using Tunqio.App.JumpLists;
 using Tunqio.App.Library;
 using Tunqio.App.Notifications;
 using Tunqio.App.Playback;
@@ -36,6 +37,7 @@ public partial class App : Application
     private SmtcBridge? _mediaControls;
     private TrayController? _tray;
     private ToastController? _toasts;
+    private JumpListController? _jumpList;
     private bool _hiddenOnMinimise;
     private static nint _mainWindowHandle;
 
@@ -172,6 +174,7 @@ public partial class App : Application
         _ = StartAudioAsync(window, logger, commandLine);
         _ = StartLibraryWatcherAsync(logger);
         StartActivationRouting(window, logger);
+        _jumpList = StartJumpList(logger);
 
         if (RenderSpikeRunner.IsRequested(commandLine))
         {
@@ -205,6 +208,9 @@ public partial class App : Application
             var target = new SessionCommandTarget(
                 _host!.Services.GetRequiredService<IPlaybackSessionSource>(),
                 _host.Services.GetRequiredService<OpenFilesService>(),
+                // Jump list items name library ids (E7-S5).
+                _host.Services.GetRequiredService<ITrackRepository>(),
+                _host.Services.GetRequiredService<IPlaylistRepository>(),
                 BringMainWindowToForeground,
                 SessionCommandTarget.SessionWait,
                 _host.Services.GetRequiredService<ILogger<SessionCommandTarget>>());
@@ -222,6 +228,41 @@ public partial class App : Application
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             logger.LogError(e, "Activation routing did not start; files and tunqio:// links opened while running are ignored this session");
+        }
+    }
+
+    /// <summary>
+    /// The taskbar jump list (E7-S5, ADR-006): <see cref="JumpListController"/> over <see cref="WinRtJumpList"/>, started after the
+    /// window is shown with its first refresh. The API needs package identity, so the unpackaged build skips it with this one line
+    /// and never touches the API (Q-119); the installed package is where it runs (E8-S1). Its items are <c>tunqio://track</c> and
+    /// <c>tunqio://playlist</c> commands, which reach <see cref="CommandRouter"/> like every other activation. A machine that will not
+    /// give a jump list costs the jump list, not the launch.
+    /// </summary>
+    private JumpListController? StartJumpList(ILogger<App> logger)
+    {
+        try
+        {
+            if (WinRtJumpList.WhyUnavailable() is { } reason)
+            {
+                logger.LogInformation("Jump list: skipped, {Reason}; the taskbar jump list needs the installed package (E8-S1)", reason);
+                return null;
+            }
+
+            var controller = new JumpListController(
+                _host!.Services.GetRequiredService<IPlaybackSessionSource>(),
+                _host.Services.GetRequiredService<ITrackRepository>(),
+                _host.Services.GetRequiredService<IPlaylistRepository>(),
+                new WinRtJumpList(),
+                TimeProvider.System,
+                _host.Services.GetRequiredService<ILogger<JumpListController>>());
+            controller.Start();
+            logger.LogInformation("Jump list: controller started; the first write follows in {Window}", JumpListController.CoalesceWindow);
+            return controller;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            logger.LogError(e, "Jump list unavailable; recent tracks and pinned playlists will not reach the taskbar this session");
+            return null;
         }
     }
 
@@ -577,6 +618,11 @@ public partial class App : Application
             // removes the icon, so none is left in the notification area after the process has gone.
             // The toast before both (E7-S4): a press must not reach a session being torn down, and a now-playing toast for a player
             // that has gone is removed rather than left in the notification centre.
+            // The jump list before everything (E7-S5): a refresh reads the library database, which must not be reading while the
+            // session and the database close under it. What it last wrote stays on the taskbar.
+            Log.Information("Shutdown: jump list");
+            _jumpList?.Dispose();
+            _jumpList = null;
             Log.Information("Shutdown: toasts");
             _toasts?.Dispose();
             _toasts = null;

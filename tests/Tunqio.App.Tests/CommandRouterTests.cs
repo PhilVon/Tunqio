@@ -233,6 +233,82 @@ public sealed class CommandRouterTests : IDisposable
         _target.Calls.Should().Equal(["foreground", "file:" + song, "toggle"]);
     }
 
+    // ---- jump list items (E7-S5): tunqio://track?id= and tunqio://playlist?id= ------------------------------------------
+
+    [Fact]
+    public async Task A_jump_list_track_item_plays_that_track_and_brings_the_window_forward_Async()
+    {
+        RouteResult result = await RedirectedAsync(CommandRouter.TrackUri(42));
+
+        result.Commands.Should().ContainSingle().Which.Should().Be(RoutedCommand.ForId(RoutedCommandKind.PlayTrack, 42));
+        _target.Calls.Should().Equal(["foreground", "track:42"]);
+    }
+
+    [Fact]
+    public async Task A_jump_list_playlist_item_plays_that_playlist_and_brings_the_window_forward_Async()
+    {
+        await RedirectedAsync(CommandRouter.PlaylistUri(7));
+
+        _target.Calls.Should().Equal(["foreground", "playlist:7"]);
+    }
+
+    [Fact]
+    public void The_item_arguments_are_the_uri_grammar_the_router_reads()
+    {
+        CommandRouter.TrackUri(42).Should().Be("tunqio://track?id=42");
+        CommandRouter.PlaylistUri(7).Should().Be("tunqio://playlist?id=7");
+    }
+
+    [Fact]
+    public async Task A_cold_start_with_an_item_s_arguments_plays_it_beside_the_app_s_own_switches_Async()
+    {
+        RouteResult result = await Router().RouteAsync(
+            ["--data-root", @"C:\scratch\root", CommandRouter.PlaylistUri(3)], _root, emptyMeansShow: false);
+
+        result.Refusals.Should().BeEmpty();
+        _target.Calls.Should().Equal(["foreground", "playlist:3"]);
+    }
+
+    [Theory]
+    [InlineData("TUNQIO://Track/?ID=5&volume=1", "track:5")]
+    [InlineData("tunqio:playlist?id=12", "playlist:12")]
+    public async Task Case_a_trailing_slash_and_other_parameters_do_not_change_the_item_Async(string uri, string call)
+    {
+        await RedirectedAsync(uri);
+
+        _target.Calls.Should().Equal(["foreground", call]);
+    }
+
+    [Theory]
+    [InlineData("tunqio://track", "names no id")]
+    [InlineData("tunqio://playlist?name=Mix", "names no id")]
+    [InlineData("tunqio://track?id=", "not a positive whole number")]
+    [InlineData("tunqio://track?id=abc", "not a positive whole number")]
+    [InlineData("tunqio://playlist?id=-3", "not a positive whole number")]
+    [InlineData("tunqio://playlist?id=0", "not a positive whole number")]
+    [InlineData("tunqio://track?id=99999999999999999999", "not a positive whole number")]
+    public async Task A_malformed_item_id_is_refused_with_one_line_and_runs_nothing_Async(string uri, string reason)
+    {
+        RouteResult result = await RedirectedAsync(uri);
+
+        result.Commands.Should().BeEmpty();
+        result.Refusals.Should().ContainSingle().Which.Should().Contain(reason);
+        _log.Warnings.Should().ContainSingle();
+        _target.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_track_that_no_longer_exists_is_refused_by_the_target_with_one_line_and_never_throws_Async()
+    {
+        _target.FailOn = "track:404";
+
+        Func<Task> route = () => RedirectedAsync(CommandRouter.TrackUri(404), "tunqio://next");
+
+        await route.Should().NotThrowAsync();
+        _log.Warnings.Should().ContainSingle().Which.Should().Contain("PlayTrack (id 404) refused");
+        _target.Calls.Should().Equal(["foreground", "track:404", "next"], "the next command still runs");
+    }
+
     // ---- empty input, and never throwing --------------------------------------------------------------------------------
 
     [Fact]
@@ -300,6 +376,10 @@ public sealed class CommandRouterTests : IDisposable
 
         public Task PreviousAsync(CancellationToken ct) => RecordAsync("previous");
 
+        public Task PlayTrackAsync(long trackId, CancellationToken ct) => RecordAsync("track:" + trackId);
+
+        public Task PlayPlaylistAsync(long playlistId, CancellationToken ct) => RecordAsync("playlist:" + playlistId);
+
         public void BringToForeground() => Calls.Add("foreground");
 
         private Task RecordAsync(string call)
@@ -324,6 +404,17 @@ internal sealed class ListLogger<T> : ILogger<T>
             lock (_lines)
             {
                 return [.. _lines.Where(l => l.Level == LogLevel.Warning).Select(l => l.Message)];
+            }
+        }
+    }
+
+    public IReadOnlyList<string> Infos
+    {
+        get
+        {
+            lock (_lines)
+            {
+                return [.. _lines.Where(l => l.Level == LogLevel.Information).Select(l => l.Message)];
             }
         }
     }

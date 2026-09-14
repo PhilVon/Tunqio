@@ -433,6 +433,10 @@ public sealed class ToastControllerTests : IAsyncLifetime
 
         public Task PreviousAsync(CancellationToken ct) => RecordAsync("previous");
 
+        public Task PlayTrackAsync(long trackId, CancellationToken ct) => RecordAsync("track");
+
+        public Task PlayPlaylistAsync(long playlistId, CancellationToken ct) => RecordAsync("playlist");
+
         public void BringToForeground() => Calls.Add("foreground");
 
         private Task RecordAsync(string call)
@@ -456,6 +460,10 @@ public sealed class ToastControllerTests : IAsyncLifetime
         public Task NextAsync(CancellationToken ct) => session.NextAsync(ct);
 
         public Task PreviousAsync(CancellationToken ct) => session.PreviousAsync(ct);
+
+        public Task PlayTrackAsync(long trackId, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task PlayPlaylistAsync(long playlistId, CancellationToken ct) => throw new NotSupportedException();
 
         public void BringToForeground() => throw new InvalidOperationException("a toast button brought the window forward");
     }

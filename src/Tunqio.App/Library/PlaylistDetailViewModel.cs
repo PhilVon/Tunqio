@@ -49,6 +49,10 @@ public sealed partial class PlaylistDetailViewModel : ObservableObject
     [ObservableProperty]
     public partial bool NotFound { get; set; }
 
+    /// <summary>Whether the playlist is pinned to the jump list (E7-S5), as stored.</summary>
+    [ObservableProperty]
+    public partial bool IsPinned { get; set; }
+
     public PlaylistDetailViewModel(
         IPlaylistRepository playlists, IPlaybackCommands playback, ILibraryNavigator navigator, IPlaylistFiles files, IPlaylistFilePicker filePicker)
     {
@@ -96,6 +100,7 @@ public sealed partial class PlaylistDetailViewModel : ObservableObject
         _id = playlistId;
         PlaylistDetailDto? detail = await _playlists.GetDetailAsync(playlistId, ct);
         NotFound = detail is null;
+        IsPinned = detail?.Playlist.Pinned ?? false;
         Name = detail?.Playlist.Name ?? "Playlist not found";
         Rows = detail is null
             ? []
@@ -126,6 +131,28 @@ public sealed partial class PlaylistDetailViewModel : ObservableObject
 
         await _playlists.RenameAsync(_id, name, ct);
         await LoadAsync(_id, ct);
+    }
+
+    /// <summary>
+    /// Pin to jump list (E7-S5): stores the flag. Asking for the state the playlist already has does nothing, which is what
+    /// lets the page's toggle call this from Checked and Unchecked, including when a load sets it. A playlist that has gone
+    /// meanwhile turns the page to its not-found state.
+    /// </summary>
+    public async Task SetPinnedAsync(bool pinned, CancellationToken ct = default)
+    {
+        if (NotFound || pinned == IsPinned)
+        {
+            return;
+        }
+
+        if (await _playlists.SetPinnedAsync(_id, pinned, ct))
+        {
+            IsPinned = pinned;
+        }
+        else
+        {
+            await LoadAsync(_id, ct);
+        }
     }
 
     /// <summary>Deletes the playlist and goes back to the list. The page asks first.</summary>

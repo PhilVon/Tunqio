@@ -20,6 +20,7 @@ public sealed class SessionCommandTargetTests : IAsyncLifetime
     private readonly FakeTrackRepository _library = new();
     private readonly TransientTrackStore _transient = new();
     private readonly StubSessionSource _source = new();
+    private readonly FakePlaylists _playlists = new();
     private readonly List<string> _foreground = [];
     private PlaybackSession _session = null!;
     private OpenFilesService _open = null!;
@@ -49,7 +50,7 @@ public sealed class SessionCommandTargetTests : IAsyncLifetime
     }
 
     private SessionCommandTarget Target(TimeSpan? wait = null) =>
-        new(_source, _open, () => _foreground.Add("raised"), wait ?? TimeSpan.FromSeconds(5), null);
+        new(_source, _open, _library, _playlists, () => _foreground.Add("raised"), wait ?? TimeSpan.FromSeconds(5), null);
 
     private string File_(string name)
     {
@@ -156,6 +157,79 @@ public sealed class SessionCommandTargetTests : IAsyncLifetime
         Func<Task> play = () => Target().PlayPathsAsync([Path.Combine(_root, "empty-folder-that-is-not-there")], default);
 
         await play.Should().ThrowAsync<InvalidOperationException>();
+        QueuedIds().Should().Equal([1, 2]);
+    }
+
+    // ---- jump list items (E7-S5) ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_jump_list_track_plays_at_the_current_position_and_the_queue_is_kept_Async()
+    {
+        _source.Session = _session;
+        await _session.PlayNowAsync([1, 2]);
+
+        await Target().PlayTrackAsync(3, default);
+
+        QueuedIds().Should().Equal([1, 3, 2]);
+        _session.Queue.Current!.TrackId.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task A_jump_list_track_with_nothing_queued_becomes_the_queue_Async()
+    {
+        _source.Session = _session;
+
+        await Target().PlayTrackAsync(2, default);
+
+        QueuedIds().Should().Equal([2]);
+    }
+
+    [Fact]
+    public async Task A_jump_list_playlist_replaces_the_queue_and_plays_from_its_first_track_Async()
+    {
+        _source.Session = _session;
+        await _session.PlayNowAsync([2]);
+        long mix = _playlists.Add("Mix", true, Rows.Track(3, "Three"), Rows.Track(1, "One"), Rows.Track(3, "Three"));
+
+        await Target().PlayPlaylistAsync(mix, default);
+
+        QueuedIds().Should().Equal([3, 1, 3]);
+        _session.Queue.Current!.TrackId.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task A_track_that_left_the_library_is_refused_at_once_without_waiting_for_audio_Async()
+    {
+        Func<Task> play = () => Target(TimeSpan.FromSeconds(30)).PlayTrackAsync(404, default).WaitAsync(TimeSpan.FromSeconds(5));
+
+        await play.Should().ThrowAsync<InvalidOperationException>().WithMessage("*track 404 is not in the library*");
+    }
+
+    [Fact]
+    public async Task A_track_missing_at_the_last_scan_is_refused_and_the_queue_is_untouched_Async()
+    {
+        _library.Rows.Add(Rows.Track(4, "Gone", missing: true));
+        _source.Session = _session;
+        await _session.PlayNowAsync([1]);
+
+        Func<Task> play = () => Target().PlayTrackAsync(4, default);
+
+        await play.Should().ThrowAsync<InvalidOperationException>().WithMessage("*missing at the last scan*");
+        QueuedIds().Should().Equal([1]);
+    }
+
+    [Fact]
+    public async Task A_playlist_that_no_longer_exists_or_is_empty_is_refused_and_the_queue_is_untouched_Async()
+    {
+        _source.Session = _session;
+        await _session.PlayNowAsync([1, 2]);
+        long empty = _playlists.Add("Empty", false);
+
+        Func<Task> gone = () => Target().PlayPlaylistAsync(404, default);
+        Func<Task> nothing = () => Target().PlayPlaylistAsync(empty, default);
+
+        await gone.Should().ThrowAsync<InvalidOperationException>().WithMessage("*playlist 404 does not exist*");
+        await nothing.Should().ThrowAsync<InvalidOperationException>().WithMessage("*has no tracks*");
         QueuedIds().Should().Equal([1, 2]);
     }
 

@@ -9,7 +9,7 @@
     Playlist detail (E6-S1, docs/ui-screens-and-flows.md): the name and "12 tracks · 48 min", play, shuffle, rename and
     delete (confirmed), and the tracks in order. Rows reorder by dragging, or by Move up / Move down in the row menu for
     the keyboard; Delete or Remove from playlist takes the selection out. Export M3U8 (E6-S2) saves it where the user picks,
-    with paths relative to that folder; pin to jump list is E7.
+    with paths relative to that folder; Pin to jump list (E7-S5) stores the playlist's pinned flag.
   -->
   <Page.Resources>
     <MenuFlyout x:Name="RowMenu">
@@ -49,6 +49,16 @@
                 AutomationProperties.Name="Edit in Curation" ToolTipService.ToolTip="Edit this playlist in Curation mode (Ctrl+3)" />
         <Button Content="Export M3U8…" Click="OnExport" IsEnabled="{x:Bind local:PlaylistDetailPage.Not(ViewModel.NotFound), Mode=OneWay}"
                 AutomationProperties.Name="Export playlist" ToolTipService.ToolTip="Save this playlist as an M3U8 file other players can open" />
+        <!-- E7-S5: the pinned flag. A toggle, so UIA and Narrator report the state ("Pin to jump list, on"). -->
+        <ToggleButton x:Name="PinButton" IsChecked="{x:Bind ViewModel.IsPinned, Mode=OneWay}" Checked="OnPinToggled" Unchecked="OnPinToggled"
+                      IsEnabled="{x:Bind local:PlaylistDetailPage.Not(ViewModel.NotFound), Mode=OneWay}"
+                      AutomationProperties.Name="Pin to jump list" AutomationProperties.AutomationId="PinToJumpList"
+                      ToolTipService.ToolTip="Show this playlist in Tunqio's taskbar jump list">
+          <StackPanel Orientation="Horizontal" Spacing="6" AutomationProperties.AccessibilityView="Raw">
+            <FontIcon Glyph="&#xE718;" FontSize="14" />
+            <TextBlock Text="Pin to jump list" />
+          </StackPanel>
+        </ToggleButton>
       </StackPanel>
       <InfoBar IsOpen="{x:Bind ViewModel.HasNotice, Mode=OneWay}" Message="{x:Bind ViewModel.Notice, Mode=OneWay}" Severity="Informational"
                IsClosable="True" Margin="0,8,0,0" AutomationProperties.AutomationId="PlaylistNotice" />

@@ -83,6 +83,10 @@ public sealed partial class PlaylistDetailPage : Page, ILibraryRefreshable
 
     private void OnExport(object sender, RoutedEventArgs e) => ViewModel.ExportAsync().Forget("Export playlist");
 
+    /// <summary>Checked and Unchecked both come here, the load's own included; the view model ignores the state it already has.</summary>
+    private void OnPinToggled(object sender, RoutedEventArgs e) =>
+        ViewModel.SetPinnedAsync(PinButton.IsChecked == true).Forget("Pin to jump list");
+
     /// <summary>Names this playlist as Curation's target, then switches mode; entering Curation opens it (E5-S4).</summary>
     private void OnEditInCuration(object sender, RoutedEventArgs e)
     {

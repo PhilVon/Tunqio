@@ -40,8 +40,22 @@ public sealed class PlaylistChangedTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_pin_change_raises_it_once_and_setting_the_flag_it_already_has_raises_nothing_Async()
+    {
+        long id = (await Playlists.CreateAsync("Pin")).Id;
+        _raised.Clear();
+
+        await Playlists.SetPinnedAsync(id, pinned: true);
+        await Playlists.SetPinnedAsync(id, pinned: true);
+        await Playlists.SetPinnedAsync(id, pinned: false);
+
+        _raised.Should().Equal(id, id);
+    }
+
+    [Fact]
     public async Task A_write_to_a_playlist_that_does_not_exist_raises_nothing_Async()
     {
+        await Playlists.SetPinnedAsync(404, pinned: true);
         await Playlists.RenameAsync(404, "x");
         await Playlists.DeleteAsync(404);
         await Playlists.AddTracksAsync(404, [_track]);

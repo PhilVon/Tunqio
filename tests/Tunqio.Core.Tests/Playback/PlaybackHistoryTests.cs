@@ -63,6 +63,46 @@ public sealed class PlaybackHistoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_recorded_listen_is_announced_after_the_history_took_it_Async()
+    {
+        var announced = new List<PlayEvent>();
+        _session.PlayRecorded += (_, e) =>
+        {
+            _history.Events.Should().Contain(e, "the event follows the write, so Recently played already has it");
+            announced.Add(e);
+        };
+        await _session.PlayNowAsync([1, 2]);
+        await ListenAsync(TimeSpan.FromSeconds(95));
+
+        await _session.NextAsync();
+
+        announced.Should().ContainSingle().Which.Should().Be(_history.Events.Single());
+        announced[0].Completed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_listen_the_history_did_not_take_is_not_announced_and_a_failing_follower_does_not_stop_the_music_Async()
+    {
+        var announced = new List<PlayEvent>();
+        _session.PlayRecorded += (_, e) => announced.Add(e);
+        _history.Refuse = new InvalidOperationException("disk full");
+        await _session.PlayNowAsync([1, 2, 3]);
+        await ListenAsync(TimeSpan.FromSeconds(20));
+
+        await _session.NextAsync();
+        announced.Should().BeEmpty();
+
+        _history.Refuse = null;
+        _session.PlayRecorded += (_, _) => throw new InvalidOperationException("a follower failed");
+        await ListenAsync(TimeSpan.FromSeconds(20));
+        Func<Task> next = () => _session.NextAsync();
+
+        await next.Should().NotThrowAsync();
+        announced.Should().ContainSingle();
+        _session.Queue.Current!.TrackId.Should().Be(3);
+    }
+
+    [Fact]
     public async Task Listening_past_half_records_a_play_Async()
     {
         await _session.PlayNowAsync([1, 2]);
