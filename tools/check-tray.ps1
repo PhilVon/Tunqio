@@ -194,7 +194,10 @@ function Get-LivePosition($session) {
 }
 
 # A second process with tunqio://show: it must hand over and exit 0, and the window must come back visible and in front.
+# The window is handed back in $script:shown, not returned: Check writes to the pipeline, and a function's return value is
+# everything it wrote, so a returned element would arrive mixed with the check lines.
 function Invoke-Show([string]$label) {
+    $script:shown = $null
     $second = Start-Shell ("--data-root {0} tunqio://show" -f (Quote $dataRoot))
     $script:launched += $second
     $exited = $second.WaitForExit(15000)
@@ -208,7 +211,7 @@ function Invoke-Show([string]$label) {
     Check "$label - the main window is visible again" ($visible -eq $true) "$(Get-Visible $script:app.Id) visible window(s)"
     $front = Try-Until { if ([TunqioUiaGeometry]::ForegroundProcess() -eq $script:app.Id) { $true } } 5
     Check "$label - and in the foreground" ($front -eq $true) "foreground process $([TunqioUiaGeometry]::ForegroundProcess()), Tunqio pid $($script:app.Id)"
-    return (Try-Until { Get-UiaWindow $script:app.Id } 10)
+    $script:shown = Try-Until { Get-UiaWindow $script:app.Id } 10
 }
 
 $script:launched = @()
@@ -262,7 +265,8 @@ try {
     }
 
     # ---- 3. tunqio://show brings it back ------------------------------------------------------------------------------
-    $window = Invoke-Show 'tunqio://show after close'
+    Invoke-Show 'tunqio://show after close'
+    $window = $script:shown
     if (-not $window) { throw 'the main window did not come back after tunqio://show' }
     Check 'The window still plays after it came back' ($null -ne (Try-Until { Find-Named $window 'Pause' } 10)) 'Pause'
 
@@ -271,7 +275,8 @@ try {
     $hidden = Try-Until { if ((Get-Visible $script:app.Id) -eq 0) { $true } } 10
     Check 'A minimise with minimise-to-tray on hides the window' ($hidden -eq $true) "$(Get-Visible $script:app.Id) visible window(s)"
     Check 'The process is still running after the minimise' (-not $script:app.HasExited) "pid $($script:app.Id)"
-    $window = Invoke-Show 'tunqio://show after minimise'
+    Invoke-Show 'tunqio://show after minimise'
+    $window = $script:shown
     if (-not $window) { throw 'the main window did not come back after the second tunqio://show' }
     $counts = [TunqioTrayWindows]::Count($script:app.Id)
     $state = "$($window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Current.WindowVisualState)"
