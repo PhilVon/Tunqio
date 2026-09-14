@@ -11,11 +11,16 @@ public sealed record PathPlaceholder(string Path, string Placeholder);
 /// <param name="SettingsPath"><c>settings.json</c>; null or a missing file contributes no settings entry.</param>
 /// <param name="SystemInfo">The text of <c>system-info.txt</c>, already composed by the caller.</param>
 /// <param name="Redact">The paths to replace in the copied logs, settings and system info; empty leaves them as they are.</param>
+/// <param name="CrashReportFolders">
+/// The crash reports the user chose to keep (E8-S5), each copied under <c>crashes/&lt;report&gt;/</c>. Their text files are
+/// redacted like the logs; a minidump is binary and goes in as it is.
+/// </param>
 public sealed record DiagnosticsExportRequest(
     string LogsDirectory,
     string? SettingsPath,
     string SystemInfo,
-    IReadOnlyList<PathPlaceholder> Redact);
+    IReadOnlyList<PathPlaceholder> Redact,
+    IReadOnlyList<string>? CrashReportFolders = null);
 
 /// <summary>What was written: the zip, its entries in order, and how many path occurrences were replaced.</summary>
 public sealed record DiagnosticsExportResult(string ZipPath, IReadOnlyList<string> Entries, int Redactions);
@@ -50,6 +55,9 @@ public static class DiagnosticsExport
 
     /// <summary>The folder inside the zip that holds the copied logs.</summary>
     public const string LogsFolder = "logs/";
+
+    /// <summary>The folder inside the zip that holds the kept crash reports (E8-S5).</summary>
+    public const string CrashesFolder = "crashes/";
 
     /// <summary>What stands in for the user profile directory when paths are redacted.</summary>
     public const string ProfilePlaceholder = "[user profile]";
@@ -140,6 +148,11 @@ public static class DiagnosticsExport
                 {
                     Add(zip, LogsFolder + Path.GetFileName(log), ReadShared(log), request.Redact, entries, ref redactions);
                 }
+
+                foreach (string report in request.CrashReportFolders ?? [])
+                {
+                    AddCrashReport(zip, report, request.Redact, entries, ref redactions);
+                }
             }
 
             File.Move(temporary, zipPath, overwrite: true);
@@ -177,6 +190,35 @@ public static class DiagnosticsExport
         }
 
         return [.. Directory.EnumerateFiles(logsDirectory, "*.log").OrderBy(p => p, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>One kept crash report's files under <c>crashes/&lt;report&gt;/</c>; the kept marker is bookkeeping and stays out.</summary>
+    private static void AddCrashReport(ZipArchive zip, string folder, IReadOnlyList<PathPlaceholder> redact, List<string> entries, ref int redactions)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
+        string prefix = CrashesFolder + Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) + "/";
+        foreach (string file in Directory.EnumerateFiles(folder).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+        {
+            string name = Path.GetFileName(file);
+            if (string.Equals(name, Crash.CrashReportStore.KeptMarkerName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.Equals(Path.GetExtension(name), ".dmp", StringComparison.OrdinalIgnoreCase))
+            {
+                zip.CreateEntryFromFile(file, prefix + name, CompressionLevel.Optimal);
+                entries.Add(prefix + name);
+            }
+            else
+            {
+                Add(zip, prefix + name, ReadShared(file), redact, entries, ref redactions);
+            }
+        }
     }
 
     private static void Add(ZipArchive zip, string name, string content, IReadOnlyList<PathPlaceholder> redact, List<string> entries, ref int redactions)

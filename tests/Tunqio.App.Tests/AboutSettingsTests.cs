@@ -76,7 +76,7 @@ public sealed class AboutSettingsTests : IAsyncLifetime
         new("Tunqio", "0.1.0", "0.1.0", "1.0", "Windows 10 (X64)", baseDirectory);
 
     private AboutSettingsViewModel About(string? userProfile = @"C:\Users\phil", StubSessionSource? source = null) =>
-        new(Environment(Path.Combine(_scratch, "app")), source ?? _source, _settings, _paths, _folders, () => _renderer, null, _clock, () => _workingSet, userProfile ?? string.Empty);
+        new(Environment(Path.Combine(_scratch, "app")), source ?? _source, _settings, _paths, _folders, () => _renderer, new Crash.CrashReportStore(_paths.DataRoot), null, _clock, () => _workingSet, userProfile ?? string.Empty);
 
     private static RenderStats Frames() => new(
         Frames: 1200, Resizes: 2, Fps: 144.0, FrameLast: TimeSpan.FromMilliseconds(6.9), FrameMax: TimeSpan.FromMilliseconds(25.2),
@@ -180,7 +180,10 @@ public sealed class AboutSettingsTests : IAsyncLifetime
         _settings.GetValue(SettingsKeys.DiagnosticsCrashReporting, false).Should().BeTrue();
         changed.Should().Equal(SettingsKeys.DiagnosticsCrashReporting);
         About().CrashReporting.Should().BeTrue("a new view model reads the stored choice");
-        AboutSettingsViewModel.CrashReportingHint.Should().Contain("Nothing is sent yet");
+        // E8-S5 (AC-532): exactly what is captured, and that nothing leaves the machine unless the user sends it.
+        AboutSettingsViewModel.CrashReportingHint.Should().StartWith("Off (the default): nothing is captured beyond what Windows itself records.")
+            .And.Contain("crash dump").And.Contain("file paths and track names").And.Contain("last 200 lines of its log")
+            .And.Contain("keep or delete it").And.Contain("Nothing leaves this PC unless you send it yourself");
     }
 
     // ---- export -------------------------------------------------------------------------------------------------------
@@ -359,7 +362,7 @@ public sealed class AboutSettingsTests : IAsyncLifetime
     {
         var vm = new AboutSettingsViewModel(
             Environment(Path.Combine(_scratch, "app")), _source, _settings, _paths, _folders,
-            () => throw new InvalidOperationException("mid-teardown"), null, _clock, () => 0, string.Empty);
+            () => throw new InvalidOperationException("mid-teardown"), new Crash.CrashReportStore(_paths.DataRoot), null, _clock, () => 0, string.Empty);
 
         vm.FrameTime.Should().Be("no renderer");
         vm.SystemInfo().Should().Contain("GPU adapter: unknown");

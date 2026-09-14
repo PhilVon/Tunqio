@@ -77,7 +77,10 @@ public static class ShellServices
             p.GetRequiredService<IAppPaths>(),
             p.GetRequiredService<Tunqio.Core.Library.ILibraryFolderRepository>(),
             () => p.GetRequiredService<IVisualizationHost>().TryGetStats(),
+            p.GetRequiredService<Crash.CrashReportStore>(),
             uiContext));
+        // The crash folder under the data root (E8-S5): the reporter writes it, the next launch's dialog reads it, the export copies kept reports.
+        services.AddSingleton(p => new Crash.CrashReportStore(p.GetRequiredService<IAppPaths>().DataRoot));
         return services;
     }
 }

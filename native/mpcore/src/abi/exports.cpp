@@ -46,6 +46,15 @@ mp_result invalid(const char* what) {
     return MP_E_INVALID_ARG;
 }
 
+// mp_debug_crash's thread (T-84): a genuine access violation inside mpcore.dll, on a thread no guard covers. The
+// address is read from a volatile so the compiler cannot see the null and turn the write into something else.
+DWORD WINAPI crash_thread(LPVOID) {
+    volatile std::uintptr_t address = 0;
+    const std::uintptr_t target = address;
+    *reinterpret_cast<int*>(target) = 0x7E57;
+    return 0;
+}
+
 } // namespace
 
 extern "C" {
@@ -354,6 +363,23 @@ MP_API mp_result MP_CALL mp_analysis_try_get_latest(mp_engine* e, mp_analysis_fr
     // renderer polls per presented frame is one comparison, and the frame is never copied twice.
     return out_struct(out_frame, "mp_analysis_try_get_latest",
                       [&](mp_analysis_frame& frame) { return as_engine(e)->get_analysis_frame(frame); });
+}
+
+// ---- test-only crash (ABI 0.20; T-84) ----
+
+MP_API mp_result MP_CALL mp_debug_crash(void) {
+    return mp::abi::guard([&]() -> mp_result {
+        HANDLE thread = CreateThread(nullptr, 0, crash_thread, nullptr, 0, nullptr);
+        if (thread == nullptr) {
+            mp::abi::set_last_error("mp_debug_crash: CreateThread failed");
+            return MP_E_INTERNAL;
+        }
+        const DWORD waited = WaitForSingleObject(thread, 10000);
+        CloseHandle(thread);
+        mp::abi::set_last_error(waited == WAIT_OBJECT_0 ? "mp_debug_crash: the crash thread returned"
+                                                        : "mp_debug_crash: the process outlived the crash by 10 s");
+        return MP_E_INTERNAL;
+    });
 }
 
 } // extern "C"

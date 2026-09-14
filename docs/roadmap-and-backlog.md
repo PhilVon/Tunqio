@@ -641,6 +641,7 @@ Axe.Windows scan, Narrator walkthrough of every flow, high-contrast and 200% tex
 
 ### E8-S5 · Crash reporting (opt-in) · **M** · `infra` `native`
 Minidump writer (`MiniDumpWriteDump`, covers native crashes in `mpcore`) + last 200 log lines queued, user shown contents, upload endpoint configurable.
+*As built (T-84): local-only, by Q-123 (Phil, 2026-09-14): no upload and no upload endpoint setting; a user sends a kept report through Export diagnostics zip. Opt-in capture of managed and native crashes into `<data root>\crashes`, the next launch's keep-or-delete dialog, and the test-only `mp_debug_crash` (ABI 0.20); see solution-structure.md, "As built (E8-S5, T-84)".*
 - [ ] A forced crash produces a report on next launch that the user can inspect and decline
 
 ### E8-S6 · Test matrix run · **M** · `infra`

@@ -61,6 +61,8 @@ public sealed partial class MainWindow : Window
     private bool _audioSettled;
     private nint _audioEngineNative;
     private readonly FirstRunWelcomeViewModel? _welcome;
+    private readonly Crash.CrashReportViewModel? _crashReport;
+    private bool _startupDialogsStarted;
 
     /// <remarks>
     /// Every collaborator is <b>required and positional</b>, with no default (T-180). Each one is still nullable,
@@ -101,6 +103,10 @@ public sealed partial class MainWindow : Window
     /// The mode (E5-S1): the container's one, so the switcher, the shortcuts and the layout move the same value.
     /// Null keeps the window in Discovery with the switcher and the mode keys doing nothing.
     /// </param>
+    /// <param name="crashReport">
+    /// The crash report dialog (E8-S5), offered after the welcome once the root has loaded: a report left by a crash while
+    /// crash reporting was on. Null offers none.
+    /// </param>
     /// <param name="welcome">
     /// The first-run welcome (E6-S6). The window asks it, once its root has loaded, whether this launch shows the
     /// dialog; the answer and its recording are the view model's. Null shows no welcome, which no launch of the shell
@@ -119,10 +125,12 @@ public sealed partial class MainWindow : Window
         Core.Library.IArtCache? art,
         ShellState? shell,
         FirstRunWelcomeViewModel? welcome,
-        Core.Library.ITrackRater? rater)
+        Core.Library.ITrackRater? rater,
+        Crash.CrashReportViewModel? crashReport)
     {
         _forceWarp = forceWarp;
         _welcome = welcome;
+        _crashReport = crashReport;
         _settings = settings;
         _shortcuts = new ShortcutBindings(settings);
         _open = open;
@@ -263,9 +271,9 @@ public sealed partial class MainWindow : Window
             NowPlaying.OpenRequested += OnOpenRequested;
         }
 
-        // The first-run welcome (E6-S6), over the empty shell. A ContentDialog needs a loaded XamlRoot, so it waits for the
-        // root rather than the constructor.
-        Root.Loaded += (_, _) => ShowWelcomeIfDueAsync().Forget("First-run welcome");
+        // The first-run welcome (E6-S6), over the empty shell, then any crash report (E8-S5). A ContentDialog needs a loaded
+        // XamlRoot, so they wait for the root rather than the constructor, and only one can be open at a time, so they run in turn.
+        Root.Loaded += (_, _) => ShowStartupDialogsAsync().Forget("Startup dialogs");
 
         // T-195 diagnosis: every close request, before any other Closing handler (App's close-to-tray rule) can cancel it.
         AppWindow.Closing += (_, _) => Serilog.Log.Information(
@@ -663,6 +671,43 @@ public sealed partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    /// <summary>The welcome, then the crash reports; once per window, however often the root reloads.</summary>
+    private async Task ShowStartupDialogsAsync()
+    {
+        if (_startupDialogsStarted)
+        {
+            return;
+        }
+
+        _startupDialogsStarted = true;
+        await ShowWelcomeIfDueAsync();
+        await ShowCrashReportsIfAnyAsync();
+    }
+
+    /// <summary>
+    /// The crash report dialog (E8-S5), once for each report the view model offers: it decides whether the setting is on and
+    /// which reports are waiting, and records the choice each dialog ends with.
+    /// </summary>
+    private async Task ShowCrashReportsIfAnyAsync()
+    {
+        if (_crashReport is null)
+        {
+            return;
+        }
+
+        while (!_closing && Root.XamlRoot is not null && _crashReport.Next() is { } report)
+        {
+            var dialog = new Crash.CrashReportDialog(_crashReport)
+            {
+                XamlRoot = Root.XamlRoot,
+                RequestedTheme = Root.ActualTheme,
+            };
+            Serilog.Log.Information("Dialog: crash report {Id} opening", report.Id);
+            ContentDialogResult result = await dialog.ShowAsync();
+            Serilog.Log.Information("Dialog: crash report {Id} returned {Result} ({Decision})", report.Id, result, _crashReport.Decision);
+        }
     }
 
     /// <summary>
