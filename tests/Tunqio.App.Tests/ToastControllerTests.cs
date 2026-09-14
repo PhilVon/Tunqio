@@ -410,21 +410,21 @@ public sealed class ToastControllerTests : IAsyncLifetime
     {
         public List<string> Calls { get; } = [];
 
-        public Task PlayFileNowAsync(string file, CancellationToken ct) => Record("file");
+        public Task PlayFileNowAsync(string file, CancellationToken ct) => RecordAsync("file");
 
-        public Task PlayPathsAsync(IReadOnlyList<string> paths, CancellationToken ct) => Record("play");
+        public Task PlayPathsAsync(IReadOnlyList<string> paths, CancellationToken ct) => RecordAsync("play");
 
-        public Task QueuePathsAsync(IReadOnlyList<string> paths, CancellationToken ct) => Record("queue");
+        public Task QueuePathsAsync(IReadOnlyList<string> paths, CancellationToken ct) => RecordAsync("queue");
 
-        public Task TogglePlayPauseAsync(CancellationToken ct) => Record("toggle");
+        public Task TogglePlayPauseAsync(CancellationToken ct) => RecordAsync("toggle");
 
-        public Task NextAsync(CancellationToken ct) => Record("next");
+        public Task NextAsync(CancellationToken ct) => RecordAsync("next");
 
-        public Task PreviousAsync(CancellationToken ct) => Record("previous");
+        public Task PreviousAsync(CancellationToken ct) => RecordAsync("previous");
 
         public void BringToForeground() => Calls.Add("foreground");
 
-        private Task Record(string call)
+        private Task RecordAsync(string call)
         {
             Calls.Add(call);
             return Task.CompletedTask;

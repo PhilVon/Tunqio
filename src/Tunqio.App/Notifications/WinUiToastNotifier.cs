@@ -60,7 +60,11 @@ internal sealed class WinUiToastNotifier : IToastNotifier
 
     public void Remove() => Enqueue("remove", () =>
     {
-        if (!AppNotificationManager.Default.RemoveByTagAndGroupAsync(IToastNotifier.Tag, IToastNotifier.Group).AsTask().Wait(DisposeWait))
+        // On the queue, which is the pool: waiting keeps Remove and the Unregister after it in order, and the wait is capped.
+#pragma warning disable VSTHRD002
+        bool removed = AppNotificationManager.Default.RemoveByTagAndGroupAsync(IToastNotifier.Tag, IToastNotifier.Group).AsTask().Wait(DisposeWait);
+#pragma warning restore VSTHRD002
+        if (!removed)
         {
             _log.LogWarning("Toasts: removing the toast did not finish within {Wait}", DisposeWait);
         }
