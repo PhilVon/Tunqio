@@ -11,9 +11,13 @@
   Timing is read from the app's own log ("Focus controls hidden" / "shown"), stamped in the same process that
   applied the change, against the moment this script moved the pointer.
 
-  WHAT IT CHANGES. It launches the app over the user's library, mutes it, plays the first album tile when nothing is
-  loaded (which replaces the saved queue), skips one track, and leaves the app in Discovery with the mute state it
-  found.
+  WHAT IT CHANGES. Nothing of the user's. It makes a scratch profile, artifacts\check-focus\<stamp>, with a library of
+  generated two-minute tones (ffmpeg) seeded into it, and launches the app on it with --data-root; there it mutes,
+  plays the first album tile, and skips one track. The real %LOCALAPPDATA%\Tunqio is never opened, a data root inside
+  it or inside a package's redirected LocalCache is refused, and the stamp folder is deleted at the end unless
+  -KeepScratch (tools/scratch-profile.ps1, T-197).
+.PARAMETER KeepScratch
+  Leave the scratch profile and its tones behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 .PARAMETER Keys
@@ -25,7 +29,8 @@ param(
     [int]$Seconds = 10,
     [switch]$Keys,
     # T-196: how long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing.
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,6 +41,7 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms
 . (Join-Path $here 'uia-geometry.ps1')
+. (Join-Path $here 'scratch-profile.ps1')
 
 if (-not ('TunqioMouse' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -55,7 +61,9 @@ if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
 }
 
 $A = [System.Windows.Automation.AutomationElement]
-$log = Join-Path $env:LOCALAPPDATA ('Tunqio\logs\tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log')
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-focus'
+$log = Get-TunqioScratchLog $scratch
 $script:failures = @()
 
 function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
@@ -177,7 +185,10 @@ $startedPlayback = $false
 
 try {
     Write-Output "shell: $Exe"
-    $process = Start-Process $Exe -PassThru
+    # Two albums of four two-minute tones: long enough that the queue is still playing when Next is pressed.
+    New-TunqioScratchTones $scratch -AlbumCount 2 -TracksPerAlbum 4 -Seconds 120 | Out-Null
+    Initialize-TunqioScratchLibrary $Exe $scratch -ExpectTracks 8
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -336,6 +347,8 @@ finally {
     $closeProblem = Close-TunqioShell $process $window 15
     if ($closeProblem) { $script:failures += $closeProblem }
 }
+
+Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($script:failures.Count -eq 0) {

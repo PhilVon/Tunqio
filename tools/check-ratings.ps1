@@ -9,12 +9,14 @@
   Invoke. Ctrl+Alt+digit is ShellShortcutsTests' to hold.
 
   WHAT IT TOUCHES, AND WHERE. A rating is a library write, so this script never goes near a real library. Like
-  tools/check-tag-editor.ps1 it copies one fixture album (tests/fixtures/library) into a scratch folder, moves the
-  real library database aside for the run and puts it back in the finally, boots the shell once to create an empty
-  database (and refuses if that boot OPENED one - T-183), seeds the scratch folder into it through the app's own
-  e_sqlite3.dll, and only then drives the shell. The output is muted through the Mute button for the run, because
-  playing the album is how Now Playing gets a track. If this script is killed between parking and restoring, the
-  database is in the run folder named at the top of the output; a later run finds it there and puts it back first.
+  tools/check-tag-editor.ps1 it makes a scratch profile, artifacts\check-ratings\<stamp> (data\ is the --data-root
+  every launch passes, music\ a copy of one fixture album from tests/fixtures/library), boots the shell once on it to
+  create an empty database (and refuses if that boot OPENED one - T-183), seeds the scratch folder into it through the
+  app's own e_sqlite3.dll, and only then drives the shell. The output is muted through the Mute button for the run,
+  because playing the album is how Now Playing gets a track. The real %LOCALAPPDATA%\Tunqio - its library.db, settings,
+  logs and art - is never opened, a data root inside it or inside a package's redirected LocalCache is refused, and the
+  stamp folder is deleted at the end unless -KeepScratch (tools/scratch-profile.ps1, T-197). This replaces T-183's
+  parking and restoring of the real library.db, which T-194 removed from check-tag-editor.ps1 for the same reason.
 
   ASCII only, Windows PowerShell 5.1, safe under -File.
 .PARAMETER Exe
@@ -22,7 +24,7 @@
 .PARAMETER Seconds
   How long to give the window before reading the tree.
 .PARAMETER KeepScratch
-  Leave the scratch copy of the fixtures behind.
+  Leave the scratch profile and the copy of the fixtures behind.
 .PARAMETER WaitMinutes
   How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 #>
@@ -45,6 +47,7 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 . (Join-Path $here 'assert-fresh-build.ps1')
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 . (Join-Path $here 'uia-geometry.ps1')
+. (Join-Path $here 'scratch-profile.ps1')
 
 $A = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
@@ -55,12 +58,6 @@ $albumFolder = 'Night Signal - Aurora Lines (2019)'
 $trackFile = '01 - First Light.flac'
 $rowPrefix = 'First Light by Night Signal, Aurora Lines'
 $tileName = 'Album Aurora Lines by Night Signal, 2019'
-$dataRoot = Join-Path $env:LOCALAPPDATA 'Tunqio'
-$dbPath = Join-Path $dataRoot 'library.db'
-$logDir = Join-Path $dataRoot 'logs'
-$runRoot = Join-Path $env:TEMP 'tunqio-check-ratings'
-$parked = Join-Path $runRoot 'parked-library-database'
-$music = Join-Path $runRoot 'music'
 $script:failures = @()
 
 # ---- sqlite, through the app's own native library: one exec to seed, one scalar read to prove the store -------------
@@ -184,9 +181,10 @@ function Check([string]$what, [bool]$ok, [string]$detail) {
 function Get-Sha256([string]$path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash }
 
 # Shows or hides the Tracks table's Rating column through the page's own Columns menu, and returns whether it was
-# visible before. The column chooser is remembered in settings.json (ui.tracksHiddenColumns), which this script does
-# not park, so a profile that hides Rating would otherwise leave the star cells collapsed and out of the tree - which is
-# exactly what the first live run found. Changed and put back through the app, as check-settings.ps1 does the theme.
+# visible before. The column chooser is remembered in settings.json (ui.tracksHiddenColumns), so a profile that hides
+# Rating would leave the star cells collapsed and out of the tree - which is exactly what the first live run found, on
+# the real profile. The scratch profile starts on the defaults, and the column is still shown through the app rather
+# than assumed.
 function Set-RatingColumnVisible($window, [bool]$visible) {
     $button = Wait-For { Find-Named $window 'Choose columns' } 15 'the Tracks page offered Choose columns'
     try { $button.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand() } catch { Invoke-Element $button }
@@ -246,14 +244,6 @@ function Wait-Stars([scriptblock]$find, [int]$expected, [int]$seconds, [string]$
 }
 
 # ---- setting up and tearing down --------------------------------------------------------------------------------------
-function Restore-Database {
-    $parkedFiles = @(Get-ChildItem $parked -ErrorAction SilentlyContinue)
-    if ($parkedFiles.Count -eq 0) { return $false }
-    Remove-Item "$dbPath*" -Force -ErrorAction SilentlyContinue
-    foreach ($file in $parkedFiles) { Move-Item $file.FullName (Join-Path $dataRoot $file.Name) -Force }
-    return $true
-}
-
 function Close-Shell($process) {
     if (-not $process) { return }
     # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
@@ -263,39 +253,22 @@ function Close-Shell($process) {
 }
 
 Write-Output "shell:    $Exe"
-Write-Output "scratch:  $runRoot"
 
-# Refuse rather than kill: an app already running is somebody using it, and this script moves their database aside.
-# T-196: it waits within -WaitMinutes for that app to exit before refusing.
+# Refuse rather than kill: an app already running is somebody using it. T-196: it waits within -WaitMinutes for that
+# app to exit before refusing.
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     $running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
-    throw ("Tunqio is still running after $WaitMinutes minute(s) (pid $($running.Id -join ', ')). This script moves $dbPath aside for the run, " +
-           'so it will not touch a session somebody is using. Close the app and run again.')
+    throw ("Tunqio is still running after $WaitMinutes minute(s) (pid $($running.Id -join ', ')). This script plays and rates " +
+           'through the shell it launches, so it will not run beside a session somebody is using. Close the app and run again.')
 }
 
-# T-183: under a packaged app %LOCALAPPDATA% is a merged view over the package's LocalCache, and the launched shell may
-# see a different layer from this script. Refuse rather than guess which layer holds the user's library.
-$redirected = @(Get-ChildItem $dataRoot -Force -ErrorAction SilentlyContinue | Where-Object { ($_.Target -join ';') -match '\\Packages\\' })
-if ($redirected.Count -gt 0) {
-    throw ("$dataRoot is redirected: $(($redirected | ForEach-Object { $_.Name + ' -> ' + ($_.Target -join ';') }) -join ' | '). " +
-           'Nothing has been moved or launched. Run this from a shell that is not started by a packaged app (T-183).')
-}
-
-if (Restore-Database) { Write-Output 'note: a previous run had left the real library database parked; it has been put back.' }
-Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $parked | Out-Null
-New-Item -ItemType Directory -Force $music | Out-Null
-# The real database's files and their hashes before they move, so the restore at the end is proved byte-identical
-# rather than assumed. A harness once parked the real library.db and the app opened another one anyway (T-183).
-$realHashes = @{}
-foreach ($file in Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue) { $realHashes[$file.Name] = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash }
-Write-Output "real library files to park: $(if ($realHashes.Count) { ($realHashes.Keys | Sort-Object | ForEach-Object { $_ + ' sha256 ' + $realHashes[$_] }) -join ', ' } else { 'none' })"
-foreach ($file in Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue) { Move-Item $file.FullName (Join-Path $parked $file.Name) -Force }
-$stillThere = @(Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue)
-if ($stillThere.Count -gt 0) {
-    throw ("parking did not take: $(($stillThere | ForEach-Object { $_.Name }) -join ', ') still in $dataRoot after moving the " +
-           "database to $parked. Nothing has been launched. Put the real library database back by hand (T-183).")
-}
+# T-197: a scratch profile, never the real one. Refused before anything is created when it would be inside the real
+# profile or a package's redirected LocalCache copy of it (T-183's redirection, now caught by path).
+$scratch = New-TunqioScratchProfile -Name 'check-ratings'
+$dataRoot = $scratch.DataRoot
+$dbPath = $scratch.DatabasePath
+$logDir = $scratch.LogsDirectory
+$music = $scratch.Music
 
 $process = $null
 $window = $null
@@ -305,33 +278,20 @@ $reachedEnd = $false
 $startedAt = Get-Date
 $trackPath = Join-Path (Join-Path $music $albumFolder) $trackFile
 
-# Everything from here to the end is inside one try whose finally puts the real database back, the same shape as
-# check-tag-editor.ps1: no exception after parking - in the run or in the checks after it - can skip the restore.
+# Everything from here to the end is inside one try whose finally closes this run's shell and deletes the scratch
+# profile: no exception - in the run or in the checks after it - can skip either.
 try {
 try {
-    Copy-Item (Join-Path $fixtures $albumFolder) $music -Recurse
+    $copied = Copy-TunqioFixtureAlbums $scratch @($albumFolder)
     $hashBefore = Get-Sha256 $trackPath
-    Write-Output "copied $((Get-ChildItem $music -Recurse -File).Count) fixture files into the scratch library"
+    Write-Output "copied $copied fixture files into the scratch library"
 
-    # Boot once so the app creates its schema; it must CREATE the database, or the parking did not isolate anything.
-    $today = 'tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log'
-    $bootLog = Join-Path $logDir $today
-    $bootLogStart = (Get-Item $bootLog -ErrorAction SilentlyContinue).Length
-    if (-not $bootLogStart) { $bootLogStart = 0 }
-    $boot = Start-Process $Exe -PassThru
-    Wait-For { Test-Path $dbPath } 60 'the app created its library database' | Out-Null
-    Start-Sleep -Seconds 6
-    Close-Shell $boot
-    $stream = New-Object System.IO.FileStream($bootLog, 'Open', 'Read', 'ReadWrite')
-    try { $stream.Seek($bootLogStart, 'Begin') | Out-Null; $bootLines = (New-Object System.IO.StreamReader($stream)).ReadToEnd() }
-    finally { $stream.Dispose() }
-    $opening = [regex]::Match($bootLines, 'library\.db (created|opened) at schema')
-    if (-not $opening.Success) { throw "the boot launch logged no 'library.db created' or 'opened' line in $bootLog; nothing has been seeded (T-183)" }
-    if ($opening.Groups[1].Value -ne 'created') { throw "the boot launch OPENED an existing library database after the real one was parked in $parked. Nothing has been seeded (T-183)." }
-    Invoke-Sql $dbPath ("INSERT INTO library_folder(path, enabled) VALUES ('" + $music.Replace("'", "''") + "', 1);")
+    # Boot once so the app creates its schema; it must CREATE the database, or the app did not honour --data-root
+    # (T-183). Initialize-TunqioScratchLibrary refuses otherwise, and then seeds the music folder.
+    Initialize-TunqioScratchLibrary $Exe $scratch
     Write-Output 'scratch library seeded; launching the shell over it'
 
-    $process = Start-Process $Exe -PassThru
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-For { $A::RootElement.FindFirst($TS::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -477,25 +437,10 @@ catch {
     Write-Output "  FAIL  the checks after the run stopped: $($_.Exception.Message)"
 }
 finally {
-    # ---- put the real library back, then prove it ----------------------------------------------------------------
-    Close-Shell $process
-    # The scratch database goes first: with a real one parked, Restore-Database removes it anyway; with none parked
-    # (a profile that had no library), removing it is what restores the folder to how it was.
-    Remove-Item "$dbPath*" -Force -ErrorAction SilentlyContinue
-    if (Restore-Database) { Write-Output 'cleanup: the real library database has been moved back' }
-    if ($realHashes.Count -gt 0) {
-        $problems = @()
-        foreach ($name in $realHashes.Keys) {
-            $back = Join-Path $dataRoot $name
-            if (-not (Test-Path -LiteralPath $back)) { $problems += "$name is not back in $dataRoot" }
-            elseif ((Get-FileHash -Algorithm SHA256 -LiteralPath $back).Hash -ne $realHashes[$name]) { $problems += "$name is back but its SHA-256 differs" }
-        }
-        Check 'The real library database is back, byte-identical' ($problems.Count -eq 0) $(if ($problems.Count) { $problems -join '; ' } else { "$($realHashes.Count) file(s), SHA-256 matches" })
-    }
-    # Only an EMPTY park folder is removed: anything still in it is the user's real database.
-    if (@(Get-ChildItem $parked -Force -ErrorAction SilentlyContinue).Count -eq 0) { Remove-Item $parked -Recurse -Force -ErrorAction SilentlyContinue }
-    else { Write-Output "WARNING: files remain in $parked - they are the real library database. Put them back in $dataRoot by hand." }
-    if (-not $KeepScratch) { Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue } else { Write-Output "scratch library kept at $music" }
+    # ---- close this run's shell, then delete the scratch profile (T-197) -----------------------------------------
+    # Close-Shell is a no-op for a shell that has already exited; it only ever closes the one this run launched.
+    if ($process -and -not $process.HasExited) { Close-Shell $process }
+    Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).

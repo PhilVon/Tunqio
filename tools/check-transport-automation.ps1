@@ -13,7 +13,11 @@
   be in when the script runs is not the point.
 
   WHAT IT TOUCHES. It resizes and moves its own window and invokes the Queue button. It sends no keystrokes and
-  changes no focus outside that window.
+  changes no focus outside that window. The app runs on a scratch profile, artifacts\check-transport-automation\<stamp>\data,
+  passed as --data-root and deleted at the end unless -KeepScratch; the real %LOCALAPPDATA%\Tunqio is never opened, and
+  a data root inside it or inside a package's redirected LocalCache is refused (tools/scratch-profile.ps1, T-197).
+.PARAMETER KeepScratch
+  Leave the scratch profile behind for inspection.
 .PARAMETER WaitMinutes
   How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 .PARAMETER Exe
@@ -34,7 +38,8 @@ param(
     [string]$Exe,
     [int]$Seconds = 9,
     [string]$Widths = '1600,1200,1000,800,640',
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,13 +57,16 @@ if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild 
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 
 . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+. (Join-Path $PSScriptRoot 'scratch-profile.ps1')
 
-# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. This script launches
-# the shell on the default profile, and a second launch there hands its arguments to the running instance and exits
-# (single instance), so it would otherwise read and resize somebody else's window.
+# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. The harnesses take turns
+# on this machine, and this one resizes the window it launches.
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     throw "Tunqio is still running after $WaitMinutes minute(s). This script launches its own and will not drive one somebody is using."
 }
+
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-transport-automation'
 
 # Prefix, control type. One row per control the transport panel owes the keyboard and Narrator.
 $expected = @(
@@ -81,8 +89,9 @@ $expectedInQueue = @(
     @{ Name = 'Upcoming tracks'; Type = 'List' }
 )
 
-$process = Start-Process $Exe -PassThru
+$process = $null
 try {
+    $process = Start-TunqioOnScratch $Exe $scratch
     Start-Sleep -Seconds $Seconds
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $byPid = New-Object System.Windows.Automation.PropertyCondition(
@@ -275,5 +284,6 @@ try {
 finally {
     # An app that does not exit, or exits with a crash code, fails the run (T-188); exit here overrides the try's exit 0.
     $closeProblem = Close-TunqioShell $process $null 20
+    Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
     if ($closeProblem) { Write-Output "FAIL: $closeProblem"; exit 1 }
 }

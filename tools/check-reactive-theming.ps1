@@ -26,11 +26,14 @@
   could NOT be run, each one named, because Windows animation effects are off on this machine. 3 is not a pass:
   a check that could not be made must never look like one that was, which is the whole lesson of AC-266.
 
-  WHAT IT TOUCHES. Nothing of the user's music, and nothing in the library database. It writes
-  %LocalAppData%\Tunqio\settings.json - the theming switch is the thing under test - and copies the file aside
-  first, putting it back AFTER the app has exited so the shutdown flush cannot land on top of the restore. It
-  starts its own Tunqio process and only ever acts on that process id: an app already running is never
-  activated, never read and never closed.
+  WHAT IT TOUCHES. Nothing of the user's: the app runs on a scratch profile, artifacts\check-reactive-theming\<stamp>\data,
+  passed as --data-root and deleted at the end unless -KeepScratch, so the settings.json the theming switch writes is
+  the scratch one. The real %LOCALAPPDATA%\Tunqio is never opened, and a data root inside it or inside a package's
+  redirected LocalCache is refused (tools/scratch-profile.ps1, T-197). This replaces copying the real settings.json
+  aside and back. It starts its own Tunqio process and only ever acts on that process id: an app already running is
+  never activated, never read and never closed.
+.PARAMETER KeepScratch
+  Leave the scratch profile behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output (T-196).
 .PARAMETER WaitMinutes
@@ -48,7 +51,8 @@ param(
     [string]$Exe,
     [int]$Seconds = 12,
     [int]$SampleSeconds = 4,
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,12 +69,12 @@ if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore 
 . (Join-Path $PSScriptRoot 'assert-fresh-build.ps1')
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 
-# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. This script launches the
-# shell on the default profile, where a second launch hands its arguments to the running instance and exits (single
-# instance), and it writes settings.json and types into the window, so it must not run beside one somebody is using.
+# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. It types into the window
+# it launches, so it must not run beside one somebody is using.
 . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+. (Join-Path $PSScriptRoot 'scratch-profile.ps1')
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
-    throw "Tunqio is still running after $WaitMinutes minute(s). This script changes settings.json and sends keystrokes through the instance it launches, and will not run beside one somebody is using."
+    throw "Tunqio is still running after $WaitMinutes minute(s). This script sends keystrokes through the instance it launches, and will not run beside one somebody is using."
 }
 
 $script:window = $null
@@ -236,19 +240,18 @@ function Test-Case([string]$what, [scriptblock]$check) {
     }
 }
 
-$settingsFile = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
-$settingsBackup = Join-Path $env:TEMP 'tunqio-check-reactive-settings.json'
-$hadSettings = Test-Path $settingsFile
-if ($hadSettings) { Copy-Item $settingsFile $settingsBackup -Force }
+# T-197: a scratch profile, never the real one; the settings.json the switch writes is the scratch one.
+$scratch = New-TunqioScratchProfile -Name 'check-reactive-theming'
 
 Write-Output 'Audio-reactive theming, read off the diagnostics overlay of a live window'
 Write-Output "  exe        $Exe"
-Write-Output "  settings   $settingsFile  (copied aside, restored after the app exits)"
+Write-Output "  settings   $($scratch.SettingsPath)  (scratch profile, deleted afterwards)"
 Write-Output "  Windows animation effects  $(if ($animations) { 'on' } else { 'OFF - the running-path cases cannot be run' })"
 Write-Output ''
 
-$process = Start-Process $Exe -PassThru
+$process = $null
 try {
+    $process = Start-TunqioOnScratch $Exe $scratch
     Start-Sleep -Seconds $Seconds
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $byPid = New-Object System.Windows.Automation.PropertyCondition(
@@ -455,7 +458,6 @@ finally {
     . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
     $closeProblem = Close-TunqioShell $process $null 20
     Start-Sleep -Milliseconds 500
-    if ($hadSettings) { Copy-Item $settingsBackup $settingsFile -Force; Remove-Item $settingsBackup -Force }
-    elseif (Test-Path $settingsFile) { Remove-Item $settingsFile -Force }
+    Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
     if ($closeProblem) { Write-Output "FAIL: $closeProblem"; exit 1 }
 }

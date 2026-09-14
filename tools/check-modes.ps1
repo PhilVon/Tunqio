@@ -9,9 +9,13 @@
   can land in another window. -Keys adds Ctrl+1/2/3, F11 and Esc pressed at the window, each only after the shell is
   confirmed to hold the foreground; use it only on a machine nobody is typing on.
 
-  WHAT IT CHANGES. It launches the app over the user's own library, mutes it, and switches modes, which writes
-  ui.mode. When nothing is loaded it plays the first album tile, which replaces the saved queue with that album. At the end it pauses, restores the mute state it found, and leaves the app
-  in Discovery, which is also the default ui.mode.
+  WHAT IT CHANGES. Nothing of the user's. It makes a scratch profile, artifacts\check-modes\<stamp>, with a library of
+  generated two-minute tones seeded into it, and launches the app on it with --data-root; there it mutes, plays the
+  first album tile, and switches modes, which writes the scratch ui.mode. The real %LOCALAPPDATA%\Tunqio is never
+  opened, a data root inside it or inside a package's redirected LocalCache is refused, and the stamp folder is deleted
+  at the end unless -KeepScratch (tools/scratch-profile.ps1, T-197).
+.PARAMETER KeepScratch
+  Leave the scratch profile and its tones behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 .PARAMETER Seconds
@@ -25,7 +29,8 @@ param(
     # foreground, so this is for a machine nobody is using (T-163's refusal guards each key regardless).
     [switch]$Keys,
     # T-196: how long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing.
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,13 +41,16 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 . (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'uia-geometry.ps1') # Wait-TunqioExited (T-196)
+. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'scratch-profile.ps1') # New-TunqioScratchProfile (T-197)
 
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     throw "Tunqio is still running after $WaitMinutes minute(s). This script switches the mode of the instance it launches and plays through it, so it will not touch one somebody is using."
 }
 
 $A = [System.Windows.Automation.AutomationElement]
-$settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-modes'
+$settingsPath = $scratch.SettingsPath
 $script:failures = @()
 
 function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
@@ -89,7 +97,7 @@ function Check([string]$what, [bool]$ok, [string]$detail) {
 }
 
 function Start-Shell {
-    $process = Start-Process $Exe -PassThru
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -115,6 +123,9 @@ $mutedAtStart = $null
 $startedPlayback = $false
 try {
     Write-Output "shell: $Exe"
+    # Two-minute tones, so the position keeps advancing across every switch.
+    New-TunqioScratchTones $scratch -AlbumCount 2 -TracksPerAlbum 4 -Seconds 120 | Out-Null
+    Initialize-TunqioScratchLibrary $Exe $scratch -ExpectTracks 8
     $shell = Start-Shell
     $window = $shell.Window
     if (-not (Get-Selected (Find-Named $window 'Discovery mode'))) { Select-Mode $window 'Discovery' }
@@ -264,6 +275,8 @@ finally {
         Stop-Shell $shell
     }
 }
+
+Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($script:failures.Count -eq 0) {

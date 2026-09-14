@@ -8,9 +8,14 @@
   UIA patterns only: no keystrokes and no pointer. So it does not drag, and it does not press Ctrl+Z; the drag is a
   human criterion on the board, and the key is ShellShortcutsTests plus the same UndoAsync the button calls.
 
-  WHAT IT CHANGES. A playlist called "Tunqio curation check" for the length of the run, deleted at the end through
-  Library > Playlists; a later run deletes one left behind before it starts, and touches no other playlist. The mode is
-  persisted (ui.mode), so the mode the app opened in is put back before the window closes. Nothing is played.
+  WHAT IT CHANGES. Nothing of the user's. It makes a scratch profile, artifacts\check-curation\<stamp>, with a library
+  of eight generated tones seeded into it, and launches the app on it with --data-root. There a playlist called
+  "Tunqio curation check" lives for the length of the run, deleted at the end through Library > Playlists, and the mode
+  the app opened in is put back before the window closes; both act only on the scratch profile. Nothing is played. The
+  real %LOCALAPPDATA%\Tunqio is never opened, a data root inside it or inside a package's redirected LocalCache is
+  refused, and the stamp folder is deleted at the end unless -KeepScratch (tools/scratch-profile.ps1, T-197).
+.PARAMETER KeepScratch
+  Leave the scratch profile and its tones behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 .PARAMETER WaitMinutes
@@ -20,7 +25,8 @@
 param(
     [string]$Exe,
     [int]$Seconds = 10,
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +37,7 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 . (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188), Wait-TunqioExited (T-196)
+. (Join-Path $here 'scratch-profile.ps1') # New-TunqioScratchProfile (T-197)
 
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     throw "Tunqio is still running after $WaitMinutes minute(s). This script makes and deletes a playlist and changes the mode through the instance it launches, so it will not touch one somebody is using."
@@ -138,12 +145,17 @@ $window = $null
 $startMode = $null
 $playlistExists = $false
 $addDone = $false
-$logDir = Join-Path $env:LOCALAPPDATA 'Tunqio\logs'
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-curation'
+$logDir = $scratch.LogsDirectory
 $startedAt = Get-Date
 
 try {
     Write-Output "shell: $Exe"
-    $process = Start-Process $Exe -PassThru
+    # Eight tracks, so the source list has the six this check selects.
+    New-TunqioScratchTones $scratch -AlbumCount 2 -TracksPerAlbum 4 -Seconds 60 | Out-Null
+    Initialize-TunqioScratchLibrary $Exe $scratch -ExpectTracks 8
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst($TS::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -232,6 +244,8 @@ if ($addDone) {
     $line = if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'Curation added 6 track\(s\) by Add in (\d+) ms' } | Select-Object -Last 1 }
     Check 'The log times the add' ($null -ne $line) "$(if ($line) { $line.Trim() } else { "no line in $logDir" })"
 }
+
+Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($script:failures.Count -eq 0) {
