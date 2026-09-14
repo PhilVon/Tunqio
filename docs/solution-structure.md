@@ -233,7 +233,9 @@ Logging: Serilog through `Microsoft.Extensions.Logging` for C#; `mpcore` logs th
 ## Startup sequence
 
 ```
-1. App constructor: Serilog bootstrap logger, unhandled exception handlers, minidump writer registration.
+1. App constructor: Serilog bootstrap logger, unhandled exception handlers. (As built, E8-S5: the minidump writer is not
+   registered here. `CrashReporter.Install()` runs in `OnLaunched`, once the data root and `diagnostics.crashReporting`
+   are known, and registers nothing while that setting is off.)
 2. OnLaunched:
    a. Single-instance check: AppInstance.FindOrRegisterForKey("main"); redirect and exit if not current.
    b. Build host; open SQLite (apply migrations); load settings.
@@ -294,7 +296,7 @@ Close-to-tray, when enabled, only hides the window.
 
 - Native errors return `mp_result`; Interop converts them to `EngineEvent.Error` with the message from `mp_last_error`, never to exceptions in view models.
 - Transient errors: `InfoBar` at the top of the sidebar, auto-dismiss 8 s. Persistent (device missing, folder offline): sticky `InfoBar` with an action.
-- Native crash: the SEH guards convert what they can; a genuine access violation triggers the minidump writer (E8-S5). The soak and interop tests exist to make this rare. As built (T-86): no minidump writer exists yet; it is E8-S5's, and step 1 of the startup sequence registers none.
+- Native crash: the SEH guards convert what they can; a genuine access violation triggers the minidump writer (E8-S5). The soak and interop tests exist to make this rare. As built: the minidump writer exists since E8-S5 (T-84) and runs only when crash reporting is switched on; see "As built (E8-S5, T-84)" below. A fault inside an mpcore export never reaches it, because that export's SEH guard converts the fault; it catches faults on the core's own unguarded threads and in managed code.
 - Every fire-and-forget task goes through a helper that logs. As built: it is `Forget(this Task, string what)` in `Tunqio.App/Controls/LibraryActions.cs`, not a class named `SafeFireAndForget`.
 
 **As built (E8-S5, T-84).** Crash reporting is opt-in (`diagnostics.crashReporting`, off by default) and **local-only**:
