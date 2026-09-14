@@ -189,8 +189,13 @@ public sealed class SqliteTrackRepository : ITrackRepository
         }
 
         await using var links = new LinkWriter(connection, transaction);
+        await using SqliteCommand deriveAlbumArt = Sql.Command(connection, DeriveAlbumArtSql, transaction);
+        deriveAlbumArt.Add("$id", 0L);
+        deriveAlbumArt.Add("$folder", null);
         var stale = new List<FtsRow>();
         var written = new List<long>(tracks.Count);
+        // Every album this batch touched, with the folder image its tracks reported (T-207).
+        var albumsTouched = new Dictionary<long, string?>();
 
         foreach (ScannedTrack track in tracks)
         {
@@ -208,6 +213,10 @@ public sealed class SqliteTrackRepository : ITrackRepository
                 string? albumArtist = track.AlbumArtist ?? track.Artists.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
                 long? albumArtistId = string.IsNullOrWhiteSpace(albumArtist) ? null : await resolver.ArtistAsync(albumArtist, ct).ConfigureAwait(false);
                 albumId = await resolver.AlbumAsync(track.AlbumTitle, albumArtistId, track.Year, track.DiscCount, track.AlbumArtHash, track.AlbumMbid, ct).ConfigureAwait(false);
+                // AlbumArtHash is the embedded picture when there is one, else the folder image; only the latter is
+                // a fact about the folder rather than the file, and it is what the derivation below falls back to.
+                string? folderImage = track.TrackArtHash is null ? track.AlbumArtHash : null;
+                albumsTouched[albumId.Value] = albumsTouched.TryGetValue(albumId.Value, out string? known) ? known ?? folderImage : folderImage;
             }
 
             upsert.Set("$folder", track.FolderId);
@@ -251,8 +260,33 @@ public sealed class SqliteTrackRepository : ITrackRepository
             await fts.AddAsync(id, ct).ConfigureAwait(false);
         }
 
+        // The album's art is derived from its tracks as they stand now, not kept from whichever file the scan saw
+        // first: a cover removed from every track (T-113) takes the album's art with it, a new cover on the first
+        // track becomes the album's, and the choice no longer depends on the order a parallel scan happened to run in.
+        foreach ((long albumId, string? folderImage) in albumsTouched)
+        {
+            deriveAlbumArt.Set("$id", albumId);
+            deriveAlbumArt.Set("$folder", folderImage);
+            await deriveAlbumArt.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// <c>album.art_hash</c> from the album's own tracks (docs/library-and-data.md: the first track's embedded picture,
+    /// else the folder image): the lowest disc and track number that carries a picture, else the folder image the
+    /// batch's tracks reported, else nothing. Missing tracks do not count; a picture nobody can play is not art.
+    /// </summary>
+    private const string DeriveAlbumArtSql = """
+        UPDATE album
+        SET art_hash = COALESCE(
+            (SELECT t.art_hash FROM track t
+             WHERE t.album_id = $id AND t.art_hash IS NOT NULL AND t.missing = 0
+             ORDER BY t.disc_no, t.track_no, t.id LIMIT 1),
+            $folder)
+        WHERE id = $id
+        """;
 
     public async Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default)
     {

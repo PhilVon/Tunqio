@@ -44,9 +44,10 @@ internal sealed class EntityResolver : IDisposable
         _insertAlbum.Add("$discs", null);
         _insertAlbum.Add("$art", null);
         _insertAlbum.Add("$mbid", null);
-        _refreshAlbum = Sql.Command(connection, "UPDATE album SET disc_count = COALESCE($discs, disc_count), art_hash = COALESCE($art, art_hash), mbid = COALESCE($mbid, mbid) WHERE id = $id", transaction);
+        // Art is not refreshed here: it was COALESCEd, which kept the first hash an album ever got for its whole
+        // life (T-207). SqliteTrackRepository derives it from the album's tracks at the end of every batch instead.
+        _refreshAlbum = Sql.Command(connection, "UPDATE album SET disc_count = COALESCE($discs, disc_count), mbid = COALESCE($mbid, mbid) WHERE id = $id", transaction);
         _refreshAlbum.Add("$discs", null);
-        _refreshAlbum.Add("$art", null);
         _refreshAlbum.Add("$mbid", null);
         _refreshAlbum.Add("$id", 0L);
     }
@@ -133,10 +134,9 @@ internal sealed class EntityResolver : IDisposable
             _albums[key] = id;
         }
 
-        if ((discCount is not null || artHash is not null || mbid is not null) && _albumsRefreshed.Add(id))
+        if ((discCount is not null || mbid is not null) && _albumsRefreshed.Add(id))
         {
             _refreshAlbum.Set("$discs", discCount);
-            _refreshAlbum.Set("$art", artHash);
             _refreshAlbum.Set("$mbid", mbid);
             _refreshAlbum.Set("$id", id);
             await _refreshAlbum.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
