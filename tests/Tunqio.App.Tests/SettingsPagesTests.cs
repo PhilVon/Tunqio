@@ -143,11 +143,34 @@ public sealed class SettingsPagesTests : IAsyncLifetime
         changed.Should().Equal(SettingsKeys.UiTheme, SettingsKeys.UiReactiveTheming, SettingsKeys.UiReactiveSmoothing);
     }
 
+    /// <summary>E7-S3 (AC-488): the two tray switches start off, and each writes its own key as it changes.</summary>
+    [Fact]
+    public void The_tray_switches_start_off_and_write_their_keys()
+    {
+        var vm = new AppearanceSettingsViewModel(_settings);
+        var changed = new List<string>();
+        _settings.Changed += (_, key) => changed.Add(key);
+
+        vm.CloseToTray.Should().BeFalse("close-to-tray is off by default (docs/solution-structure.md)");
+        vm.MinimizeToTray.Should().BeFalse("minimise-to-tray is off by default");
+
+        vm.CloseToTray = true;
+        vm.MinimizeToTray = true;
+        vm.CloseToTray = false;
+
+        _settings.GetValue(SettingsKeys.UiCloseToTray, true).Should().BeFalse();
+        _settings.GetValue(SettingsKeys.UiMinimizeToTray, false).Should().BeTrue();
+        changed.Should().Equal(SettingsKeys.UiCloseToTray, SettingsKeys.UiMinimizeToTray, SettingsKeys.UiCloseToTray);
+        new AppearanceSettingsViewModel(_settings).MinimizeToTray.Should().BeTrue("the page reopens on what was stored");
+    }
+
     [Fact]
     public void Seeding_appearance_from_the_store_does_not_write_it_back()
     {
         _ = new AppearanceSettingsViewModel(_settings);
 
+        _settings.Contains(SettingsKeys.UiCloseToTray).Should().BeFalse();
+        _settings.Contains(SettingsKeys.UiMinimizeToTray).Should().BeFalse();
         _settings.Contains(SettingsKeys.UiTheme).Should().BeFalse();
         _settings.Contains(SettingsKeys.UiReactiveTheming).Should().BeFalse();
         _settings.Contains(SettingsKeys.UiReactiveSmoothing).Should().BeFalse();

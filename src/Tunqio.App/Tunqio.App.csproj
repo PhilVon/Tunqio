@@ -58,6 +58,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="H.NotifyIcon.WinUI" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
@@ -79,6 +80,11 @@
     </AppxManifest>
     <None Include="Package.appxmanifest" Condition="'$(TunqioPackaged)' != 'true'" />
     <Content Include="Assets\**\*.png" />
+    <!-- E7-S3: the tray icons (docs/identity.md, Assets/Tray/tunqio-16.ico and tunqio-32.ico with -light/-dark variants),
+         loaded from beside the executable in both shapes by Tray/TrayIconFiles.cs. The icon task adds the files. -->
+    <Content Include="Assets\**\*.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!-- The preset root the core scans: presets/ beside mpcore.dll, or MPCORE_PRESET_ROOT when it is set

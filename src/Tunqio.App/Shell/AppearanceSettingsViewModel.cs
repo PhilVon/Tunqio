@@ -31,6 +31,14 @@ public sealed partial class AppearanceSettingsViewModel : ObservableObject
     [ObservableProperty]
     public partial float ReactiveSmoothing { get; set; }
 
+    /// <summary><c>ui.closeToTray</c> (E7-S3): closing the main window hides it to the tray and playback carries on.</summary>
+    [ObservableProperty]
+    public partial bool CloseToTray { get; set; }
+
+    /// <summary><c>ui.minimizeToTray</c> (E7-S3): minimising the main window hides it to the tray.</summary>
+    [ObservableProperty]
+    public partial bool MinimizeToTray { get; set; }
+
     public AppearanceSettingsViewModel(ISettingsStore settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -41,6 +49,8 @@ public sealed partial class AppearanceSettingsViewModel : ObservableObject
             ThemeIndex = Math.Max(0, IndexOf(ThemePolicy.Read(settings)));
             ReactiveTheming = settings.GetValue(SettingsKeys.UiReactiveTheming, SettingsKeys.Defaults.UiReactiveTheming);
             ReactiveSmoothing = settings.GetValue(SettingsKeys.UiReactiveSmoothing, SettingsKeys.Defaults.UiReactiveSmoothing);
+            CloseToTray = settings.GetValue(SettingsKeys.UiCloseToTray, SettingsKeys.Defaults.UiCloseToTray);
+            MinimizeToTray = settings.GetValue(SettingsKeys.UiMinimizeToTray, SettingsKeys.Defaults.UiMinimizeToTray);
         }
         finally
         {
@@ -107,5 +117,27 @@ public sealed partial class AppearanceSettingsViewModel : ObservableObject
 
         _settings.SetValue(SettingsKeys.UiReactiveSmoothing, value);
         _settings.FlushAsync().Forget("Save reactive smoothing");
+    }
+
+    partial void OnCloseToTrayChanged(bool value)
+    {
+        if (_seeding)
+        {
+            return;
+        }
+
+        _settings.SetValue(SettingsKeys.UiCloseToTray, value);
+        _settings.FlushAsync().Forget("Save close to tray");
+    }
+
+    partial void OnMinimizeToTrayChanged(bool value)
+    {
+        if (_seeding)
+        {
+            return;
+        }
+
+        _settings.SetValue(SettingsKeys.UiMinimizeToTray, value);
+        _settings.FlushAsync().Forget("Save minimise to tray");
     }
 }

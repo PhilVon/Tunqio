@@ -436,6 +436,25 @@ public sealed partial class MainWindow : Window
         return true;
     }
 
+    /// <summary>
+    /// Brings this window back from wherever it was hidden (E7-S3): behind the mini player, which is closed so its own Closed
+    /// handler shows this window, or to the tray, where it is simply shown. The caller activates and raises it.
+    /// </summary>
+    public void ReturnFromHidden()
+    {
+        if (_miniPlayer is { } mini)
+        {
+            mini.Close();
+            return;
+        }
+
+        if (!AppWindow.IsVisible)
+        {
+            AppWindow.Show();
+            Serilog.Log.Information("Tray: main window shown from the tray");
+        }
+    }
+
     // ---- Focus mode (E5-S2) ------------------------------------------------------------------------------------------
 
     private void OnFocusChromeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

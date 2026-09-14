@@ -192,7 +192,49 @@ public class ContextMenuIntegration
 
 ## System Tray Integration
 
-### System Tray Icon and Context Menu
+### As built (E7-S3)
+
+The WinForms sample below is superseded by ADR-006 and kept only as the original sketch. What ships:
+
+- **Package.** H.NotifyIcon.WinUI **2.3.2** (MIT), pinned in `Directory.Packages.props`. The 2.4 line ships a net10.0 build
+  only, so 2.3.2 is the newest release a .NET 8 app can reference; it asks for Windows App SDK 1.6.250108002 or later, which
+  the 1.8 pin satisfies. It brings H.NotifyIcon, H.GeneratedIcons.System.Drawing and System.Drawing.Common.
+- **The icon.** `Tray/WinUiTrayIcon.cs`: a `TaskbarIcon` built in code on the XAML thread, `ContextMenuMode.PopupMenu`
+  (the library turns the `MenuFlyout`'s items into a native popup menu each time it opens, so no second XAML window exists),
+  and `ForceCreate(enablesEfficiencyMode: false)`, because the library's default puts the whole process into Windows'
+  efficiency mode, which would throttle audio. Menu: Play or Pause, Next, Previous, Show Tunqio, Exit. Left-click shows the
+  window.
+- **The icon file.** `Tray/TrayIconFiles.cs` is the one place it is chosen, from docs/identity.md's names beside the
+  executable: `Assets/Tray/tunqio-16.ico` and `Assets/Tray/tunqio-32.ico`, each with a `-light` and `-dark` variant named
+  for the taskbar it is drawn on (`tunqio-32-light.ico` is for a light taskbar). At 100 % scaling (small icons 16 px) it tries
+  `tunqio-16-<theme>.ico`, `tunqio-16.ico`, `tunqio-32-<theme>.ico`, `tunqio-32.ico`; above 100 % the 32 px pair first. The
+  theme is read once at launch from `SystemUsesLightTheme` (read only). `Assets\**\*.ico` is a `Content` item, so files the
+  icon task drops in reach both build shapes. Until one exists the tray shows the executable's own icon and the log says
+  "using the executable's own icon as the fallback".
+- **The rules.** `Tray/TrayController.cs`, behind `ITrayIcon`, unit tested over a fake (`TrayControllerTests`): menu choices
+  go to `PlaybackSession.TogglePlayPauseAsync`, `NextAsync` and `PreviousAsync` (nothing before audio is up); the tooltip is
+  `Identity.TrayTooltip`, `Tunqio` idle and `Title – Artist` with a track loaded, trimmed to 127 characters title first; the
+  first item says Pause while playing and Play otherwise; the icon is written only when one of those changes.
+- **Close and minimise.** `App.StartTray` hooks `AppWindow.Closing` and `AppWindow.Changed`. With `ui.closeToTray` on, a close
+  by any means (the close button, Alt+F4, a UIA WindowPattern close) is cancelled and the window is hidden; with
+  `ui.minimizeToTray` on, a minimise hides it. Both are off by default, read at the moment of the gesture, and ignored while
+  the icon is not in the notification area, so Tunqio is never left running with no window and no icon. Playback belongs to
+  the session and carries on.
+- **Show.** Show from the tray and every activation E7-S1 routes (a second launch, a file, `tunqio://show`) go through
+  `App.BringMainWindowToForeground`, which now calls `MainWindow.ReturnFromHidden` first: a window hidden to the tray is shown,
+  and a window hidden behind the mini player gets the mini player closed, whose own Closed handler shows it. Then
+  `Activate` and `SetForegroundWindow`, restoring a minimised window.
+- **Exit.** Exit marks the next close as a real one and closes the main window, so it runs exactly the shutdown the close
+  button runs with close-to-tray off (`App.OnWindowClosed`, T-188). The tray is its first step: the Closing and Changed
+  handlers are unhooked and the controller disposed, which removes the icon (`TrayIcon.TryRemove`), before the media controls,
+  audio (queue and position written), playlist exports, settings and the host.
+- **Proof.** `tools/check-tray.ps1` on a scratch `--data-root` with both switches seeded on: a close through UIA leaves the
+  process running, the window gone and the media session still Playing with its timeline moving; `tunqio://show` from a second
+  launch brings the window back; a UIA minimise hides it and `tunqio://show` restores it; then the close switch is turned off
+  in Settings through UIA and a close exits with code 0, and the log shows every step and the icon removed. The tray menu
+  itself lives in Explorer's notification area and is not driven by the harness; how it looks is AC-493, for a person.
+
+### System Tray Icon and Context Menu (original sketch, superseded)
 
 ```csharp
 public class SystemTrayManager : IDisposable

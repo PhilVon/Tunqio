@@ -38,6 +38,15 @@ keyed on `tools/native-deps.json`, so a stale pin stays invisible on CI until th
 which the build's licence policy excludes. AAC, M4A, ALAC and WMA decode through BASS's built-in Media
 Foundation codec support on Windows 10 and 11 instead, so no add-on is needed for them.
 
+## NuGet packages
+
+Shipped NuGet packages are pinned in `Directory.Packages.props` and credited on the About page from
+`Tunqio.Core.ThirdPartyAttribution.Components`, each with its licence: the Windows App SDK and WinUI 3 (Microsoft),
+CommunityToolkit.Mvvm (MIT), H.NotifyIcon.WinUI (MIT; the tray icon, E7-S3, with its dependencies H.NotifyIcon and
+H.GeneratedIcons.System.Drawing, MIT, and System.Drawing.Common, MIT), Microsoft.Data.Sqlite and SQLite (MIT / public
+domain), TagLibSharp (LGPL 2.1), System.Reactive (MIT) and Serilog (Apache 2.0). Their licence texts are collected by
+the release pipeline (E8-S1).
+
 ## Vendored native sources (`native/third_party/`)
 
 | Component | Version | Source | Licence | Files | SHA-256 |
