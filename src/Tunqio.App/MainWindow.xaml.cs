@@ -169,16 +169,8 @@ public sealed partial class MainWindow : Window
                         ThemePreference preference = ThemePolicy.Read(settings);
                         _chrome.ApplyTheme(preference);
                         LogThemeState("applied " + preference);
-                        // After the tree has had a pass, the backdrop is created again (T-69 review). With Windows dark,
-                        // Light then Dark left the controls bar light while its own brush was already the dark one
-                        // (logged: #4C3A3A3A); that brush is 30% opaque, so what showed through it was the system
-                        // backdrop, which kept the previous theme until a second change. A new backdrop starts from the
-                        // theme that is on screen.
-                        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-                        {
-                            ShellBackdrop.Kind which = ApplyBackdrop();
-                            LogThemeState("after a pass " + preference + ", backdrop " + which + " recreated");
-                        });
+                        // And once more after the tree has had a pass, which is when a stale brush would show.
+                        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => LogThemeState("after a pass " + preference));
                     });
                 }
             };
@@ -582,6 +574,43 @@ public sealed partial class MainWindow : Window
             SettingsPanel.ActualTheme,
             ColourOf((SettingsPanel.Content as Grid)?.Background),
             Transport.ActualTheme);
+
+        // Q-97: the Border and the ActualThemes above were right while the bar still looked light, so what its buttons
+        // actually paint with is logged too, beside a button inside the overlay, which Phil saw repaint correctly.
+        Button? overlayButton = FirstDescendant<Button>(SettingsPanel);
+        Serilog.Log.Debug(
+            "Theme {When} buttons: queue fg {QueueFg} bg {QueueBg}; mini fg {MiniFg}; settings fg {SettingsFg} bg {SettingsBg}; overlay button fg {OverlayFg} bg {OverlayBg}",
+            when,
+            ColourOf(QueueButton.Foreground),
+            ColourOf(QueueButton.Background),
+            ColourOf(MiniPlayerButton.Foreground),
+            ColourOf(SettingsButton.Foreground),
+            ColourOf(SettingsButton.Background),
+            ColourOf(overlayButton?.Foreground),
+            ColourOf(overlayButton?.Background));
+    }
+
+    /// <summary>The first element of type <typeparamref name="T"/> under <paramref name="root"/>, depth first; null when there is none.</summary>
+    private static T? FirstDescendant<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            DependencyObject child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            T? deeper = FirstDescendant<T>(child);
+            if (deeper is not null)
+            {
+                return deeper;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Shows the settings overlay (E6-S3) on <paramref name="section"/>, or where it was last left.</summary>

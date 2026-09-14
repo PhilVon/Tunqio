@@ -317,6 +317,16 @@ public sealed class ReactiveThemeController : IDisposable
                 return;
             }
 
+            // The window calls this when its theme has actually changed (ActualThemeChanged). ui.theme reached
+            // OnSettingChanged a dispatcher turn earlier, while the window still had the old theme, so the engine there
+            // was kept for the theme being left; this is where it catches up (T-69 review: with music playing, the
+            // gradient behind the controls bar stayed the light theme's after Light then Dark).
+            bool dark = IsDark();
+            if (_engine.DarkTheme != dark)
+            {
+                _engine = new ReactiveThemeEngine(dark, _engine.Options);
+            }
+
             if (Allowed(out string? because))
             {
                 if (!_running)

@@ -178,29 +178,34 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The order the app actually has, which the test above does not use (E6-S3). Settings &gt; Appearance writes
-    /// <c>ui.theme</c> and this controller hears it at once, while the window still has the old theme; the window repaints
-    /// on its next dispatcher turn, and only then does <c>ActualThemeChanged</c> flip the dark flag and call
-    /// <see cref="ReactiveThemeController.Evaluate"/>. Written while diagnosing T-69's "controls bar stays light" and it
-    /// passed on the code as it was, which ruled this controller out; kept so the order stays covered.
+    /// T-69 review (Phil, Windows dark): Light then Dark from Settings &gt; Appearance left the controls bar light. The
+    /// order the app actually has is not the one the test above uses. Settings writes <c>ui.theme</c> and this controller
+    /// hears it at once, while the window still has the old theme; the window repaints on its next dispatcher turn, and
+    /// only then does <c>ActualThemeChanged</c> flip the dark flag and call <see cref="ReactiveThemeController.Evaluate"/>.
     /// </summary>
+    /// <remarks>
+    /// Two versions of this test proved nothing, and both are recorded because both looked like proof. The first compared
+    /// luminance after sixty more frames, which can rise whichever theme the palette was built for. The second ticked on
+    /// the frame the run had ended on, and a tick hands the engine no frame when the sequence has not moved, so it could
+    /// never equal a fresh engine's first frame, fixed or not. So one new frame is published, and the palette is compared
+    /// with what a fresh light-theme engine makes of that frame over the same interval: only a rebuilt engine produces it.
+    /// </remarks>
     [Fact]
     public void A_theme_that_is_applied_after_its_setting_changed_is_still_followed()
     {
         using var h = new Harness().Build();
         h.Run(60);
-        ReactiveThemePalette inDark = h.Sink.Applied[^1];
 
         // The setting first, with the window still dark...
         h.Settings.SetValue(SettingsKeys.UiTheme, "light");
         // ...then the repaint, and what the window's ActualThemeChanged handler does.
         h.Dark = false;
         h.Controller.Evaluate();
-        h.Run(60, fromSequence: 500);
+        h.Run(1, fromSequence: 500); // one new frame, one poll interval later
 
-        ReactiveThemePalette after = h.Sink.Applied[^1];
-        after.Primary.Luminance.Should().BeGreaterThan(
-            inDark.Primary.Luminance, "the light theme's palette is lighter, and the window is light now");
+        var light = new ReactiveThemeEngine(false, ReactiveThemeOptions.Read(h.Settings));
+        ReactiveThemePalette expected = light.Advance(h.Frames.Latest, ReactiveThemeController.PollInterval);
+        h.Sink.Applied[^1].Should().Be(expected, "the window is light now, so the palette is a light-theme engine's");
     }
 
     private sealed class Harness : IDisposable
