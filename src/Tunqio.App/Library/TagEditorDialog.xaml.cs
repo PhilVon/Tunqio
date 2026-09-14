@@ -26,8 +26,12 @@ public sealed partial class TagEditorDialog : ContentDialog
 
     public TagEditorViewModel ViewModel { get; }
 
-    /// <summary>The placeholder a batch's boxes show for a field the selection does not agree on.</summary>
-    public static string Placeholder(bool isBatch) => isBatch ? TagEditorViewModel.MultipleValues : string.Empty;
+    /// <summary>
+    /// The placeholder a box shows: "(multiple values)" while the selection disagrees on its field and the box is
+    /// untouched, the same flag the help text reads. It was once the batch flag, which put the placeholder on a field
+    /// every track agrees is blank and read to a sighted user as "these differ" when they do not (T-204).
+    /// </summary>
+    public static string Placeholder(bool isMixed) => isMixed ? TagEditorViewModel.MultipleValues : string.Empty;
 
     /// <summary>
     /// The box's automation help text: the placeholder's meaning, for a screen reader that cannot reach the

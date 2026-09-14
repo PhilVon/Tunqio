@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ContentDialog
     x:Class="Tunqio.App.Library.TagEditorDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -61,31 +61,31 @@
         </Grid.RowDefinitions>
 
         <TextBox Grid.Row="0" Grid.ColumnSpan="2" Header="Title"
-                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsTitleMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsTitleMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="1" Grid.ColumnSpan="2" Header="Artist"
-                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsArtistsMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsArtistsMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Artists, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="2" Grid.ColumnSpan="2" Header="Album"
-                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsAlbumTitleMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsAlbumTitleMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.AlbumTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="3" Grid.ColumnSpan="2" Header="Album artist"
-                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsAlbumArtistMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsAlbumArtistMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.AlbumArtist, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
         <TextBox Grid.Row="4" Grid.Column="0" Header="Genre"
-                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                 PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsGenresMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsGenresMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Genres, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
@@ -114,17 +114,17 @@
             <ColumnDefinition Width="80" />
           </Grid.ColumnDefinitions>
           <TextBox Grid.Column="0" Header="Year" InputScope="Number"
-                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsYearMixed), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsYearMixed), Mode=OneWay}"
                    Text="{x:Bind ViewModel.Year, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
           <TextBox Grid.Column="1" Header="Track" InputScope="Number"
-                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsTrackNoMixed), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsTrackNoMixed), Mode=OneWay}"
                    Text="{x:Bind ViewModel.TrackNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
           <TextBox Grid.Column="2" Header="Disc" InputScope="Number"
-                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsBatch), Mode=OneWay}"
+                   PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsDiscNoMixed), Mode=OneWay}"
                    IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                    AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsDiscNoMixed), Mode=OneWay}"
                    Text="{x:Bind ViewModel.DiscNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />

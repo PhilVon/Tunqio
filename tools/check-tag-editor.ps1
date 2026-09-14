@@ -501,8 +501,6 @@ try {
     Test-Case 'every field the two albums disagree on is blank behind the (multiple values) placeholder' {
         if (-not $dialog) { return 'no dialog' }
         $problems = @()
-        # Disc is left out: both albums are single-disc and the scanner reads no disc number for either, so the
-        # selection agrees on it being empty and the box is right to be blank without a placeholder.
         foreach ($field in 'Title', 'Artist', 'Album', 'Album artist', 'Year', 'Track', 'Genre') {
             $edit = Get-ElementNamed $dialog $field 'Edit'
             if (-not $edit) { $problems += "no box named '$field'"; continue }
@@ -510,6 +508,16 @@ try {
             if ($text) { $problems += "'$field' holds '$text' for a selection that does not agree on it" }
             $placeholder = Get-Placeholder $edit
             if ($placeholder -ne $multiple) { $problems += "'$field' shows placeholder '$placeholder', not '$multiple'" }
+        }
+        # Disc is the other half (T-204): both albums are single-disc and the scanner reads no disc number for either,
+        # so the selection AGREES the box is blank, and a placeholder there would tell a sighted user the tracks differ.
+        $disc = Get-ElementNamed $dialog 'Disc' 'Edit'
+        if (-not $disc) { $problems += "no box named 'Disc'" }
+        else {
+            $discText = Get-Value $disc
+            $discPlaceholder = Get-Placeholder $disc
+            if ($discText) { $problems += "'Disc' holds '$discText' although neither album has a disc number" }
+            if ($discPlaceholder) { $problems += "'Disc' shows placeholder '$discPlaceholder' although both albums agree it is blank" }
         }
         $problems -join '; '
     }
