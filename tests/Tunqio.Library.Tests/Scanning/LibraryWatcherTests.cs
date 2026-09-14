@@ -125,6 +125,39 @@ public class LibraryWatcherTests
         (await w.Scan.TrackAtAsync(newPath)).Missing.Should().BeFalse();
     }
 
+    /// <summary>
+    /// T-187: the test above failed once in a full suite run with two requests for its one rename. The two sides of
+    /// a rename used to get their due times from two clock reads, so time passing between the reads (a thread
+    /// descheduled on a busy machine) left the old path due before the new one, and a pump waking in that gap
+    /// scanned them apart. Here the clock moves between reads on purpose and the pump wakes exactly when the old
+    /// path falls due, so the split is certain on the old code rather than a matter of timing.
+    /// </summary>
+    [Fact]
+    public async Task A_rename_is_one_request_even_when_time_passes_while_it_is_recorded_Async()
+    {
+        var clock = new ManualWatchClock();
+        using WatchHarness w = await WatchHarness.CreateAsync(clock: clock);
+        await w.Watcher.StartAsync();
+        string oldPath = w.Scan.PathOf(PlainEntry(ScanHarness.Manifest()));
+        string newPath = Path.Combine(Path.GetDirectoryName(oldPath)!, "Renamed" + Path.GetExtension(oldPath));
+        File.Move(oldPath, newPath);
+
+        using (clock.StepEachReadOnThisThread(TimeSpan.FromMilliseconds(10)))
+        {
+            w.Source.Raise(FolderChangeKind.Renamed, newPath, oldPath);
+        }
+
+        // The pump has looked, found nothing due yet and is waiting for the earliest due time: one debounce after
+        // the first clock read the rename made.
+        await WatchHarness.WaitUntilAsync(() => clock.ArmedTimers == 1, TimeSpan.FromSeconds(30), "the watcher to wait out the debounce");
+        clock.AdvanceTo(WatchHarness.Debounce);
+        await w.WaitForScansAsync(1);
+
+        w.Scanner.Requests.Should().ContainSingle().Which.Paths.Should().BeEquivalentTo([oldPath, newPath], "both sides of a rename fall due together");
+        w.Watcher.Stats.Pending.Should().Be(0, "nothing of the rename is left waiting for a second scan");
+        w.Scanner.Reports.Single().Should().BeEquivalentTo(new { Missing = 1, Added = 1 });
+    }
+
     [Fact]
     public async Task Only_supported_files_gone_paths_and_new_directories_are_taken_Async()
     {
