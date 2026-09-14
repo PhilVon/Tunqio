@@ -6,8 +6,43 @@ using Tunqio.Core.Playback;
 
 namespace Tunqio.App.Library;
 
-/// <summary>One row of the album's track list, with its cells preformatted; <see cref="Artists"/> is empty when the track's credit is the album artist.</summary>
-public sealed record AlbumTrackRow(TrackDto Track, string Number, string Title, string Artists, string Duration, string Rating);
+/// <summary>
+/// One row of the album's track list, with its cells preformatted; <see cref="Artists"/> is empty when the track's
+/// credit is the album artist. <see cref="Stars"/> is the one cell that changes under the row (E6-S7), so it
+/// notifies; the rest are read once.
+/// </summary>
+public sealed class AlbumTrackRow : ObservableObject
+{
+    private int _stars;
+
+    public AlbumTrackRow(TrackDto track, string number, string title, string artists, string duration, int stars)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        Track = track;
+        Number = number;
+        Title = title;
+        Artists = artists;
+        Duration = duration;
+        _stars = stars;
+    }
+
+    public TrackDto Track { get; }
+
+    public string Number { get; }
+
+    public string Title { get; }
+
+    public string Artists { get; }
+
+    public string Duration { get; }
+
+    /// <summary>The rating as 0..5 stars, for the row's star control.</summary>
+    public int Stars
+    {
+        get => _stars;
+        set => SetProperty(ref _stars, value);
+    }
+}
 
 /// <summary>The tracks of one disc; <see cref="Title"/> is the group header ("Disc 2").</summary>
 public sealed record DiscGroup(int? DiscNo, string Title, IReadOnlyList<AlbumTrackRow> Rows);
@@ -23,6 +58,8 @@ public sealed partial class AlbumDetailViewModel : ObservableObject
     private readonly IPlaybackCommands _playback;
     private readonly ILibraryNavigator _navigator;
     private readonly IFileRevealer _revealer;
+    private readonly ITrackRater _rater;
+    private bool _listening;
 
     [ObservableProperty]
     public partial AlbumDto? Album { get; set; }
@@ -57,19 +94,58 @@ public sealed partial class AlbumDetailViewModel : ObservableObject
     [ObservableProperty]
     public partial bool NotFound { get; set; }
 
-    public AlbumDetailViewModel(IAlbumRepository albums, IPlaybackCommands playback, ILibraryNavigator navigator, IFileRevealer revealer)
+    public AlbumDetailViewModel(IAlbumRepository albums, IPlaybackCommands playback, ILibraryNavigator navigator, IFileRevealer revealer, ITrackRater rater)
     {
         ArgumentNullException.ThrowIfNull(albums);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(revealer);
+        ArgumentNullException.ThrowIfNull(rater);
         _albums = albums;
         _playback = playback;
         _navigator = navigator;
         _revealer = revealer;
+        _rater = rater;
     }
 
     public bool CanPlay => Rows.Count > 0;
+
+    /// <summary>A row's stars were set (E6-S7); the rater writes the row and the stars follow through its event.</summary>
+    public Task RateAsync(AlbumTrackRow row, int stars, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return _rater.RateAsync(row.Track.Id, stars, ct);
+    }
+
+    /// <summary>Whether ratings landing anywhere in the app patch the rows here; the page turns it on while it is in the tree.</summary>
+    public void ListenForRatings(bool listen)
+    {
+        if (listen == _listening)
+        {
+            return;
+        }
+
+        _listening = listen;
+        if (listen)
+        {
+            _rater.Changed += OnRatingChanged;
+        }
+        else
+        {
+            _rater.Changed -= OnRatingChanged;
+        }
+    }
+
+    private void OnRatingChanged(object? sender, RatingChange change)
+    {
+        foreach (AlbumTrackRow row in Rows)
+        {
+            if (row.Track.Id == change.TrackId)
+            {
+                row.Stars = Ratings.Stars(change.Rating);
+            }
+        }
+    }
 
     public async Task LoadAsync(long albumId, CancellationToken ct = default)
     {
@@ -224,7 +300,7 @@ public sealed partial class AlbumDetailViewModel : ObservableObject
             artists = string.Empty;
         }
 
-        return new AlbumTrackRow(track, Format.TrackNo(track.TrackNo), track.Title, artists, Format.Duration(track.DurationMs), Format.Rating(track.Rating));
+        return new AlbumTrackRow(track, Format.TrackNo(track.TrackNo), track.Title, artists, Format.Duration(track.DurationMs), Ratings.Stars(track.Rating));
     }
 
     private long[] Ids() => Rows.Select(r => r.Track.Id).ToArray();

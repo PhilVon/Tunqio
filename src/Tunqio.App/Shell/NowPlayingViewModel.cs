@@ -33,8 +33,10 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     private readonly SynchronizationContext? _ui;
     private readonly IPlaybackSessionSource _source;
     private readonly ILibraryNavigator? _navigator;
+    private readonly ITrackRater? _rater;
     private IDisposable? _subscription;
     private QueueItem? _current;
+    private TrackDto? _sessionTrack;
     private bool _disposed;
 
     [ObservableProperty]
@@ -43,13 +45,20 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     /// <param name="source">Where the session comes from; it may not exist yet, and may never.</param>
     /// <param name="navigator">The sidebar, for the artist and album links. Null leaves them inert.</param>
     /// <param name="ui">The XAML thread's context. Null runs updates inline, which is what the tests want.</param>
+    /// <param name="rater">Rates the track (E6-S7). Null leaves the stars read-only, which is what the spike modes get.</param>
     public NowPlayingViewModel(
-        IPlaybackSessionSource source, ILibraryNavigator? navigator = null, SynchronizationContext? ui = null)
+        IPlaybackSessionSource source, ILibraryNavigator? navigator = null, SynchronizationContext? ui = null, ITrackRater? rater = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         _source = source;
         _navigator = navigator;
         _ui = ui;
+        _rater = rater;
+        if (rater is not null)
+        {
+            rater.Changed += OnRatingChanged;
+        }
+
         if (source.Session is { } ready)
         {
             Attach(ready);
@@ -107,6 +116,31 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
 
     /// <summary>Whether the format badge says anything; it is hidden rather than shown empty.</summary>
     public bool HasFormatBadge => FormatBadge.Length > 0;
+
+    /// <summary>The track's rating as stars, 0..5, for the star control (E6-S7).</summary>
+    public int Stars => Ratings.Stars(Track?.Rating);
+
+    /// <summary>
+    /// Whether the stars can be set: there is a rater, and the track is a library row. A file opened from a
+    /// picker or a drop has no row to hold a rating (E2-S4), so its stars are shown empty and left alone.
+    /// </summary>
+    public bool CanRate => _rater is not null && Track is { Id: > 0 };
+
+    /// <summary>
+    /// Rates the current track <paramref name="stars"/> (0 clears): the star control and the Ctrl+Alt+digit
+    /// shortcuts both come here. Returns false when there is nothing to rate, so the shortcut leaves the key
+    /// unhandled rather than swallowing it.
+    /// </summary>
+    public bool Rate(int stars)
+    {
+        if (!CanRate || Track is not { } track)
+        {
+            return false;
+        }
+
+        _rater!.RateAsync(track.Id, stars).Forget("Rate track");
+        return true;
+    }
 
     /// <summary>
     /// The album line under the artist: the album, and the year in parentheses when both are known. Composed
@@ -194,14 +228,30 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     /// </summary>
     private void Apply(PlaybackSnapshot next)
     {
-        if (next.Current == _current && ReferenceEquals(next.Track, Track))
+        // Compared with the object the session last gave, not with what is shown: a rating patches the shown
+        // track (below), and the session's copy of the row is then older than the panel, not newer.
+        if (next.Current == _current && ReferenceEquals(next.Track, _sessionTrack))
         {
             return;
         }
 
         _current = next.Current;
+        _sessionTrack = next.Track;
         Show(next.Track);
     }
+
+    /// <summary>
+    /// A rating landed in the library (from these stars, a shortcut or a row elsewhere): the shown track takes
+    /// it without waiting for the session to re-resolve the row, which it has no reason to do.
+    /// </summary>
+    private void OnRatingChanged(object? sender, RatingChange change) => Post(() =>
+    {
+        if (Track is { } track && track.Id == change.TrackId && track.Rating != change.Rating)
+        {
+            Track = track with { Rating = change.Rating };
+            OnPropertyChanged(nameof(Stars));
+        }
+    });
 
     /// <summary>
     /// Puts a track on the panel. The session is what normally does this, through <see cref="Apply"/>; the Now
@@ -226,6 +276,8 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasAlbumLine));
         OnPropertyChanged(nameof(HasAlbumLink));
         OnPropertyChanged(nameof(HasFormatBadge));
+        OnPropertyChanged(nameof(Stars));
+        OnPropertyChanged(nameof(CanRate));
         OnPropertyChanged(nameof(AutomationName));
     }
 
@@ -252,6 +304,11 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
 
         _disposed = true;
         _source.SessionReady -= OnSessionReady;
+        if (_rater is not null)
+        {
+            _rater.Changed -= OnRatingChanged;
+        }
+
         _subscription?.Dispose();
         _subscription = null;
     }

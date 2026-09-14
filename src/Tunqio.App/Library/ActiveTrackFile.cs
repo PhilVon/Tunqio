@@ -19,17 +19,21 @@ public sealed class ActiveTrackFile : IDisposable
 {
     private readonly IPlaybackSessionSource _source;
     private readonly Func<ITagEditor> _editor;
+    private readonly Func<ITrackRater> _rater;
     private IDisposable? _snapshots;
     private string? _path;
     private bool _disposed;
 
     /// <param name="editor">Resolved lazily: the editor depends on this, so asking for it in the constructor would be a cycle.</param>
-    public ActiveTrackFile(IPlaybackSessionSource source, Func<ITagEditor> editor)
+    /// <param name="rater">The rater (E6-S7), lazily for the same reason: its deferred file writes wait on the same release.</param>
+    public ActiveTrackFile(IPlaybackSessionSource source, Func<ITagEditor> editor, Func<ITrackRater> rater)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(rater);
         _source = source;
         _editor = editor;
+        _rater = rater;
 
         if (source.Session is { } ready)
         {
@@ -77,6 +81,7 @@ public sealed class ActiveTrackFile : IDisposable
 
         _path = path;
         _editor().FlushDeferredAsync().Forget("Flush deferred tag writes");
+        _rater().FlushDeferredAsync().Forget("Flush deferred rating writes");
     }
 
     public void Dispose()

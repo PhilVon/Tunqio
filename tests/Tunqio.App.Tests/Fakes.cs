@@ -199,6 +199,50 @@ internal sealed class FakeTrackRepository : ITrackRepository
     public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) => throw new NotSupportedException();
 
     public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) => throw new NotSupportedException();
+
+    /// <summary>Every rating written, in order; the row is patched so a later read sees it, as the real repository's would.</summary>
+    public List<(long Id, int? Rating)> Ratings { get; } = [];
+
+    public Task<bool> SetRatingAsync(long id, int? rating, CancellationToken ct = default)
+    {
+        Ratings.Add((id, rating));
+        int index = Rows.FindIndex(t => t.Id == id);
+        if (index < 0)
+        {
+            return Task.FromResult(false);
+        }
+
+        Rows[index] = Rows[index] with { Rating = rating };
+        return Task.FromResult(true);
+    }
+}
+
+/// <summary>An <see cref="ITrackRater"/> that records what it was asked and lets a test raise its events by hand.</summary>
+internal sealed class FakeRater : ITrackRater
+{
+    public List<(long Id, int Stars)> Requests { get; } = [];
+
+    /// <summary>What <see cref="RateAsync"/> answers with for the file half; null means writing to files is off.</summary>
+    public TagWriteOutcome? FileWrite { get; set; }
+
+    public event EventHandler<RatingChange>? Changed;
+
+    public event EventHandler<RatingChange>? FileWriteCompleted;
+
+    public Task<RatingChange> RateAsync(long trackId, int stars, CancellationToken ct = default)
+    {
+        Requests.Add((trackId, stars));
+        var change = new RatingChange(trackId, $@"D:\Music\{trackId}.flac", Tunqio.Core.Library.Ratings.FromStars(stars), FileWrite);
+        Changed?.Invoke(this, change);
+        return Task.FromResult(change);
+    }
+
+    public Task<int> FlushDeferredAsync(CancellationToken ct = default) => Task.FromResult(0);
+
+    /// <summary>What another surface (a shortcut, another page) did: the event without a request here.</summary>
+    public void RaiseChanged(long trackId, int? rating) => Changed?.Invoke(this, new RatingChange(trackId, $@"D:\Music\{trackId}.flac", rating));
+
+    public void RaiseFileWrite(RatingChange change) => FileWriteCompleted?.Invoke(this, change);
 }
 
 internal sealed class FakeAlbumRepository : IAlbumRepository

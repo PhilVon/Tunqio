@@ -107,7 +107,8 @@ public sealed partial class MainWindow : Window
         ShellNotices? notices,
         IVisualizationHost? visualization,
         Core.Library.IArtCache? art,
-        ShellState? shell)
+        ShellState? shell,
+        Core.Library.ITrackRater? rater)
     {
         _forceWarp = forceWarp;
         _settings = settings;
@@ -210,7 +211,9 @@ public sealed partial class MainWindow : Window
             Transport.ViewModel = _transport;
             // The sidebar's navigator is what makes the artist and album lines links (E2-S3); it is not there in
             // the spike modes, and the panel simply leaves them inert when it is missing.
-            _nowPlaying = new NowPlayingViewModel(audio, navigator, SynchronizationContext.Current);
+            // The rater (E6-S7) is what the stars and the Ctrl+Alt+digit shortcuts write through; the spike modes
+            // have none, and the panel then shows the stars read-only.
+            _nowPlaying = new NowPlayingViewModel(audio, navigator, SynchronizationContext.Current, rater);
             NowPlaying.ViewModel = _nowPlaying;
             _nowPlaying.PropertyChanged += OnNowPlayingChanged;
             // The queue panel needs the library to turn track ids into rows; without it the button opens an empty
@@ -802,6 +805,9 @@ public sealed partial class MainWindow : Window
                 return CurrentMode == ShellMode.Curation && !IsTypingSomewhere() && CurationEditor.Undo();
             case ShellCommand.Redo:
                 return CurrentMode == ShellMode.Curation && !IsTypingSomewhere() && CurationEditor.Redo();
+            // Rate the playing track (E6-S7). Nothing playing, or a dropped file with no library row, leaves the key alone.
+            case ShellCommand.Rate:
+                return _nowPlaying?.Rate((int)shortcut.Amount) ?? false;
             default:
                 break;
         }

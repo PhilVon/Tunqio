@@ -109,6 +109,16 @@
           <TextBlock Text="{x:Bind ViewModel.FormatBadge, Mode=OneWay}"
                      Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
         </Border>
+
+        <!--
+          The rating (E6-S7). The control names itself "Rating, N of 5 stars" and answers RangeValue; a track that
+          is not a library row (a dropped file) shows empty stars that cannot be set.
+        -->
+        <controls:RatingControl x:Name="RatingStars"
+                                Value="{x:Bind ViewModel.Stars, Mode=OneWay}"
+                                IsEnabled="{x:Bind ViewModel.CanRate, Mode=OneWay}"
+                                ValueChanged="OnRatingChanged"
+                                HorizontalAlignment="Center" Margin="0,8,0,0" />
       </StackPanel>
     </Grid>
   </Grid>

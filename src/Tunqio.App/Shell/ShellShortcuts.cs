@@ -51,6 +51,9 @@ public enum ShellCommand
 
     /// <summary>Redo the Curation editor's last undone edit.</summary>
     Redo,
+
+    /// <summary>Rate the playing track the shortcut's amount of stars, 1..5; 0 clears the rating (E6-S7).</summary>
+    Rate,
 }
 
 /// <summary>
@@ -78,7 +81,7 @@ public enum ShortcutDelivery
 /// <param name="Key">The key, with <paramref name="Modifiers"/> matched exactly — Ctrl+Space is not Space.</param>
 /// <param name="Modifiers">The modifiers that must be down, and no others.</param>
 /// <param name="Command">What it asks for.</param>
-/// <param name="Amount">Seconds for <see cref="ShellCommand.Seek"/>, a fraction for <see cref="ShellCommand.Volume"/>, zero otherwise.</param>
+/// <param name="Amount">Seconds for <see cref="ShellCommand.Seek"/>, a fraction for <see cref="ShellCommand.Volume"/>, stars for <see cref="ShellCommand.Rate"/>, zero otherwise.</param>
 /// <param name="Delivery">How it reaches the shell.</param>
 /// <param name="WhileTyping">
 /// True for the few chords that mean nothing to a text box and so are not the typist's to keep. The default is
@@ -171,6 +174,17 @@ public static class ShellShortcuts
         // Curation's undo and redo (E5-S4). Accelerators, like Esc: a text box has an undo of its own and keeps it.
         new(VirtualKey.Z, VirtualKeyModifiers.Control, ShellCommand.Undo, 0, ShortcutDelivery.Accelerator),
         new(VirtualKey.Y, VirtualKeyModifiers.Control, ShellCommand.Redo, 0, ShortcutDelivery.Accelerator),
+
+        // Rate the playing track (E6-S7): Ctrl+Alt+1..5 for the stars, Ctrl+Alt+0 to clear. One command with the
+        // stars as the amount, the way the seeks carry their seconds. Taken on the way down like the mode keys: no
+        // control wants the chord, and on a layout where Ctrl+Alt is AltGr the typing check already keeps it out of
+        // a text box.
+        new(VirtualKey.Number1, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, ShellCommand.Rate, 1, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number2, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, ShellCommand.Rate, 2, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number3, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, ShellCommand.Rate, 3, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number4, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, ShellCommand.Rate, 4, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number5, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, ShellCommand.Rate, 5, ShortcutDelivery.PreEmpt),
+        new(VirtualKey.Number0, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, ShellCommand.Rate, 0, ShortcutDelivery.PreEmpt),
 
         new(VirtualKey.Right, VirtualKeyModifiers.None, ShellCommand.Seek, 5, ShortcutDelivery.Accelerator),
         new(VirtualKey.Left, VirtualKeyModifiers.None, ShellCommand.Seek, -5, ShortcutDelivery.Accelerator),

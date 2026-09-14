@@ -423,6 +423,23 @@ public sealed class SqliteTrackRepository : ITrackRepository
         await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task<bool> SetRatingAsync(long id, int? rating, CancellationToken ct = default)
+    {
+        if (rating is < 0 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rating), rating, "rating is 0..100");
+        }
+
+        // One column of one row, and nothing the search index reads, so no FTS work and no resolver: the whole
+        // point of this beside UpdateTagsAsync is that a star click is a single small write (docs/library-and-data.md).
+        using IDisposable lease = await _db.AcquireWriterAsync(ct).ConfigureAwait(false);
+        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using SqliteCommand update = Sql.Command(connection, "UPDATE track SET rating = $rating WHERE id = $id");
+        update.Add("$rating", rating);
+        update.Add("$id", id);
+        return await update.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1;
+    }
+
     /// <summary>The values indexed for one track, as <see cref="FtsSql.Row"/> derives them.</summary>
     private sealed record FtsRow(long Id, string Title, string Artists, string Album, string AlbumArtist);
 

@@ -21,12 +21,23 @@ public static class LibraryViewServices
         // The tag editor (E3-S10). ActiveTrackFile resolves the editor lazily because the editor asks it which
         // file is open: a constructor dependency both ways would be a cycle.
         services.AddSingleton(p => new ActiveTrackFile(
-            p.GetRequiredService<Playback.IPlaybackSessionSource>(), p.GetRequiredService<ITagEditor>));
+            p.GetRequiredService<Playback.IPlaybackSessionSource>(), p.GetRequiredService<ITagEditor>, p.GetRequiredService<ITrackRater>));
         services.AddSingleton<ITagEditor>(p => new Tunqio.Library.Tags.TagEditor(
             p.GetRequiredService<ITagWriter>(),
             p.GetRequiredService<ILibraryScanner>(),
             isPlaying: path => p.GetRequiredService<ActiveTrackFile>().IsOpen(path),
             p.GetService<ILogger<Tunqio.Library.Tags.TagEditor>>()));
+        // Ratings (E6-S7): the library's rater, which writes the row and (when the switch is on) the file through the
+        // same writer and the same active-track deferral as the editor, wrapped so its events reach the views on the
+        // XAML thread. One for the process, because every page that shows a track follows its Changed event.
+        services.AddSingleton<ITrackRater>(p => new UiThreadRater(
+            new Tunqio.Library.Tags.TrackRater(
+                p.GetRequiredService<ITrackRepository>(),
+                p.GetRequiredService<ITagWriter>(),
+                p.GetRequiredService<Core.ISettingsStore>(),
+                isPlaying: path => p.GetRequiredService<ActiveTrackFile>().IsOpen(path),
+                p.GetService<ILogger<Tunqio.Library.Tags.TrackRater>>()),
+            uiContext));
         services.AddTransient<TagEditorViewModel>();
         services.AddTransient<AlbumActions>();
         // Hover preview (E5-S5). One for the process: every grid page reports to it, so a pointer leaving one page's

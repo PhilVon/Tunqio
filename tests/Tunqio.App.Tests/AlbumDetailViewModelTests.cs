@@ -27,7 +27,38 @@ public class AlbumDetailViewModelTests
         _albums.Tracks[2] = [Rows.Track(21, "Only", disc: null, codec: "mp3", bitDepth: null, sampleRate: 44100)];
     }
 
-    private AlbumDetailViewModel Create() => new(_albums, _playback, _navigator, _revealer);
+    private readonly FakeRater _rater = new();
+
+    private AlbumDetailViewModel Create() => new(_albums, _playback, _navigator, _revealer, _rater);
+
+    // ---- E6-S7: the rating column ----------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_rows_stars_go_through_the_rater_and_follow_its_event_in_place_Async()
+    {
+        _albums.Tracks[1][0] = _albums.Tracks[1][0] with { Rating = 60 };
+        AlbumDetailViewModel vm = Create();
+        await vm.LoadAsync(1);
+        vm.ListenForRatings(true);
+        AlbumTrackRow one = vm.Rows.Single(r => r.Title == "One");
+        one.Stars.Should().Be(3, "the row is built with the track's rating as stars");
+        var notified = new List<string>();
+        one.PropertyChanged += (_, e) => notified.Add(e.PropertyName ?? string.Empty);
+
+        await vm.RateAsync(one, 5);
+
+        _rater.Requests.Should().Equal((11L, 5));
+        one.Stars.Should().Be(5, "the same row object is patched, so the bound control follows without a reload");
+        notified.Should().Contain(nameof(AlbumTrackRow.Stars));
+        ReferenceEquals(vm.Rows.Single(r => r.Title == "One"), one).Should().BeTrue();
+
+        _rater.RaiseChanged(12, 20);
+        vm.Rows.Single(r => r.Title == "Two").Stars.Should().Be(1, "a rating set elsewhere reaches the row");
+
+        vm.ListenForRatings(false);
+        _rater.RaiseChanged(11, null);
+        one.Stars.Should().Be(5, "a page that has left the tree no longer follows");
+    }
 
     [Fact]
     public async Task Tracks_are_grouped_by_disc_with_headers_and_credits_shown_only_when_they_differ_Async()

@@ -124,7 +124,9 @@ public partial class App : Application
             // picture above it come out of one decode.
             _host.Services.GetService<IArtCache>(),
             // The mode (E5-S1): the container's one, which reads and writes ui.mode.
-            _host.Services.GetRequiredService<ShellState>());
+            _host.Services.GetRequiredService<ShellState>(),
+            // The rater (E6-S7): the container's one, whose events the library pages also follow.
+            _host.Services.GetRequiredService<Tunqio.Core.Library.ITrackRater>());
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());

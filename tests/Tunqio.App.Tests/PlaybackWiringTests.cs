@@ -48,7 +48,7 @@ public sealed class PlaybackWiringTests : IAsyncLifetime
     }
 
     private AlbumDetailViewModel Detail(IPlaybackCommands playback) =>
-        new(_albums, playback, new FakeNavigator(), new FakeRevealer());
+        new(_albums, playback, new FakeNavigator(), new FakeRevealer(), new FakeRater());
 
     [Fact]
     public async Task Playing_an_album_from_a_chosen_track_reaches_the_session_and_queues_the_next_one_gapless_Async()

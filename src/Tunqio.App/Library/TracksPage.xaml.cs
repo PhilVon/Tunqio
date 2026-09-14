@@ -23,6 +23,11 @@ public sealed partial class TracksPage : Page, ILibraryRefreshable
         }
 
         ViewModel.ColumnVisibilityChanged += (_, column) => Table.SetColumnVisible(column, ViewModel.IsColumnVisible(column));
+        // Ratings set elsewhere (Now Playing, a shortcut, album detail) reach the rows while the page is in the tree
+        // (E6-S7). The page is not cached, so the tree is its whole life; listening only while loaded is what keeps
+        // a view model from outliving its page on a singleton's event.
+        Loaded += (_, _) => ViewModel.ListenForRatings(true);
+        Unloaded += (_, _) => ViewModel.ListenForRatings(false);
     }
 
     public TracksViewModel ViewModel { get; }
@@ -48,6 +53,8 @@ public sealed partial class TracksPage : Page, ILibraryRefreshable
     }
 
     private void OnSortRequested(object? sender, TrackSort column) => ViewModel.SortBy(column);
+
+    private void OnRatingRequested(object? sender, TrackRatingEventArgs e) => ViewModel.RateAsync(e.Track, e.Stars).Forget("Rate track");
 
     private void OnTrackAction(object? sender, TrackActionEventArgs e)
     {

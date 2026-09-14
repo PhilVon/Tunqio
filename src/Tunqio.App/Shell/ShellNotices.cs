@@ -30,6 +30,9 @@ public enum NoticeKind
 
     /// <summary>The one-time offer to turn hover previews on (E5-S5, Q-74).</summary>
     HoverPreview,
+
+    /// <summary>A rating that could not be written to its file (E6-S7); the library rating stands.</summary>
+    Rating,
 }
 
 /// <summary>One bar in the shell's notice area.</summary>
@@ -217,6 +220,27 @@ public sealed partial class ShellNotices : ObservableObject, IDisposable
                 return Task.CompletedTask;
             },
             sticky: true));
+    }
+
+    /// <summary>
+    /// A rating's file write finished (E6-S7, flow 4's rule that a failure is told where it happened). Only a
+    /// failure is a bar: the library rating stands whatever the file said, so a write that landed has nothing to
+    /// report, and one still waiting for playback to release the file will report itself when it runs. Transient,
+    /// since there is nothing to do about it here; the reason is in the message and the log.
+    /// </summary>
+    public void ShowRatingWrite(RatingChange change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (!change.FileWriteFailed)
+        {
+            return;
+        }
+
+        Post(() => Put(new ShellNotice(
+            NoticeKind.Rating,
+            "Rating not written to the file",
+            $"The rating is saved in the library. {System.IO.Path.GetFileName(change.Path)} could not be updated: {change.Error ?? "the file could not be written"}.",
+            StartupNoticeSeverity.Warning)));
     }
 
     /// <summary>Dismisses <paramref name="notice"/> — what the bar's own close button does.</summary>

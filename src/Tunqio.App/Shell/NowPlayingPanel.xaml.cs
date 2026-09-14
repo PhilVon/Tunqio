@@ -115,6 +115,9 @@ public sealed partial class NowPlayingPanel : UserControl
 
     private void OnAlbumClick(object sender, RoutedEventArgs e) => ViewModel?.OpenAlbum();
 
+    /// <summary>The stars were set by the user (E6-S7); the view model rates the track, and the row's rating comes back through it.</summary>
+    private void OnRatingChanged(object? sender, int stars) => ViewModel?.Rate(stars);
+
     /// <summary>
     /// The clock starts when the binding hands the <c>Image</c> a source, which is the moment the decode is asked
     /// for. A null source is the placeholder-only case and has nothing to time.

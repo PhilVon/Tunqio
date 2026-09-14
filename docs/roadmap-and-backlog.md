@@ -565,6 +565,7 @@ As built: `IPlaylistRepository` / `SqlitePlaylistRepository` over the existing `
 - [ ] Flow 1 completes from a fresh profile to first sound with no dead ends
 
 ### E6-S7 · Ratings · **S** · `library` `ui`
+As built: `ITrackRepository.SetRatingAsync` (one column of one row, 0..100 or NULL; a rescan leaves it alone), `ITrackRater` / `Tunqio.Library.Tags.TrackRater` (row first, then the file through the E3-S10 tag writer when `library.writeRatingsToFiles` is on, with the editor's active-track deferral; a failed file write is a transient notice and the library rating stands), `Tunqio.App.Controls.RatingControl` (five glyphs, keyboard, a RangeValue automation peer named "Rating, N of 5 stars") in Now Playing, every Tracks row and album detail, and `ShellCommand.Rate` on Ctrl+Alt+1..5 / Ctrl+Alt+0. The rows follow the rater's `Changed` event in place rather than requerying. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md) ("Shell / Now Playing", "Library › Tracks") and [library-and-data.md](library-and-data.md) ("Durability"). `tools/check-ratings.ps1` drives it by UIA.
 - [ ] Rate from Now Playing, Tracks view and shortcuts; optional write-to-file per OQ-7
 
 ---
