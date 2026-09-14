@@ -16,6 +16,16 @@ process for three hours, and while it ran it looked exactly like a run still in 
 - Match a string the run prints on every outcome (a final summary line), not one only failure prints.
 - Give every waiter a timeout.
 
+**Never load the machine on purpose, and share it** (T-187). This is Phil's own 8-thread desktop, and he uses
+it while agents work. It froze and had to be hard-restarted twice on 2026-09-14 while a reproduction test ran
+16 threads spinning at `ThreadPriority.AboveNormal` beside another agent's native build. Spinning threads never
+yield, and above-normal priority starves the desktop itself.
+
+- No load generators: no spinning or busy threads, no raised thread or process priority, no unbounded
+  parallel loops. Reproduce a timing bug with a fake clock or a controlled scheduler instead.
+- Cap build parallelism at half the threads: `-m:4` on MSBuild.exe and `-maxcpucount:4` on dotnet.
+- Every repeat loop has a count and a timeout, and one heavy build or test run happens at a time.
+
 **Account for every background task before you report** (T-174). Before your final report, list what you
 started in the background that is still running, and stop it or say why it should keep running. Look where the
 human looks (the harness's background task list); a process list filtered by name misses a `sleep` loop.
