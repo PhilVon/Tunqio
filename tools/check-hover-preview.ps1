@@ -8,22 +8,24 @@
   app is muted for the run, so a preview is logged but not heard. Timing is read from the app's own log ("Hover
   preview offered", "starting after the dwell", "stopped").
 
-  WHAT IT CHANGES. It launches the app over the user's library and switches previews on and back off, which leaves
-  ui.hoverPreview off and ui.hoverPreviewOffered set: the offer counts as made. -ResetOffer puts
-  ui.hoverPreviewOffered back to what it was before the run, by editing settings.json after the app has exited.
-  Use it only with the owner's say-so.
+  WHAT IT CHANGES. Nothing of the user's. It makes a scratch profile, artifacts\check-hover-preview\<stamp>, with a
+  library of generated tones seeded into it, and launches the app on it with --data-root; there it switches previews
+  on and back off. A fresh profile has never made the offer, so the offer path is checked on every run. The real
+  %LOCALAPPDATA%\Tunqio is never opened, a data root inside it or inside a package's redirected LocalCache is refused,
+  and the stamp folder is deleted at the end unless -KeepScratch (tools/scratch-profile.ps1, T-197). This replaces
+  -ResetOffer, which edited the real settings.json after the run.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
-.PARAMETER ResetOffer
-  After the app exits, restore ui.hoverPreviewOffered to its value before the run.
+.PARAMETER KeepScratch
+  Leave the scratch profile and its tones behind for inspection.
 #>
 [CmdletBinding()]
 param(
     [string]$Exe,
     [int]$Seconds = 10,
-    [switch]$ResetOffer,
     # T-196: how long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing.
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +36,7 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 . (Join-Path $here 'uia-geometry.ps1')
+. (Join-Path $here 'scratch-profile.ps1')
 
 if (-not ('TunqioHoverMouse' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -53,8 +56,10 @@ if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
 }
 
 $A = [System.Windows.Automation.AutomationElement]
-$settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
-$log = Join-Path $env:LOCALAPPDATA ('Tunqio\logs\tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log')
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-hover-preview'
+$settingsPath = $scratch.SettingsPath
+$log = Get-TunqioScratchLog $scratch
 $script:failures = @()
 
 function Get-StoredSetting([string]$key) {
@@ -135,7 +140,9 @@ $mutedAtStart = $null
 
 try {
     Write-Output "shell: $Exe"
-    $process = Start-Process $Exe -PassThru
+    New-TunqioScratchTones $scratch -AlbumCount 2 -TracksPerAlbum 4 -Seconds 120 | Out-Null
+    Initialize-TunqioScratchLibrary $Exe $scratch -ExpectTracks 8
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -260,20 +267,8 @@ finally {
     $closeProblem = Close-TunqioShell $process $window 15
     if ($closeProblem) { $script:failures += $closeProblem }
 
-    if ($ResetOffer) {
-        try {
-            $json = Get-Content $settingsPath -Raw | ConvertFrom-Json
-            if ($null -eq $offeredBefore) { $json.PSObject.Properties.Remove('ui.hoverPreviewOffered') }
-            else { $json.'ui.hoverPreviewOffered' = $offeredBefore }
-            # UTF-8 WITHOUT a byte-order mark. Windows PowerShell's Set-Content -Encoding utf8 writes one, and the first
-            # run of this script left settings.json starting EF BB BF: the file the app reads every launch, and throws
-            # away as unreadable if its parser ever refuses it.
-            [System.IO.File]::WriteAllText($settingsPath, ($json | ConvertTo-Json -Depth 10), (New-Object System.Text.UTF8Encoding($false)))
-            Write-Output "reset ui.hoverPreviewOffered to its value before the run ($offeredBefore)"
-        }
-        catch { Write-Output "WARNING: could not reset ui.hoverPreviewOffered: $($_.Exception.Message)" }
-    }
     Write-Output "after the run: ui.hoverPreview=$(Get-StoredSetting 'ui.hoverPreview') ui.hoverPreviewOffered=$(Get-StoredSetting 'ui.hoverPreviewOffered')"
+    Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).

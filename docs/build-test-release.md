@@ -47,7 +47,7 @@ screenshot, so the shell's on-screen criteria are settled by walking the live au
 `check-visualization-settings.ps1`, and `check-shell-layout.ps1`, which checks the sidebar's width, the narrow
 layout's menu, and that no navigation button covers a page title, without a keystroke). Every harness that launches the app defaults `-Exe` to the Release build, the one main's merge gate
 rebuilds, and none needs Debug; each waits up to `-WaitMinutes` for a Tunqio somebody else is running to exit before it
-refuses (`Wait-TunqioExited` in `tools/uia-geometry.ps1`, T-196). Four stories have now shipped something that was present and correct in that
+refuses (`Wait-TunqioExited` in `tools/uia-geometry.ps1`, T-196). None runs the app on the real `%LOCALAPPDATA%\Tunqio`: each makes a scratch profile under `artifacts\check-<name>\<stamp>`, passes it as `--data-root`, refuses one inside the real profile or a package's redirected LocalCache, and deletes it afterwards unless `-KeepScratch` (`tools/scratch-profile.ps1`, T-194, T-197). Four stories have now shipped something that was present and correct in that
 tree and wrong on the screen — T-137 (a verdict column that existed and could not be seen), T-138 (a list that
 scrolled its parent before itself), T-139 (a row overflowing a dialog), and E4-S9's settings page, whose sliders
 ran under the controls panel while a 17-case harness passed. Every one was found by a person. `BoundingRectangle`

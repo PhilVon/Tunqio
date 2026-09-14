@@ -10,8 +10,13 @@
   Appearance, and chooses Light, Dark, Use Windows setting, Light, Use Windows setting, pausing after each, then puts
   the theme back to the value it found.
 
-  WHAT IT CHANGES. ui.theme, restored at the end. The window flashes between light and dark for about ten seconds.
+  WHAT IT CHANGES. ui.theme on a scratch profile, artifacts\check-theme-switch\<stamp>\data, passed as --data-root and
+  deleted at the end unless -KeepScratch; the theme log lines are read from the scratch log. The real
+  %LOCALAPPDATA%\Tunqio is never opened, and a data root inside it or inside a package's redirected LocalCache is
+  refused (tools/scratch-profile.ps1, T-197). The window flashes between light and dark for about ten seconds.
   Nothing is played.
+.PARAMETER KeepScratch
+  Leave the scratch profile behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 .PARAMETER WaitMinutes
@@ -21,7 +26,8 @@
 param(
     [string]$Exe,
     [int]$Seconds = 10,
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +38,7 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 . (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188), Wait-TunqioExited (T-196)
+. (Join-Path $here 'scratch-profile.ps1') # New-TunqioScratchProfile (T-197)
 
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     throw "Tunqio is still running after $WaitMinutes minute(s). This script changes and restores the theme through the instance it launches."
@@ -39,8 +46,10 @@ if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
 
 $A = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
-$settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
-$logDir = Join-Path $env:LOCALAPPDATA 'Tunqio\logs'
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-theme-switch'
+$settingsPath = $scratch.SettingsPath
+$logDir = $scratch.LogsDirectory
 
 function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
     $deadline = (Get-Date).AddSeconds($seconds)
@@ -76,7 +85,7 @@ $stopped = $null
 
 try {
     Write-Output "ui.theme before: $(if ($null -eq $themeBefore) { '(unset)' } else { $themeBefore })"
-    $process = Start-Process $Exe -PassThru
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst($TS::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -118,6 +127,7 @@ finally {
 $log = Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
 $lines = @(if ($log) { Get-Content $log.FullName | Where-Object { $_ -match '\] : Theme ' -or $_ -match 'Theme (applied|after a pass)' } })
 foreach ($line in $lines) { Write-Output ($line -replace '^\S+ (\S+) \S+ \[DBG\] \[[^\]]*\] [^:]*: ', '$1 ') }
+Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($null -eq $stopped -and $lines.Count -gt 0) {

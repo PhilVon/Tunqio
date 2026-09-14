@@ -16,7 +16,12 @@
   WHAT IT TOUCHES. It sends real keystrokes, so before every one it brings its own window to the foreground and
   CHECKS that it got there, refusing to type otherwise (T-168: the previous version assumed AppActivate worked, and
   a keystroke sent after it silently fails goes to whatever window has focus). It reads and restores the
-  clipboard, and resizes its own window.
+  clipboard, and resizes its own window. The app runs on a scratch profile, artifacts\check-shortcuts\<stamp>\data,
+  passed as --data-root and deleted at the end unless -KeepScratch; the real %LOCALAPPDATA%\Tunqio is never opened, and
+  a data root inside it or inside a package's redirected LocalCache is refused (tools/scratch-profile.ps1, T-197). The
+  scratch library is empty, which is the empty queue every case here is written for.
+.PARAMETER KeepScratch
+  Leave the scratch profile behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output (T-196).
 .PARAMETER WaitMinutes
@@ -34,7 +39,8 @@ param(
     [string]$Exe,
     [int]$Seconds = 9,
     [string]$Widths = '1600,1000,800,640',
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,10 +57,10 @@ if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild 
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 
 . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+. (Join-Path $PSScriptRoot 'scratch-profile.ps1')
 
-# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. This script launches
-# the shell on the default profile, where a second launch hands its arguments to the running instance and exits
-# (single instance), and it types into the window it drives, so it must not run beside one somebody is using.
+# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. It types into the window
+# it drives, so it must not run beside one somebody is using.
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     throw "Tunqio is still running after $WaitMinutes minute(s). This script sends keystrokes to the instance it launches and will not run beside one somebody is using."
 }
@@ -146,8 +152,11 @@ function Test-Case([string]$what, [scriptblock]$check) {
     }
 }
 
-$process = Start-Process $Exe -PassThru
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-shortcuts'
+$process = $null
 try {
+    $process = Start-TunqioOnScratch $Exe $scratch
     Start-Sleep -Seconds $Seconds
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $byPid = New-Object System.Windows.Automation.PropertyCondition(
@@ -316,5 +325,6 @@ try {
 finally {
     # An app that does not exit, or exits with a crash code, fails the run (T-188); exit here overrides the try's exit 0.
     $closeProblem = Close-TunqioShell $process $null 20
+    Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
     if ($closeProblem) { Write-Output "FAIL: $closeProblem"; exit 1 }
 }

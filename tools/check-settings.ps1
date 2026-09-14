@@ -9,7 +9,13 @@
 
   WHAT IT CHANGES. The test tone is AUDIBLE: a 1.5 s 440 Hz tone at about -12 dBFS through the output device, and it
   is not muted by the app's mute, which is for the music. ui.theme is changed and restored to the value it had. The
-  output device, mode and buffer are not touched. Nothing is played.
+  output device, mode and buffer are not touched. Nothing is played. The app runs on a scratch profile,
+  artifacts\check-settings\<stamp>\data, passed as --data-root and deleted at the end unless -KeepScratch, so ui.theme
+  is written to the scratch settings.json and the test tone is read from the scratch log. The real %LOCALAPPDATA%\Tunqio
+  is never opened, and a data root inside it or inside a package's redirected LocalCache is refused
+  (tools/scratch-profile.ps1, T-197).
+.PARAMETER KeepScratch
+  Leave the scratch profile behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 .PARAMETER WaitMinutes
@@ -19,7 +25,8 @@
 param(
     [string]$Exe,
     [int]$Seconds = 10,
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +37,7 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 . (Join-Path $here 'uia-geometry.ps1')
+. (Join-Path $here 'scratch-profile.ps1')
 
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     throw "Tunqio is still running after $WaitMinutes minute(s). This script changes and restores the theme through the instance it launches, so it will not touch one somebody is using."
@@ -37,8 +45,10 @@ if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
 
 $A = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
-$settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
-$logDir = Join-Path $env:LOCALAPPDATA 'Tunqio\logs'
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-settings'
+$settingsPath = $scratch.SettingsPath
+$logDir = $scratch.LogsDirectory
 $script:failures = @()
 
 function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
@@ -80,7 +90,7 @@ try {
     $themeBefore = Get-StoredTheme
     Write-Output "shell: $Exe"
     Write-Output "ui.theme before: $(if ($null -eq $themeBefore) { '(unset)' } else { $themeBefore })"
-    $process = Start-Process $Exe -PassThru
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst($TS::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -216,6 +226,8 @@ if ($reachedEnd) {
     Write-Output "  note  settings navigation modes seen: $($modes -join '; ')"
     Check 'The narrow step reached the menu-button (Minimal) navigation it is there to measure' ((@($modes -match '^Minimal')).Count -gt 0) "$($modes.Count) mode change(s) logged"
 }
+
+Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($script:failures.Count -eq 0) {

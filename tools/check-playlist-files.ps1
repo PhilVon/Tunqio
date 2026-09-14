@@ -9,11 +9,15 @@
   UIA patterns only: no keystrokes and no pointer. The Export buttons open the system save picker, which this check does
   not drive; exporting through it and opening the file in another player is a human criterion on the board.
 
-  WHAT IT CHANGES. A playlist called "Tunqio export check" (renamed "Tunqio export check renamed") for the length of
-  the run, deleted at the end through the app, which also removes its export. A later run deletes one left under either
-  name before it starts, and touches no other playlist. Starting the app also brings every other playlist's export up to
-  date, which is what the shipped app does on every launch. Nothing is played unless the restored queue is empty, and
-  then the app is muted.
+  WHAT IT CHANGES. Nothing of the user's. It makes a scratch profile, artifacts\check-playlist-files\<stamp>, with a
+  library of generated tones seeded into it, and launches the app on it with --data-root. There a playlist called
+  "Tunqio export check" (renamed "Tunqio export check renamed") lives for the length of the run, deleted at the end
+  through the app, which also removes its export from the scratch exports\playlists. The first album tile is played,
+  muted, to reach album detail. The real %LOCALAPPDATA%\Tunqio, its playlists and its exports are never opened, a data
+  root inside it or inside a package's redirected LocalCache is refused, and the stamp folder is deleted at the end
+  unless -KeepScratch (tools/scratch-profile.ps1, T-197).
+.PARAMETER KeepScratch
+  Leave the scratch profile, its tones and its exports behind for inspection.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 .PARAMETER WaitMinutes
@@ -23,7 +27,8 @@
 param(
     [string]$Exe,
     [int]$Seconds = 10,
-    [int]$WaitMinutes = 10
+    [int]$WaitMinutes = 10,
+    [switch]$KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +39,7 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 . (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188), Wait-TunqioExited (T-196)
+. (Join-Path $here 'scratch-profile.ps1') # New-TunqioScratchProfile (T-197)
 
 if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
     throw "Tunqio is still running after $WaitMinutes minute(s). This script makes and deletes a playlist through the instance it launches, so it will not touch one somebody is using."
@@ -43,8 +49,10 @@ $A = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
 $name = 'Tunqio export check'
 $renamed = 'Tunqio export check renamed'
-$exports = Join-Path $env:LOCALAPPDATA 'Tunqio\exports\playlists'
-$logDir = Join-Path $env:LOCALAPPDATA 'Tunqio\logs'
+# T-197: a scratch profile, never the real one.
+$scratch = New-TunqioScratchProfile -Name 'check-playlist-files'
+$exports = $scratch.ExportsDirectory
+$logDir = $scratch.LogsDirectory
 $script:failures = @()
 
 function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
@@ -129,7 +137,9 @@ $startedAt = Get-Date
 try {
     Write-Output "shell: $Exe"
     Write-Output "exports: $exports"
-    $process = Start-Process $Exe -PassThru
+    New-TunqioScratchTones $scratch -AlbumCount 2 -TracksPerAlbum 4 -Seconds 120 | Out-Null
+    Initialize-TunqioScratchLibrary $Exe $scratch -ExpectTracks 8
+    $process = Start-TunqioOnScratch $Exe $scratch
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst($TS::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -165,11 +175,17 @@ try {
 
     # ---- add an album -------------------------------------------------------------------------------------------------
     if (-not (Find-Id $window 'Scrubber').Current.IsEnabled) {
-        Select-Element (Wait-Until { Find-Named $window 'Albums' } 10 'the sidebar showed Albums')
+        Select-Element (Wait-Until { Find-SidebarItem $window 'Albums' } 10 'the sidebar showed Albums')
         Start-Sleep -Milliseconds 1200
+        # T-197: a scratch profile restores no queue, so this path runs on every run (the real profile's restored queue
+        # used to skip it). A walk of the whole tree while the page is still navigating can throw ElementNotAvailable,
+        # with an empty message; that reading is retried within the wait rather than ending the run.
         $tile = Wait-Until {
-            $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
-                Where-Object { $_.Current.Name -like 'Album * by *' } | Select-Object -First 1
+            try {
+                $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+                    Where-Object { $_.Current.Name -like 'Album * by *' } | Select-Object -First 1
+            }
+            catch { $null }
         } 15 'an album tile appeared'
         Invoke-Element $tile
         $startedPlayback = $true
@@ -277,6 +293,8 @@ if ($reachedEnd) {
     }
     Check 'The log times every change of the check playlist to its export at 5 s or less' ($pairs -gt 0 -and $worst -le 5000) "$pairs change-to-export pair(s), slowest $([int]$worst) ms$(if (-not $log) { ", no log in $logDir" })"
 }
+
+Remove-TunqioScratchProfile $scratch -Keep:$KeepScratch
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($script:failures.Count -eq 0) {
