@@ -97,6 +97,48 @@ public sealed class OpenFilesService
     }
 
     /// <summary>
+    /// Appends what the paths contain to the end of the queue without touching what is playing (E7-S1,
+    /// <c>tunqio://queue</c>). Unlike <see cref="OpenAsync"/> this waits for every file: nothing is starting, so there
+    /// is no first sound to hurry towards.
+    /// </summary>
+    public async Task<OpenResult> EnqueueAsync(IReadOnlyList<string> paths, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        (IReadOnlyList<string> files, int skipped) = Collect(paths);
+        if (files.Count == 0)
+        {
+            _log.LogInformation("Enqueue: nothing playable in {Count} item(s)", paths.Count);
+            return OpenResult.Nothing(skipped);
+        }
+
+        var ids = new List<long>(files.Count);
+        foreach (string file in files)
+        {
+            ids.Add(await ResolveAsync(file, ct).ConfigureAwait(false));
+        }
+
+        await _playback.EnqueueAsync(ids, ct).ConfigureAwait(false);
+        _log.LogInformation("Enqueue: {Count} file(s) appended ({Skipped} skipped)", files.Count, skipped);
+        return new OpenResult(files.Count, skipped, null);
+    }
+
+    /// <summary>
+    /// The id one supported audio file plays under (its library row, else a transient track), or null when the path
+    /// is not a file this app can play. For a caller that places the track itself: E7-S1's open-from-Explorer inserts
+    /// it at the current position rather than replacing the queue (docs/ui-screens-and-flows.md flow 2).
+    /// </summary>
+    public async Task<long?> ResolveFileAsync(string path, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (!File.Exists(path) || !AudioFormats.IsSupported(path))
+        {
+            return null;
+        }
+
+        return await ResolveAsync(path, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// The background fill from the last <see cref="OpenAsync"/>, so a test — or anything that wants the queue
     /// complete rather than merely started — has something to await. Completed before the first call.
     /// </summary>
