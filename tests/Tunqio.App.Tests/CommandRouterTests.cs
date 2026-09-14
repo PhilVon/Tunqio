@@ -280,29 +280,29 @@ public sealed class CommandRouterTests : IDisposable
 
         public string? FailOn { get; set; }
 
-        public Task PlayFileNowAsync(string file, CancellationToken ct) => Record("file:" + file);
+        public Task PlayFileNowAsync(string file, CancellationToken ct) => RecordAsync("file:" + file);
 
         public Task PlayPathsAsync(IReadOnlyList<string> paths, CancellationToken ct)
         {
             Paths.AddRange(paths);
-            return Record("play:" + paths.Count);
+            return RecordAsync("play:" + paths.Count);
         }
 
         public Task QueuePathsAsync(IReadOnlyList<string> paths, CancellationToken ct)
         {
             Paths.AddRange(paths);
-            return Record("queue:" + paths.Count);
+            return RecordAsync("queue:" + paths.Count);
         }
 
-        public Task TogglePlayPauseAsync(CancellationToken ct) => Record("toggle");
+        public Task TogglePlayPauseAsync(CancellationToken ct) => RecordAsync("toggle");
 
-        public Task NextAsync(CancellationToken ct) => Record("next");
+        public Task NextAsync(CancellationToken ct) => RecordAsync("next");
 
-        public Task PreviousAsync(CancellationToken ct) => Record("previous");
+        public Task PreviousAsync(CancellationToken ct) => RecordAsync("previous");
 
         public void BringToForeground() => Calls.Add("foreground");
 
-        private Task Record(string call)
+        private Task RecordAsync(string call)
         {
             Calls.Add(call);
             return call == FailOn

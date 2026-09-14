@@ -68,7 +68,9 @@ public sealed class SessionCommandTarget : ICommandTarget
             throw new InvalidOperationException($"nothing playable in {paths.Count} path(s); the queue is unchanged");
         }
 
+#pragma warning disable VSTHRD003 // LastFill is the fill OpenAsync started a line above, in this call; nothing else awaits it here.
         await _open.LastFill;
+#pragma warning restore VSTHRD003
         _log.LogInformation(
             "Activation: queue replaced from {Paths} path(s); queue now {Count} item(s), {Skipped} skipped",
             paths.Count, session.Queue.Items.Count, result.Skipped);
