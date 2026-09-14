@@ -36,12 +36,16 @@
 param(
     [string[]]$Root,
     [string]$Msix,
-    [string]$Source = "$PSScriptRoot\..\presets"
+    [string]$Source
 )
 
 $ErrorActionPreference = 'Stop'
+# T-158: defaults are resolved here in the body, never in param(). Windows PowerShell 5.1 leaves $PSScriptRoot empty
+# while param() defaults are evaluated under 'powershell -File', so a default built from it pointed at '\..\presets'
+# and the script threw "no preset root" before checking anything.
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 if (-not $Root -and -not $Msix) { $Root = @("$repo\artifacts\bin\Tunqio.App\release_win-x64") }
+if (-not $Source) { $Source = Join-Path $repo 'presets' }
 
 $Source = (Resolve-Path $Source -ErrorAction SilentlyContinue).Path
 if (-not $Source) { throw "The repo has no preset root; expected $repo\presets." }

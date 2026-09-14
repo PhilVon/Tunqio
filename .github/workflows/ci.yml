@@ -175,8 +175,12 @@ jobs:
       - name: The package is a real Tunqio (engine, BASS, licences, presets)
         shell: pwsh
         run: |
-          $msix = Get-ChildItem artifacts/msix -Recurse -Filter *.msix | Select-Object -First 1
-          if (-not $msix) { throw 'The package step produced no .msix.' }
+          # T-190: Tunqio's own package by name. The packaged build also drops the Windows App Runtime packages into
+          # artifacts/msix/Tunqio_*/Dependencies/<arch>/, and the first *.msix found was not guaranteed to be ours.
+          $msix = @(Get-ChildItem artifacts/msix -Recurse -Filter Tunqio.msix | Where-Object { $_.Directory.Name -like 'Tunqio_*' })
+          if ($msix.Count -ne 1) { throw "The package step should produce exactly one artifacts/msix/Tunqio_*/Tunqio.msix; found $($msix.Count): $(($msix | ForEach-Object FullName) -join ', ')" }
+          $msix = $msix[0]
+          Write-Output "package: $($msix.FullName)"
           ./tools/check-package.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64_msix -Msix $msix.FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
           ./tools/check-presets.ps1 -Root artifacts/bin/Tunqio.App/release_win-x64_msix -Msix $msix.FullName

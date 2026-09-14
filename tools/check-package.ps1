@@ -47,12 +47,16 @@
 param(
     [string[]]$Root,
     [string]$Msix,
-    [string]$Deps = "$PSScriptRoot\native-deps.json"
+    [string]$Deps
 )
 
 $ErrorActionPreference = 'Stop'
+# T-158: defaults are resolved here in the body, never in param(). Windows PowerShell 5.1 leaves $PSScriptRoot empty
+# while param() defaults are evaluated under 'powershell -File', so a default built from it pointed at
+# '\native-deps.json' and the script threw "manifest is missing" before checking anything.
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 if (-not $Root -and -not $Msix) { $Root = @("$repo\artifacts\bin\Tunqio.App\release_win-x64") }
+if (-not $Deps) { $Deps = Join-Path $repo 'tools\native-deps.json' }
 
 $Deps = (Resolve-Path $Deps -ErrorAction SilentlyContinue).Path
 if (-not $Deps) { throw "The pinned native dependency manifest is missing; expected $repo\tools\native-deps.json." }
