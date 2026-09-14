@@ -124,6 +124,11 @@
  * until now, begin to work. An export that was never implemented beginning to work is new function, and new
  * function is a minor; neither signature moved. The preview is mixed after the analysis tap, so an engine that
  * previews still analyses only the main track.
+ * 0.19 temporal smoothing (T-184): mp_renderer_set_temporal_smoothing and mp_renderer_get_temporal_smoothing. Two
+ * appended exports and no new or changed struct, so a minor by the plainest reading of the rule at the top, and
+ * nothing for D-33's minimum-size table to freeze - two floats are arguments rather than a struct precisely so that
+ * nothing does. Behaviour for an existing caller is unchanged: the envelope is off until a caller turns it on, and
+ * off draws the analysis frame exactly as 0.18 did.
  */
 #pragma once
 
@@ -146,7 +151,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 18u
+#define MP_ABI_MINOR 19u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -765,6 +770,37 @@ MP_API mp_result MP_CALL mp_renderer_set_av_sync(mp_renderer* renderer, const mp
  * and frame_index says how many by. Safe from any thread; the render thread is never blocked by a drain for
  * longer than the copy of the samples it is handing over. */
 MP_API mp_result MP_CALL mp_renderer_drain_latency(mp_renderer* renderer, mp_latency_sample* out, uint32_t* count);
+
+/* ---- temporal smoothing (ABI 0.19; T-184) --------------------------------------------------------
+ *
+ * An attack and decay envelope on the analysis frame, applied by the renderer after it has chosen which frame to
+ * draw and before the frame reaches the preset. A preset keeps nothing between frames, so this is the only place
+ * an envelope can live, and it is renderer-wide: it survives a preset switch, like the theme and unlike a
+ * parameter.
+ *
+ * What it eases: `spectrum`, `bands`, `rms` and `peak` - the magnitudes. What it leaves as the analysis measured
+ * it: `waveform` (signed samples of a different stretch of audio each hop, which an envelope would only flatten),
+ * `spectral_centroid_hz` and `harmonic_ratio` (positions on a scale, where an eased value sweeps through colours the
+ * music never asked for), and `onset`.
+ *
+ * Per value, per frame: y = x + (y - x) * exp(-dt / tau), with tau = attack_ms while the input is above the value
+ * and decay_ms otherwise, and dt the render thread's real frame interval. That is exponential in TIME, so the same
+ * setting draws the same curve at 60 Hz and at 144 Hz. attack_ms is the time a rise takes to cover 63% of its
+ * distance and decay_ms the same for a fall; 0 follows that direction at once. Both 0 is OFF - the default - and
+ * off draws exactly the frame the analysis published, bit for bit.
+ *
+ * It trades responsiveness for smoothness, and that trade is against ADR-012's latency target: a rise of attack_ms
+ * reaches half its height after attack_ms * ln 2, in whole frames, on top of whatever av-sync measures
+ * (mp_latency_sample describes the frame CHOSEN, not how far the envelope has carried it). A caller that offers
+ * this should say so. A discontinuity (mp_analysis_frame.discontinuities moving) restarts the envelope at its input. */
+
+/* Sets both time constants, in milliseconds. Takes effect on the render thread's next frame. Values above 1000
+ * (attack) and 5000 (decay) are clamped to them; a negative or non-finite value is MP_E_INVALID_ARG and nothing
+ * changes. Safe from any thread and cheap; not a per-frame call. */
+MP_API mp_result MP_CALL mp_renderer_set_temporal_smoothing(mp_renderer* renderer, float attack_ms, float decay_ms);
+/* The two time constants in force, after the clamp. Both 0 until mp_renderer_set_temporal_smoothing is called. */
+MP_API mp_result MP_CALL mp_renderer_get_temporal_smoothing(mp_renderer* renderer, float* out_attack_ms,
+                                                            float* out_decay_ms);
 
 #ifdef __cplusplus
 } /* extern "C" */

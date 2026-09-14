@@ -128,6 +128,40 @@
                   IsEnabled="{x:Bind ViewModel.HasParameters, Mode=OneWay}"
                   AutomationProperties.Name="Reset to defaults" />
 
+          <!--
+            Motion (T-184): the renderer's attack and decay envelope on the analysis frame, for every preset. Its own
+            section and its own words - "Ease rise and fall", Rise, Fall - because "Smoothing" was the preset
+            parameter T-141 relabelled, and two controls of that name doing different things is what that card was
+            about. Applied live on the next frame and stored as it changes (viz.temporal*).
+          -->
+          <TextBlock Text="Motion" Style="{StaticResource SectionHeader}" />
+          <TextBlock Style="{StaticResource Hint}"
+                     Text="Lets levels rise and fall over time instead of jumping from one moment to the next, in every preset. Slower settings look smoother but respond later to the music: this trades responsiveness for smoothness." />
+          <ToggleSwitch x:Name="TemporalSmoothingSwitch" Header="Ease rise and fall" Margin="0,8,0,0"
+                        IsOn="{x:Bind ViewModel.TemporalSmoothingEnabled, Mode=TwoWay}"
+                        AutomationProperties.Name="Ease rise and fall" />
+          <TextBlock Text="{x:Bind ViewModel.TemporalSmoothingCost, Mode=OneWay}" Style="{StaticResource Hint}" />
+          <Grid Margin="0,8,0,4" RowDefinitions="Auto,Auto">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="Rise" />
+              <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.TemporalAttackDisplay, Mode=OneWay}" Opacity="0.7" />
+            </Grid>
+            <Slider x:Name="TemporalAttackSlider" Grid.Row="1" Minimum="0" Maximum="{x:Bind shell:VisualizationSettingsViewModel.TemporalAttackMaximum}"
+                    StepFrequency="1" Value="{x:Bind ViewModel.TemporalAttackMs, Mode=TwoWay}"
+                    IsEnabled="{x:Bind ViewModel.TemporalSmoothingEnabled, Mode=OneWay}" HorizontalAlignment="Stretch"
+                    AutomationProperties.Name="{x:Bind ViewModel.TemporalAttackAutomationName, Mode=OneWay}" />
+          </Grid>
+          <Grid Margin="0,4,0,8" RowDefinitions="Auto,Auto">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="Fall" />
+              <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.TemporalDecayDisplay, Mode=OneWay}" Opacity="0.7" />
+            </Grid>
+            <Slider x:Name="TemporalDecaySlider" Grid.Row="1" Minimum="0" Maximum="{x:Bind shell:VisualizationSettingsViewModel.TemporalDecayMaximum}"
+                    StepFrequency="10" Value="{x:Bind ViewModel.TemporalDecayMs, Mode=TwoWay}"
+                    IsEnabled="{x:Bind ViewModel.TemporalSmoothingEnabled, Mode=OneWay}" HorizontalAlignment="Stretch"
+                    AutomationProperties.Name="{x:Bind ViewModel.TemporalDecayAutomationName, Mode=OneWay}" />
+          </Grid>
+
           <!-- Your presets -->
           <TextBlock Text="Your presets" Style="{StaticResource SectionHeader}" />
           <TextBlock Style="{StaticResource Hint}">

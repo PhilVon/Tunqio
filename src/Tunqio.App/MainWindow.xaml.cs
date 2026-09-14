@@ -1166,6 +1166,14 @@ public sealed partial class MainWindow : Window
             // against NativeRenderer on E4-S7's branch and moved onto the host here, because E4-S9 landed first
             // and replaced the direct NativeRenderer.Create with IVisualizationHost.AttachAsync.
             _visualization.SetQualityPolicy(QualityPolicy);
+            // viz.temporal* (T-184). The renderer starts with the envelope off and forgets it on a detach, so every
+            // attach sets it; Settings > Visualization sets it again live as the controls move.
+            if (_settings is not null)
+            {
+                TemporalSmoothing smoothing = TemporalSmoothingStore.Apply(_visualization, _settings);
+                Serilog.Log.Information("Temporal smoothing restored: rise {Attack} ms, fall {Decay} ms{Off}", smoothing.AttackMs, smoothing.DecayMs, smoothing.IsOff ? " (off)" : string.Empty);
+            }
+
             await RestoreVisualizationSettingsAsync().ConfigureAwait(true);
             // Now there is a preset to tell. Until this point the track playing had a palette and nowhere to
             // put it, because the panel loads after the window and the catalogue after the device (T-147).

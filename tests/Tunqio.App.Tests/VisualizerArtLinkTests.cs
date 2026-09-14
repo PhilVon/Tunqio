@@ -340,6 +340,8 @@ public sealed class VisualizerArtLinkTests : IAsyncLifetime
 
         public void SetQualityPolicy(QualityPolicy policy) => throw new NotSupportedException("E4-S7");
 
+        public void SetTemporalSmoothing(TemporalSmoothing smoothing) => throw new NotSupportedException("T-184");
+
         public void SetThemeColors(ThemeColors colors)
         {
         }

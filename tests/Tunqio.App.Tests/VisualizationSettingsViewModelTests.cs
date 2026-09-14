@@ -55,6 +55,86 @@ public sealed class VisualizationSettingsViewModelTests
     };
 
     [Fact]
+    public void Temporal_smoothing_is_off_on_a_first_run_and_the_page_applies_nothing_by_opening()
+    {
+        FakeVisualizer host = Attached();
+        VisualizationSettingsViewModel vm = Build(host);
+        vm.Load();
+
+        vm.TemporalSmoothingEnabled.Should().BeFalse();
+        vm.TemporalAttackMs.Should().Be(20);
+        vm.TemporalDecayMs.Should().Be(300);
+        host.Smoothing.Should().BeEmpty("the window applied it at attach; opening the page changes nothing");
+    }
+
+    [Fact]
+    public void Turning_temporal_smoothing_on_is_stored_and_reaches_the_running_visualizer_at_once()
+    {
+        FakeVisualizer host = Attached();
+        var settings = new FakeSettings();
+        VisualizationSettingsViewModel vm = Build(host, settings);
+        vm.Load();
+
+        vm.TemporalSmoothingEnabled = true;
+
+        settings.GetValue(SettingsKeys.VizTemporalSmoothing, false).Should().BeTrue();
+        host.Smoothing.Should().Equal(new TemporalSmoothing(20f, 300f));
+        host.Switched.Should().BeEmpty("live: no preset reload and no restart");
+
+        vm.TemporalAttackMs = 57.4;
+        vm.TemporalDecayMs = 1234;
+
+        settings.GetValue(SettingsKeys.VizTemporalAttackMs, 0f).Should().Be(57f, "whole milliseconds, as the slider steps");
+        settings.GetValue(SettingsKeys.VizTemporalDecayMs, 0f).Should().Be(1234f);
+        host.Smoothing[^1].Should().Be(new TemporalSmoothing(57f, 1234f));
+        vm.TemporalAttackDisplay.Should().Be(57.ToString(System.Globalization.CultureInfo.CurrentCulture) + " ms");
+        vm.TemporalAttackAutomationName.Should().StartWith("Rise, ");
+        vm.TemporalSmoothingCost.Should().Contain("40", "57 ms times ln 2 is about 40 ms, and the page says what it costs");
+
+        vm.TemporalSmoothingEnabled = false;
+        host.Smoothing[^1].IsOff.Should().BeTrue();
+        settings.GetValue(SettingsKeys.VizTemporalAttackMs, 0f).Should().Be(57f, "the rise is kept for when it is turned on again");
+    }
+
+    [Fact]
+    public void Temporal_smoothing_stored_by_a_previous_launch_is_what_the_page_and_the_renderer_start_from()
+    {
+        var settings = new FakeSettings();
+        settings.SetValue(SettingsKeys.VizTemporalSmoothing, true);
+        settings.SetValue(SettingsKeys.VizTemporalAttackMs, 80f);
+        settings.SetValue(SettingsKeys.VizTemporalDecayMs, 1500f);
+
+        // What MainWindow does on attach: the renderer starts off and is told the stored envelope.
+        FakeVisualizer host = Attached();
+        TemporalSmoothingStore.Apply(host, settings).Should().Be(new TemporalSmoothing(80f, 1500f));
+        host.Smoothing.Should().Equal(new TemporalSmoothing(80f, 1500f));
+
+        VisualizationSettingsViewModel vm = Build(host, settings);
+        vm.Load();
+        vm.TemporalSmoothingEnabled.Should().BeTrue();
+        vm.TemporalAttackMs.Should().Be(80);
+        vm.TemporalDecayMs.Should().Be(1500);
+    }
+
+    [Fact]
+    public void Temporal_smoothing_changed_with_no_visualizer_is_stored_and_applied_when_one_attaches()
+    {
+        var host = new FakeVisualizer { IsAttached = false };
+        var settings = new FakeSettings();
+        VisualizationSettingsViewModel vm = Build(host, settings);
+
+        vm.TemporalSmoothingEnabled = true;
+        vm.TemporalDecayMs = 600;
+
+        host.Smoothing.Should().BeEmpty();
+        settings.GetValue(SettingsKeys.VizTemporalDecayMs, 0f).Should().Be(600f);
+
+        host.IsAttached = true;
+        TemporalSmoothingStore.Apply(host, settings);
+        host.Smoothing.Should().Equal(new TemporalSmoothing(20f, 600f));
+    }
+
+    [Fact]
     public void A_detached_visualizer_leaves_the_page_saying_so_rather_than_empty()
     {
         var host = new FakeVisualizer { IsAttached = false };
@@ -463,6 +543,10 @@ public sealed class VisualizationSettingsViewModelTests
         }
 
         public void SetQualityPolicy(QualityPolicy policy) => throw new NotSupportedException("E4-S7");
+
+        public List<TemporalSmoothing> Smoothing { get; } = [];
+
+        public void SetTemporalSmoothing(TemporalSmoothing smoothing) => Smoothing.Add(smoothing);
 
         public void Dispose()
         {

@@ -212,4 +212,13 @@ public interface IVisualizationHost : IDisposable
     /// and stop it deciding. What it decided, and what it decided it on, is on <see cref="RenderStats"/>.
     /// </summary>
     void SetQualityPolicy(QualityPolicy policy);
+
+    /// <summary>
+    /// The renderer-wide attack and decay envelope on the analysis frame (T-184): spectrum, bands and levels rise over
+    /// <see cref="TemporalSmoothing.AttackMs"/> and fall over <see cref="TemporalSmoothing.DecayMs"/> instead of
+    /// jumping, for every preset, surviving a preset switch. <see cref="TemporalSmoothing.Off"/> draws exactly what the
+    /// analysis published. Applied on the render thread's next frame, so it is live; it is not remembered by the
+    /// renderer across a detach, so whoever attaches sets it again.
+    /// </summary>
+    void SetTemporalSmoothing(TemporalSmoothing smoothing);
 }

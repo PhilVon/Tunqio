@@ -102,6 +102,7 @@ mp_result renderer::init(mp_engine* engine, void* swap_chain_panel_native, const
         return d3d_fail("CreateEvent(wake)", HRESULT_FROM_WIN32(GetLastError()));
     }
     analysis_ = std::make_unique<mp_analysis_frame>();
+    smoothed_ = std::make_unique<mp_analysis_frame>();
     // 200 KB, allocated here rather than on the render thread, because a 6 KB frame times thirty-three slots
     // is not something to be allocating between two pictures.
     analysis_history_ = std::make_unique<std::array<analysis_slot, k_analysis_history + 1>>();
@@ -694,6 +695,35 @@ mp_result renderer::set_av_sync(const mp_av_sync_config& config) {
     return MP_OK;
 }
 
+mp_result renderer::set_temporal_smoothing(float attack_ms, float decay_ms) {
+    if (!std::isfinite(attack_ms) || !std::isfinite(decay_ms)) {
+        return invalid_arg("mp_renderer_set_temporal_smoothing: attack_ms and decay_ms must be finite numbers");
+    }
+    if (attack_ms < 0.0f || decay_ms < 0.0f) {
+        char text[192];
+        std::snprintf(text, sizeof text,
+                      "mp_renderer_set_temporal_smoothing: attack_ms %g and decay_ms %g must not be negative (0 is off)",
+                      static_cast<double>(attack_ms), static_cast<double>(decay_ms));
+        return invalid_arg(text);
+    }
+    smoothing_attack_ms_.store(std::min(attack_ms, k_max_attack_ms), std::memory_order_relaxed);
+    smoothing_decay_ms_.store(std::min(decay_ms, k_max_decay_ms), std::memory_order_relaxed);
+    return MP_OK;
+}
+
+envelope_times renderer::temporal_smoothing() const noexcept {
+    return envelope_times{smoothing_attack_ms_.load(std::memory_order_relaxed),
+                          smoothing_decay_ms_.load(std::memory_order_relaxed)};
+}
+
+void renderer::set_smoothing_clock_manual(bool manual) {
+    smoothing_clock_manual_.store(manual, std::memory_order_release);
+}
+
+void renderer::advance_smoothing_clock(double seconds) {
+    smoothing_clock_ns_.fetch_add(static_cast<int64_t>(std::llround(seconds * 1e9)), std::memory_order_acq_rel);
+}
+
 // Full-size elements only: the export wraps this in mp::abi::out_array, which is what serves a caller whose
 // mp_latency_sample is shorter than this build's. Destructive, and safe to run twice for that reason - the
 // count query out_array makes first takes nothing.
@@ -1045,6 +1075,14 @@ void renderer::record_latency_sample() {
 }
 
 void renderer::update_frame_resources(double seconds, double delta, int64_t now_qpc) {
+    // The envelope's step, read FIRST: under a test's manual clock an advance that this frame sees was made after
+    // any override set before it, so the frame never eases toward the input the test is about to replace.
+    double envelope_step = delta;
+    if (smoothing_clock_manual_.load(std::memory_order_acquire)) {
+        const int64_t now_ns = smoothing_clock_ns_.load(std::memory_order_acquire);
+        envelope_step = static_cast<double>(now_ns - smoothing_clock_seen_ns_) / 1e9;
+        smoothing_clock_seen_ns_ = now_ns;
+    }
     bool fresh = false;
     drawn_repeat_ = have_analysis_;
     if (analysis_override_active_.load(std::memory_order_acquire)) {
@@ -1080,6 +1118,27 @@ void renderer::update_frame_resources(double seconds, double delta, int64_t now_
     }
     drawn_repeat_ = drawn_repeat_ && !fresh;
 
+    // Temporal smoothing (T-184): the one place the analysis frame becomes something other than what the analysis
+    // published before a preset sees it. analysis_ stays the frame that was CHOSEN - the latency probe describes it
+    // and the sequence names it - and `drawn` is what the preset is given. With both time constants at zero this
+    // block is skipped entirely and `drawn` is analysis_ itself, so off is not "an envelope that happens to pass
+    // everything through" but the path every build before ABI 0.19 took, byte for byte.
+    const mp_analysis_frame* drawn = analysis_.get();
+    bool upload_spectrum = fresh;
+    if (const envelope_times times = temporal_smoothing(); have_analysis_ && !times.off()) {
+        // Every frame, not only a fresh one: between two analysis frames the input is held and the envelope is
+        // still moving toward it, which is the whole of what it is for.
+        const bool moved = envelope_.apply(*analysis_, times, envelope_step, *smoothed_);
+        drawn = smoothed_.get();
+        upload_spectrum = fresh || moved || !gpu_holds_smoothed_;
+        gpu_holds_smoothed_ = true;
+    } else {
+        envelope_.reset();
+        // Switched off with an eased spectrum still on the GPU: put the analysis frame's own back once.
+        upload_spectrum = fresh || (gpu_holds_smoothed_ && have_analysis_);
+        gpu_holds_smoothed_ = false;
+    }
+
     // The size the preset is drawing at, which at anything below MP_QUALITY_HIGH is smaller than the panel.
     // A preset must see the pixels it is actually filling: the waveform's thickness and the radial spectrum's
     // hub are in pixels, and handing them the panel's size would make a half-scale picture draw a half-width
@@ -1097,12 +1156,12 @@ void renderer::update_frame_resources(double seconds, double delta, int64_t now_
     c.timing[2] = static_cast<float>(frames_.load(std::memory_order_relaxed));
     c.timing[3] = have_analysis_ ? static_cast<float>(analysis_sequence_) : 0.0f;
     if (have_analysis_) {
-        c.level[0] = analysis_->rms;
-        c.level[1] = analysis_->peak;
-        c.level[2] = analysis_->spectral_centroid_hz;
-        c.level[3] = analysis_->harmonic_ratio;
-        c.counts[0] = analysis_->onset != 0 ? 1.0f : 0.0f;
-        std::memcpy(c.bands, analysis_->bands, sizeof analysis_->bands);
+        c.level[0] = drawn->rms;
+        c.level[1] = drawn->peak;
+        c.level[2] = drawn->spectral_centroid_hz;
+        c.level[3] = drawn->harmonic_ratio;
+        c.counts[0] = drawn->onset != 0 ? 1.0f : 0.0f;
+        std::memcpy(c.bands, drawn->bands, sizeof drawn->bands);
     }
     c.counts[1] = static_cast<float>(MP_ANALYSIS_OCTAVE_BANDS);
     c.counts[2] = static_cast<float>(MP_ANALYSIS_SPECTRUM_BINS);
@@ -1125,12 +1184,12 @@ void renderer::update_frame_resources(double seconds, double delta, int64_t now_
         std::memcpy(mapped.pData, &c, sizeof c);
         context_->Unmap(constants_.Get(), 0);
     }
-    if (!fresh) {
-        return; // the spectrum and waveform on the GPU are already this frame's
-    }
-    if (SUCCEEDED(context_->Map(spectrum_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-        std::memcpy(mapped.pData, analysis_->spectrum, sizeof analysis_->spectrum);
+    if (upload_spectrum && SUCCEEDED(context_->Map(spectrum_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+        std::memcpy(mapped.pData, drawn->spectrum, sizeof drawn->spectrum);
         context_->Unmap(spectrum_.Get(), 0);
+    }
+    if (!fresh) {
+        return; // the waveform on the GPU is already this frame's; the envelope never touches it
     }
     if (SUCCEEDED(context_->Map(waveform_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
         std::memcpy(mapped.pData, analysis_->waveform, sizeof analysis_->waveform);

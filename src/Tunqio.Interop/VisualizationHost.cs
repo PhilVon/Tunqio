@@ -231,6 +231,9 @@ public sealed class VisualizationHost : IVisualizationHost
 
     public void SetQualityPolicy(QualityPolicy policy) => Require().SetQuality((int)policy);
 
+    public void SetTemporalSmoothing(TemporalSmoothing smoothing) =>
+        Require().SetTemporalSmoothing(smoothing.AttackMs, smoothing.DecayMs);
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)

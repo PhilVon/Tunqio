@@ -42,6 +42,15 @@ public static class SettingsKeys
     public const string VizQuality = "viz.quality"; // "auto" | "low" | "medium" | "high"
 
     /// <summary>
+    /// T-184: the renderer's attack and decay envelope on the analysis frame, for every preset. <c>viz.temporalSmoothing</c>
+    /// switches it; <c>viz.temporalAttackMs</c> and <c>viz.temporalDecayMs</c> are the two time constants, kept while it
+    /// is off so turning it back on restores them.
+    /// </summary>
+    public const string VizTemporalSmoothing = "viz.temporalSmoothing";
+    public const string VizTemporalAttackMs = "viz.temporalAttackMs";
+    public const string VizTemporalDecayMs = "viz.temporalDecayMs";
+
+    /// <summary>
     /// T-157: <c>viz.params.&lt;preset&gt;.&lt;name&gt;</c>, one float for each parameter a person has moved on Settings &gt;
     /// Visualization. An absent key means the manifest's default, which stays in the preset. A parameter the manifest
     /// marks hidden (Ambient Glow's <c>art_*</c>, set by code from the album art) is never stored.
@@ -96,6 +105,18 @@ public static class SettingsKeys
         /// <summary>Ambient Glow on a first run (E5-S3, Phil in Q-72: one preset for every mode, Ambient Glow as the default).</summary>
         public const string VizPreset = "ambient-glow";
         public const string VizQuality = "auto";
+
+        /// <summary>
+        /// Off on a first run (T-184): an envelope delays how soon a transient is drawn, which works against ADR-012's
+        /// latency target, so it is a trade a person chooses rather than one made for them.
+        /// </summary>
+        public const bool VizTemporalSmoothing = false;
+
+        /// <summary>A 20 ms rise reaches half height within one 60 Hz refresh, so the default costs at most a frame.</summary>
+        public const float VizTemporalAttackMs = 20f;
+
+        /// <summary>A 300 ms fall: bars that drop back over a beat rather than vanishing between two.</summary>
+        public const float VizTemporalDecayMs = 300f;
         public const bool DiagnosticsCrashReporting = false;
     }
 }

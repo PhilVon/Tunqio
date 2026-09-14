@@ -68,6 +68,7 @@
     <ClInclude Include="src\render\quality.h" />
     <ClInclude Include="src\render\renderer.h" />
     <ClInclude Include="src\render\swapchainpanel_native.h" />
+    <ClInclude Include="src\render\temporal_envelope.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\abi\exports.cpp" />

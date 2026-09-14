@@ -188,6 +188,10 @@ public class AmbientGlowPaletteTests
 
         public void SetQualityPolicy(QualityPolicy policy) => Quality = policy;
 
+        public void SetTemporalSmoothing(TemporalSmoothing smoothing)
+        {
+        }
+
         public void Dispose()
         {
         }
