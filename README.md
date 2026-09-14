@@ -183,13 +183,34 @@ step does, after the solution build:
 & $msbuild src\Tunqio.App\Tunqio.App.csproj -m:4 -p:Configuration=Release -p:Platform=x64 -p:TunqioPackaged=true -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -nologo -v:minimal
 ```
 
-It writes `artifacts\msix\Tunqio_<version>_x64_Test\Tunqio.msix` (installing it: "Installing the MSIX" above), and
-`tools\check-package.ps1 -Root artifacts\bin\Tunqio.App\release_win-x64_msix -Msix <that path>` checks the engine,
-BASS, licences and icons are inside it.
+It writes `artifacts\msix\Tunqio_Test\Tunqio.msix`, with the Windows App Runtime packages it depends on under
+`artifacts\msix\Tunqio_Test\Dependencies\<arch>\` (installing it: "Installing the MSIX" above), and
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\check-package.ps1 -Root artifacts\bin\Tunqio.App\release_win-x64_msix -Msix artifacts\msix\Tunqio_Test\Tunqio.msix
+```
+
+checks the engine, BASS, licences and icons are inside it.
 
 ### Measured
 
-To be filled in by the T-86 fresh-clone run.
+Card T-86 followed the steps above on 2026-09-14 from a fresh clone of main (f111806), with `-m:2` and
+`-maxcpucount:2` in place of 4. **These are slower than a person's run would be:** the machine is Phil's 8-thread
+desktop, in use, with two other agents building beside the run. Two things made them faster: the clone came from a
+local repository, and the NuGet package cache already held every package, so a brand-new machine also spends a
+few minutes downloading the clone (16 MB) and NuGet packages (roughly 1 GB).
+
+| Step | Command | Exit | Wall clock |
+|------|---------|------|-----------|
+| 1 | `git clone` (local) | 0 | 1.8 s |
+| 2 | `tools\fetch-native.ps1` (seven packages downloaded and verified) | 0 | 2.1 s |
+| 3 | MSBuild.exe `Tunqio.sln -restore -m:2 ... -warnaserror` | 0, no warnings | 2 min 28 s |
+| 4 | `mpcore.tests.exe` (211 test cases) | 0 | 5 min 22 s |
+| 4 | `dotnet test Tunqio.Managed.slnf ... --no-build` (1760 tests) | 0 | 1 min 16 s |
+| 5 | `Tunqio.exe --data-root <scratch>`: window shown, audio device opened, closed cleanly | 0 | window after 2.6 s |
+| - | Packaged MSIX build, then `tools\check-package.ps1` over it | 0, PASS | 1 min 18 s + 2 s |
+
+Clone to a running app (steps 1, 2, 3 and 5) took under 3 minutes; with both test suites, about 9 minutes.
 
 ### Build shapes
 

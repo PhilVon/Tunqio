@@ -154,6 +154,8 @@ GitHub Actions, `windows-2025-vs2026` runners (Visual Studio 2026 with MSVC v145
 
 ## Third-party components and licences
 
+> **As built (T-86).** The table below is the original plan: CsWin32, CommunityToolkit.WinUI and SixLabors.ImageSharp were never adopted, and it omits the self-contained .NET runtime, WebView2 and SQLitePCLRaw that the package carries. What ships, checked against a built MSIX, is [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). The CI step that regenerates the notices from the NuGet graph does not exist yet (E8-S1).
+
 | Component | Licence | Notes |
 |-----------|---------|-------|
 | BASS, bassmix, basswasapi, bassflac, bassopus, basswv, bass_ape | Proprietary; **free for non-commercial use** (Q-1: product is non-commercial) | Attribution in About; DLLs fetched by `tools/fetch-native.ps1` (hash-pinned in `tools/native-deps.json`), not committed; licence texts shipped under `licenses/`; revisit ADR-003 if distribution ever becomes commercial |
