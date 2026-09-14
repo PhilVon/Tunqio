@@ -427,7 +427,10 @@ if ($reachedEnd) {
     Check 'With write-to-file off (the default) the file is byte-identical' ((Get-Sha256 $trackPath) -eq $hashBefore) 'SHA-256 unchanged'
     $log = Get-ChildItem $logDir -Filter '*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
     $lines = @(if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'Rated track \d+ .* in the library' } })
-    Check 'The app logged each rating it wrote' ($lines.Count -ge 5) "$($lines.Count) 'Rated track' line(s); last: $(if ($lines.Count) { ($lines[-1] -replace '^.*Rated track', 'Rated track').Trim() } else { 'none' })"
+    # Four writes: 4 on the row, 2 in Now Playing, cleared in Now Playing, 3 on the row; a clear logs its own line
+    # ("Rated track N cleared"). This was -ge 5, which only ever passed on the real profile, whose day log also held
+    # earlier runs' lines; the scratch log holds this run's alone (T-197).
+    Check 'The app logged each rating it wrote' ($lines.Count -ge 4) "$($lines.Count) 'Rated track' line(s); last: $(if ($lines.Count) { ($lines[-1] -replace '^.*Rated track', 'Rated track').Trim() } else { 'none' })"
     Check 'No file write was attempted with the switch off' (@(if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'written to the file|could not be written to the file' } }).Count -eq 0) 'no tag-write line'
 }
 
