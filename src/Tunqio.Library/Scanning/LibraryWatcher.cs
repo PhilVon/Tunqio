@@ -258,15 +258,22 @@ public sealed class LibraryWatcher : ILibraryWatcher
 
     private void OnChange(long folderId, FolderChangeKind kind, string path, string? oldPath)
     {
+        // One clock read for the whole event (T-187). A rename is one change with two paths, and the class promises
+        // that paths due together travel in one request. Reading the clock once per path gave the two sides due
+        // times as far apart as this thread was held up between the reads, so a pump waking in that gap scanned
+        // the old path alone and the new one a debounce-tick later: two scans where one was promised, and between
+        // them a library in which the track is missing and not yet re-added. Two requests are not a legitimate
+        // outcome to assert around; the fix is to stamp the event once.
+        long due = Due(_clock.GetTimestamp());
         bool accepted = false;
         if (kind == FolderChangeKind.Renamed && oldPath is not null)
         {
-            accepted |= Touch(folderId, oldPath);
+            accepted |= Touch(folderId, oldPath, due);
         }
 
         if (Accepts(kind, path))
         {
-            accepted |= Touch(folderId, path);
+            accepted |= Touch(folderId, path, due);
         }
         else
         {
@@ -295,9 +302,9 @@ public sealed class LibraryWatcher : ILibraryWatcher
         return kind is FolderChangeKind.Created or FolderChangeKind.Renamed && Directory.Exists(path);
     }
 
-    private bool Touch(long folderId, string path)
+    /// <summary>Records an event on <paramref name="path"/>, due at <paramref name="due"/>, which the caller reads once per event.</summary>
+    private bool Touch(long folderId, string path, long due)
     {
-        long due = Due(_clock.GetTimestamp());
         lock (_lock)
         {
             if (!_watches.TryGetValue(folderId, out FolderWatch? watch))
