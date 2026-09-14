@@ -8,22 +8,26 @@
   the check possible without taking the mouse; if the window does not offer it, the snap is reported as not shown.
 
   WHAT IT CHANGES. It launches the app on a scratch profile passed as --data-root (artifacts\check-mini-player\<stamp>\data,
-  deleted at the end unless -Keep), muted, and presses Play in the mini player if the restored queue has anything to play.
-  It pauses and unmutes before closing. The real %LOCALAPPDATA%\Tunqio is never opened (T-79); pass -DataRoot to run on
-  a prepared scratch profile with a queue.
+  deleted at the end unless -Keep) with two generated, near-silent FLAC tones on the command line, so the session has a
+  queue of its own (T-79). It mutes, pauses and plays through the mini player, and pauses and unmutes before closing.
+  The real %LOCALAPPDATA%\Tunqio is never opened. With -DataRoot no tones are generated, and the transport is checked
+  only if that profile's restored queue plays.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
 .PARAMETER DataRoot
   A scratch profile to launch on instead of the generated one. Refused inside %LOCALAPPDATA%\Tunqio.
 .PARAMETER Keep
   Keep the generated scratch folder for inspection.
+.PARAMETER Ffmpeg
+  ffmpeg.exe for generating the tones. Defaults to artifacts\ffmpeg\bin (tools/fetch-ffmpeg.ps1), then PATH.
 #>
 [CmdletBinding()]
 param(
     [string]$Exe,
     [int]$Seconds = 10,
     [string]$DataRoot,
-    [switch]$Keep
+    [switch]$Keep,
+    [string]$Ffmpeg
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +58,30 @@ if (-not (Test-Path (Join-Path $DataRoot 'settings.json'))) {
     [System.IO.File]::WriteAllText((Join-Path $DataRoot 'settings.json'), '{ "ui.welcomeShown": false }')
 }
 $log = Join-Path $DataRoot ('logs\tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log')
+
+# A queue of its own on a generated profile: two tagged FLAC tones at a whisper, with a bounded encoder wait
+# (tools/check-tray.ps1's approach). Passed on the command line, which plays them.
+$tracks = @()
+if ($scratch) {
+    if (-not $Ffmpeg) {
+        $fetched = Join-Path $here '..\artifacts\ffmpeg\bin\ffmpeg.exe'
+        if (Test-Path $fetched) { $Ffmpeg = [System.IO.Path]::GetFullPath($fetched) }
+        elseif (Get-Command ffmpeg -ErrorAction SilentlyContinue) { $Ffmpeg = (Get-Command ffmpeg).Source }
+        else { throw 'ffmpeg was not found: run tools/fetch-ffmpeg.ps1, put ffmpeg on PATH, or pass -Ffmpeg.' }
+    }
+    $music = Join-Path $scratch 'music'
+    New-Item -ItemType Directory -Force -Path $music | Out-Null
+    foreach ($tone in @(@{ Hz = 330; Title = 'Mini One' }, @{ Hz = 440; Title = 'Mini Two' })) {
+        $out = Join-Path $music ("{0}.flac" -f $tone.Title)
+        $argumentLine = ('-nostdin -hide_banner -loglevel error -y -f lavfi -i "sine=frequency={0}:sample_rate=44100:duration=120" ' +
+            '-af volume=0.02 -c:a flac -ac 2 -metadata "title={1}" -metadata "artist=Mini Artist" -metadata "album=Mini Check" "{2}"') -f $tone.Hz, $tone.Title, $out
+        $encoder = Start-Process -FilePath $Ffmpeg -ArgumentList $argumentLine -NoNewWindow -PassThru
+        $null = $encoder.Handle
+        if (-not $encoder.WaitForExit(60000)) { $encoder.Kill(); throw "ffmpeg did not finish $out within 60 s" }
+        if ($encoder.ExitCode -ne 0 -or -not (Test-Path $out)) { throw "ffmpeg could not write $out (exit $($encoder.ExitCode))" }
+        $tracks += $out
+    }
+}
 $script:failures = @()
 
 function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
@@ -109,7 +137,8 @@ $played = $false
 try {
     Write-Output "shell: $Exe"
     Write-Output "data root: $DataRoot"
-    $process = Start-Process $Exe -ArgumentList @('--data-root', "`"$DataRoot`"") -PassThru
+    $launchArgs = @('--data-root', "`"$DataRoot`"") + @($tracks | ForEach-Object { "`"$_`"" })
+    $process = Start-Process $Exe -ArgumentList $launchArgs -PassThru
     $main = Wait-Until { Get-TopWindows $process.Id | Where-Object { $_.Current.Name -notlike '*mini player*' } | Select-Object -First 1 } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
     $mainTitle = $main.Current.Name
@@ -138,15 +167,25 @@ try {
     Check 'Keep on top starts on' ($pinState -eq [System.Windows.Automation.ToggleState]::On) "toggle $pinState"
 
     # ---- its transport reaches the session (AC-143) ---------------------------------------------------------------
+    # The launch's tones are already playing, so the mini player opens on Pause: pause first, then play. Play is enabled
+    # even with an empty queue, so "nothing to play" is only known by the button never turning into Pause.
+    $pauseButton = Find-Named $mini 'Pause'
+    if ($pauseButton) {
+        $played = $true
+        Invoke-Element $pauseButton
+        $play = Wait-Until { Find-Named $mini 'Play' } 8 'the mini player button read Play'
+        $played = $false
+        Check 'Pause in the mini player pauses, and the button says so' ($null -ne $play) 'button renamed Play'
+    }
     $playButton = Find-Named $mini 'Play'
-    if ($playButton -and $playButton.Current.IsEnabled) {
+    if ($playButton -and ($tracks.Count -gt 0 -or $pauseButton)) {
         Invoke-Element $playButton
         $played = $true
         $pause = Wait-Until { Find-Named $mini 'Pause' } 8 'the mini player button read Pause'
         Check 'Play in the mini player plays, and the button says so' ($null -ne $pause) 'button renamed Pause'
     }
     else {
-        Write-Output '  note  the restored queue is empty, so Play has nothing to play; transport not shown'
+        Write-Output '  note  this profile had nothing playing and no generated tones, so the transport was not shown'
     }
 
     # ---- the snap (AC-425) ----------------------------------------------------------------------------------------
