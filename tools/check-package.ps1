@@ -309,6 +309,29 @@ function Test-NoticesCoverage([string[]]$entries) {
     Write-Output ''
 }
 
+# ---- T-133: no symbol package beside the MSIX ------------------------------------------------------------------------------
+# Tunqio's symbols ship once, as the release's Tunqio_<ver>_x64_symbols.zip (tools/release-assets.ps1). The Windows App SDK's
+# single-project MSIX tooling generates Tunqio.appxsym whenever the payload holds a .pdb, without reading
+# AppxSymbolPackageEnabled, so src/Tunqio.App/Tunqio.App.csproj (TunqioHonourAppxSymbolPackageEnabled) clears the PDB list
+# the generator reads. A .appxsym or .msixsym in the package's folder means that guard stopped working: a second symbol
+# artifact nobody publishes, or one somebody uploads by mistake. A local folder can also hold one left by a build from
+# before T-133; delete the package folder and rebuild.
+function Test-NoSymbolPackage([string]$package) {
+    Write-Output 'packaged app (no symbol package beside the MSIX)'
+    $folder = Split-Path $package -Parent
+    $stray = @(Get-ChildItem $folder -File | Where-Object { $_.Extension -eq '.appxsym' -or $_.Extension -eq '.msixsym' })
+    if ($stray.Count -eq 0) {
+        Write-Output "  ok    no .appxsym or .msixsym in $folder"
+    }
+    else {
+        foreach ($file in $stray) {
+            $script:failures += "MSIX - $($file.Name) was produced beside the package although AppxSymbolPackageEnabled is false (T-133); symbols ship only as Tunqio_<ver>_x64_symbols.zip"
+            Write-Output "  FAIL  $($file.Name) is beside the package"
+        }
+    }
+    Write-Output ''
+}
+
 foreach ($dir in $Root) {
     $resolved = (Resolve-Path $dir -ErrorAction SilentlyContinue).Path
     if (-not $resolved) { $resolved = $dir }
@@ -356,6 +379,7 @@ if ($Msix) {
         }
         finally { $zip.Dispose() }
         Test-Registrations $package
+        Test-NoSymbolPackage $package
     }
 }
 
