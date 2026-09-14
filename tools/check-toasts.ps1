@@ -294,8 +294,11 @@ try {
     $before = Get-Registration
     $aumidKeysBefore = Get-KeyNames $aumidRoot
     $clsidKeysBefore = Get-KeyNames $clsidRoot
-    Write-Output "  note  before: $($aumidKeysBefore.Count) AppUserModelId key(s), $($clsidKeysBefore.Count) CLSID key(s); Tunqio.exe registration $(if ($before.Aumid) { "ALREADY PRESENT ($($before.PathKey))" } else { 'none' })"
-    Check 'No app notification registration for Tunqio.exe exists before the run' ($null -eq $before.Aumid) "$(if ($before.Aumid) { $before.PathKey } else { 'none' })"
+    # A registration is the AUMID key naming an activator and that activator's CLSID key. The per-path NotificationGUID key alone is
+    # the identity UnregisterAll keeps on purpose (an earlier run, or an earlier opt-in), not a registration.
+    $registeredBefore = [bool]($before.Aumid -and (Test-Path (Join-Path $aumidRoot $before.Aumid)) -and $before.ClsidKey)
+    Write-Output "  note  before: $($aumidKeysBefore.Count) AppUserModelId key(s), $($clsidKeysBefore.Count) CLSID key(s); kept per-path identity for this Tunqio.exe: $(if ($before.PathKey) { "$($before.PathKey) = $($before.Aumid)" } else { 'none' })"
+    Check 'No app notification registration for Tunqio.exe exists before the run' (-not $registeredBefore) "$(if ($registeredBefore) { "AUMID $($before.Aumid), CLSID $($before.Clsid)" } else { 'no AUMID key with an activator, no CLSID key' })"
 
     New-Item -ItemType Directory -Force -Path $dataRoot, $music | Out-Null
     $full = [System.IO.Path]::GetFullPath($dataRoot)

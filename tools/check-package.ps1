@@ -119,6 +119,7 @@ function Test-Registrations([string]$package) {
         }
         $reader = New-Object System.IO.StreamReader($entry.Open())
         try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        $entryNames = @($zip.Entries | ForEach-Object { $_.FullName })
     }
     finally { $zip.Dispose() }
 
@@ -145,6 +146,20 @@ function Test-Registrations([string]$package) {
 
     $aliases = @($manifest.SelectNodes("//*[local-name()='AppExecutionAlias']/*[local-name()='ExecutionAlias']") | ForEach-Object { $_.GetAttribute('Alias') })
     Check-Registration "execution alias '$alias'" ($aliases -contains $alias) "declared: $(if ($aliases.Count) { $aliases -join ', ' } else { 'none' })"
+
+    # E7-S4 (T-77): toast presses. Packaged, Windows App SDK's Register writes nothing; the activator is this declaration, and
+    # COM starts Tunqio.exe with the argument the SDK reads as an AppNotification activation.
+    $toast = $manifest.SelectSingleNode("//*[local-name()='ToastNotificationActivation']")
+    $toastClsid = if ($toast) { $toast.GetAttribute('ToastActivatorCLSID') } else { '' }
+    Check-Registration 'toast activation CLSID declared' ($toastClsid -match '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$') "'$toastClsid'"
+    $servers = @($manifest.SelectNodes("//*[local-name()='ComServer']/*[local-name()='ExeServer']"))
+    $server = $servers | Where-Object { @($_.SelectNodes("*[local-name()='Class']") | Where-Object { $_.GetAttribute('Id') -eq $toastClsid }).Count -gt 0 } | Select-Object -First 1
+    Check-Registration 'a COM server declares the toast activator class' ($null -ne $server) "$($servers.Count) exe server(s)"
+    if ($server) {
+        $serverExe = $server.GetAttribute('Executable')
+        Check-Registration 'it starts Tunqio.exe with ----AppNotificationActivated:' ($serverExe -eq 'Tunqio.exe' -and $server.GetAttribute('Arguments') -eq '----AppNotificationActivated:') "Executable '$serverExe', Arguments '$($server.GetAttribute('Arguments'))'"
+        Check-Registration 'that executable is in the package where the server names it' ($entryNames -contains $serverExe) "$(if ($entryNames -contains $serverExe) { 'present' } else { 'missing' })"
+    }
 
     $virtualization = $manifest.SelectSingleNode("//*[local-name()='Properties']/*[local-name()='FileSystemWriteVirtualization']")
     Check-Registration 'file system write virtualisation is disabled' ($virtualization -and $virtualization.InnerText.Trim() -eq 'disabled') "'$(if ($virtualization) { $virtualization.InnerText.Trim() } else { 'not declared' })'"
