@@ -13,7 +13,7 @@ namespace Tunqio.App.Tests;
 /// the declared range is clamped. The relaunch through the real window, the real settings.json and the real renderer is
 /// <c>tools/check-visualization-settings.ps1</c>.
 /// </summary>
-public sealed class PresetParameterPersistenceTests
+public sealed class PresetParameterPersistenceTests : IDisposable
 {
     private const string Bars = "spectrum-bars";
     private const string Wave = "waveform";
@@ -47,6 +47,8 @@ public sealed class PresetParameterPersistenceTests
         _host.Declared[Wave] = [Thickness];
         _host.Declared[Glow] = [GlowAmount, ArtPrimary];
     }
+
+    public void Dispose() => _host.Dispose();
 
     private PresetParameterMemory Memory() => new(_host, _settings);
 
@@ -122,7 +124,7 @@ public sealed class PresetParameterPersistenceTests
     }
 
     [Fact]
-    public void The_launch_restores_the_remembered_preset_and_then_its_values()
+    public async Task The_launch_restores_the_remembered_preset_and_then_its_values_Async()
     {
         // MainWindow's order: AttachAsync starts the catalogue's first preset, then RestoreVisualizationSettingsAsync
         // switches to viz.preset. The switch returns everything to its defaults, so the values have to come after it.
@@ -131,7 +133,7 @@ public sealed class PresetParameterPersistenceTests
         using PresetParameterMemory memory = Memory();
 
         _host.Attach();
-        _host.SetPresetAsync(Wave).GetAwaiter().GetResult();
+        await _host.SetPresetAsync(Wave);
 
         _host.Calls.Should().Equal("preset spectrum-bars", "bars=96", "preset waveform", "thickness=4");
         _host.Current["thickness"].Should().Be(4f);
@@ -250,7 +252,7 @@ public sealed class PresetParameterPersistenceTests
         Stored(Wave, "thickness").Should().Be(4f, "Reset is per preset");
 
         // And the next launch starts on the defaults.
-        var relaunched = new RendererLikeHost { PresetList = _host.PresetList };
+        using var relaunched = new RendererLikeHost { PresetList = _host.PresetList };
         foreach (KeyValuePair<string, IReadOnlyList<PresetParameter>> declared in _host.Declared)
         {
             relaunched.Declared[declared.Key] = declared.Value;
