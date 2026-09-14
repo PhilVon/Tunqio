@@ -30,19 +30,32 @@ public enum RoutedCommandKind
 
     /// <summary>Bring the main window to the foreground.</summary>
     Show,
+
+    /// <summary>One library track by id, played now at the current position (<c>tunqio://track?id=</c>, a jump list item, E7-S5).</summary>
+    PlayTrack,
+
+    /// <summary>A playlist by id, replacing the queue (<c>tunqio://playlist?id=</c>, a jump list item, E7-S5).</summary>
+    PlayPlaylist,
 }
 
-/// <summary>One command the router will run, with the full paths it concerns.</summary>
+/// <summary>One command the router will run, with the full paths it concerns, or the library id it names.</summary>
 public sealed record RoutedCommand(RoutedCommandKind Kind, IReadOnlyList<string> Paths)
 {
+    /// <summary>The track or playlist id of <see cref="RoutedCommandKind.PlayTrack"/> and <see cref="RoutedCommandKind.PlayPlaylist"/>; 0 otherwise.</summary>
+    public long Id { get; init; }
+
     /// <summary>A command with no paths.</summary>
     public static RoutedCommand Of(RoutedCommandKind kind) => new(kind, []);
 
+    /// <summary>A command naming a library id.</summary>
+    public static RoutedCommand ForId(RoutedCommandKind kind, long id) => new(kind, []) { Id = id };
+
     /// <summary>Play and show bring the window forward; queue and the transport commands leave it where it is.</summary>
-    public bool BringsWindowForward => Kind is RoutedCommandKind.PlayFile or RoutedCommandKind.PlayPaths or RoutedCommandKind.Show;
+    public bool BringsWindowForward => Kind is RoutedCommandKind.PlayFile or RoutedCommandKind.PlayPaths or RoutedCommandKind.Show
+        or RoutedCommandKind.PlayTrack or RoutedCommandKind.PlayPlaylist;
 
     public override string ToString() => Paths.Count == 0
-        ? Kind.ToString()
+        ? (Id == 0 ? Kind.ToString() : string.Create(CultureInfo.InvariantCulture, $"{Kind} (id {Id})"))
         : string.Create(CultureInfo.InvariantCulture, $"{Kind} ({Paths.Count} path(s), first {Paths[0]})");
 }
 
@@ -84,7 +97,15 @@ public sealed class CommandRouter
         ["next"] = RoutedCommandKind.Next,
         ["previous"] = RoutedCommandKind.Previous,
         ["show"] = RoutedCommandKind.Show,
+        ["track"] = RoutedCommandKind.PlayTrack,
+        ["playlist"] = RoutedCommandKind.PlayPlaylist,
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The launch arguments of a jump list track item (E7-S5): <c>tunqio://track?id=42</c>.</summary>
+    public static string TrackUri(long trackId) => string.Create(CultureInfo.InvariantCulture, $"{Identity.UriScheme}://track?id={trackId}");
+
+    /// <summary>The launch arguments of a jump list playlist item (E7-S5): <c>tunqio://playlist?id=7</c>.</summary>
+    public static string PlaylistUri(long playlistId) => string.Create(CultureInfo.InvariantCulture, $"{Identity.UriScheme}://playlist?id={playlistId}");
 
     /// <summary>The app's own switches that take a value (the value is skipped with them).</summary>
     private static readonly FrozenSet<string> ValueSwitches = new[]
@@ -227,6 +248,8 @@ public sealed class CommandRouter
         RoutedCommandKind.TogglePlayPause => _target.TogglePlayPauseAsync(ct),
         RoutedCommandKind.Next => _target.NextAsync(ct),
         RoutedCommandKind.Previous => _target.PreviousAsync(ct),
+        RoutedCommandKind.PlayTrack => _target.PlayTrackAsync(command.Id, ct),
+        RoutedCommandKind.PlayPlaylist => _target.PlayPlaylistAsync(command.Id, ct),
         _ => Task.CompletedTask, // Show: bringing the window forward was the whole command.
     };
 
@@ -253,6 +276,13 @@ public sealed class CommandRouter
             return;
         }
 
+        string pairs = query >= 0 ? rest[(query + 1)..] : string.Empty;
+        if (kind is RoutedCommandKind.PlayTrack or RoutedCommandKind.PlayPlaylist)
+        {
+            ParseId(token, name, kind, pairs, commands, refusals);
+            return;
+        }
+
         if (kind is not (RoutedCommandKind.PlayPaths or RoutedCommandKind.QueuePaths))
         {
             commands.Add(RoutedCommand.Of(kind));
@@ -261,7 +291,6 @@ public sealed class CommandRouter
 
         var paths = new List<string>();
         bool named = false;
-        string pairs = query >= 0 ? rest[(query + 1)..] : string.Empty;
         foreach (string pair in pairs.Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             int equals = pair.IndexOf('=', StringComparison.Ordinal);
@@ -294,6 +323,38 @@ public sealed class CommandRouter
         else if (paths.Count > 0)
         {
             commands.Add(new RoutedCommand(kind, paths));
+        }
+    }
+
+    /// <summary>
+    /// <c>track?id=</c> and <c>playlist?id=</c> (E7-S5): the first <c>id</c> must be a positive whole number. Whether the track or
+    /// playlist still exists is the target's to find out, and its refusal is the router's one log line.
+    /// </summary>
+    private static void ParseId(string token, string name, RoutedCommandKind kind, string pairs, List<RoutedCommand> commands, List<string> refusals)
+    {
+        string? value = null;
+        foreach (string pair in pairs.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int equals = pair.IndexOf('=', StringComparison.Ordinal);
+            string key = equals >= 0 ? pair[..equals] : pair;
+            if (string.Equals(key, "id", StringComparison.OrdinalIgnoreCase))
+            {
+                value = equals >= 0 ? pair[(equals + 1)..] : string.Empty;
+                break;
+            }
+        }
+
+        if (value is null)
+        {
+            refusals.Add($"'{token}' names no id ({Identity.UriScheme}://{name}?id=<id>)");
+        }
+        else if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long id) || id <= 0)
+        {
+            refusals.Add($"'{token}' has an id that is not a positive whole number");
+        }
+        else
+        {
+            commands.Add(RoutedCommand.ForId(kind, id));
         }
     }
 

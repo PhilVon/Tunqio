@@ -22,6 +22,12 @@ public interface ICommandTarget
 
     Task PreviousAsync(CancellationToken ct);
 
+    /// <summary>Plays one library track now, at the current position (a jump list track item, E7-S5). Throws for a track that has gone.</summary>
+    Task PlayTrackAsync(long trackId, CancellationToken ct);
+
+    /// <summary>Replaces the queue with a playlist and plays it (a jump list playlist item, E7-S5). Throws for a playlist that has gone or is empty.</summary>
+    Task PlayPlaylistAsync(long playlistId, CancellationToken ct);
+
     /// <summary>Restores and activates the main window and asks for the foreground.</summary>
     void BringToForeground();
 }

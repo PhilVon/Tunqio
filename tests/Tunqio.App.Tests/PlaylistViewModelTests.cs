@@ -209,6 +209,42 @@ public sealed class PlaylistViewModelTests
         vm.HasNotice.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Pin_to_jump_list_sets_and_clears_the_stored_flag_and_the_page_reads_it_back_Async()
+    {
+        long id = _playlists.Add("Pinned", One);
+        PlaylistDetailViewModel vm = Detail();
+        await vm.LoadAsync(id);
+        vm.IsPinned.Should().BeFalse();
+
+        await vm.SetPinnedAsync(true);
+        await vm.SetPinnedAsync(true); // the toggle's Checked after the load set it: nothing more is written
+
+        vm.IsPinned.Should().BeTrue();
+        _playlists.Pinned.Should().Equal(id);
+        PlaylistDetailViewModel reopened = Detail();
+        await reopened.LoadAsync(id);
+        reopened.IsPinned.Should().BeTrue("the page shows the stored flag");
+
+        await reopened.SetPinnedAsync(false);
+
+        reopened.IsPinned.Should().BeFalse();
+        _playlists.Pinned.Should().BeEmpty();
+        _playlists.PinWrites.Should().Equal((id, true), (id, false));
+    }
+
+    [Fact]
+    public async Task Pinning_a_playlist_that_has_gone_writes_nothing_Async()
+    {
+        PlaylistDetailViewModel vm = Detail();
+        await vm.LoadAsync(404);
+
+        await vm.SetPinnedAsync(true);
+
+        _playlists.PinWrites.Should().BeEmpty();
+        vm.IsPinned.Should().BeFalse();
+    }
+
     /// <summary>A playlist store in memory, with the repository's semantics for positions.</summary>
     private sealed class FakePlaylistRepository : IPlaylistRepository
     {
@@ -217,6 +253,30 @@ public sealed class PlaylistViewModelTests
         public event EventHandler<long>? Changed { add { } remove { } }
 
         public List<(long Id, string Name, List<TrackDto> Tracks)> Stored { get; } = [];
+
+        public HashSet<long> Pinned { get; } = [];
+
+        public List<(long Id, bool Pinned)> PinWrites { get; } = [];
+
+        public Task<bool> SetPinnedAsync(long id, bool pinned, CancellationToken ct = default)
+        {
+            if (!Stored.Any(p => p.Id == id))
+            {
+                return Task.FromResult(false);
+            }
+
+            PinWrites.Add((id, pinned));
+            if (pinned)
+            {
+                Pinned.Add(id);
+            }
+            else
+            {
+                Pinned.Remove(id);
+            }
+
+            return Task.FromResult(true);
+        }
 
         public long Add(string name, params TrackDto[] tracks)
         {
@@ -277,7 +337,7 @@ public sealed class PlaylistViewModelTests
             return Task.CompletedTask;
         }
 
-        private static PlaylistDto Dto((long Id, string Name, List<TrackDto> Tracks) p) =>
-            new(p.Id, p.Name, 0, 0, false, p.Tracks.Count, p.Tracks.Sum(t => (long)t.DurationMs));
+        private PlaylistDto Dto((long Id, string Name, List<TrackDto> Tracks) p) =>
+            new(p.Id, p.Name, 0, 0, Pinned.Contains(p.Id), p.Tracks.Count, p.Tracks.Sum(t => (long)t.DurationMs));
     }
 }

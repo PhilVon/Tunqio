@@ -166,6 +166,13 @@ public interface IPlaylistRepository
     /// are this: each edit keeps the list before and after it, and stepping back or forward writes one of them.
     /// </summary>
     Task ReplaceTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sets (<paramref name="pinned"/> true) or clears the playlist's pinned flag (E7-S5): a pinned playlist is listed first
+    /// and appears in the jump list. Pinning is not an edit of the playlist, so <c>modified_at</c> is left alone. Raises
+    /// <see cref="Changed"/> when the flag actually changed. Returns false, having written nothing, for an unknown id.
+    /// </summary>
+    Task<bool> SetPinnedAsync(long id, bool pinned, CancellationToken ct = default);
 }
 
 /// <summary>

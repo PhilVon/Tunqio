@@ -417,6 +417,8 @@ public sealed class CurationTests
 
         public Task MoveAsync(long id, int fromPosition, int toPosition, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task<bool> SetPinnedAsync(long id, bool pinned, CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task ReplaceTracksAsync(long id, IReadOnlyList<long> trackIds, CancellationToken ct = default)
         {
             int at = _lists.FindIndex(l => l.Id == id);

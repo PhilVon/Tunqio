@@ -153,6 +153,13 @@ public sealed class PlaybackSession : IPlaybackCommands, IPreviewPlayer, IAsyncD
     /// <summary>The transport as it stands, republished at 10 Hz and after every command.</summary>
     public IObservable<PlaybackSnapshot> Snapshots => _snapshots;
 
+    /// <summary>
+    /// A finished listen was written to the play history (E3-S11): raised after <see cref="IPlayHistoryRepository.RecordAsync"/>
+    /// accepted it, on whatever thread that completed on, so "Recently played" already includes it. A listen the history
+    /// refused (a purged track) or failed to write raises nothing. The jump list (E7-S5) refreshes on it.
+    /// </summary>
+    public event EventHandler<PlayEvent>? PlayRecorded;
+
     /// <summary>The most recent snapshot, without subscribing.</summary>
     public PlaybackSnapshot Current => _snapshots.Value;
 
@@ -889,15 +896,31 @@ public sealed class PlaybackSession : IPlaybackCommands, IPreviewPlayer, IAsyncD
         }
 
         _listen = null;
+        PlayEvent playEvent = PlayEvent.For(listen.Track.Item.TrackId, listen.StartedAt, listen.Heard, listen.Track.Handle.Info.Duration);
+        bool recorded;
         try
         {
-            await _history.RecordAsync(
-                PlayEvent.For(listen.Track.Item.TrackId, listen.StartedAt, listen.Heard, listen.Track.Handle.Info.Duration))
-                .ConfigureAwait(false);
+            recorded = await _history.RecordAsync(playEvent).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _log.LogWarning(ex, "Could not record the play of track {TrackId}", listen.Track.Item.TrackId);
+            return;
+        }
+
+        if (!recorded)
+        {
+            return;
+        }
+
+        try
+        {
+            PlayRecorded?.Invoke(this, playEvent);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // A follower that fails (the jump list, E7-S5) must not reach the transport.
+            _log.LogWarning(ex, "A PlayRecorded handler failed for track {TrackId}", playEvent.TrackId);
         }
     }
 

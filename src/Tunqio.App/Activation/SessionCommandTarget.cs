@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Tunqio.App.Playback;
+using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
 using Tunqio.Library;
 
@@ -23,19 +24,37 @@ public sealed class SessionCommandTarget : ICommandTarget
 
     private readonly IPlaybackSessionSource _source;
     private readonly OpenFilesService _open;
+    private readonly ITrackRepository _tracks;
+    private readonly IPlaylistRepository _playlists;
     private readonly Action _bringToForeground;
     private readonly TimeSpan _wait;
     private readonly ILogger _log;
 
+    /// <param name="source">Where the session comes from.</param>
+    /// <param name="open">Turns paths into ids.</param>
+    /// <param name="tracks">Resolves a jump list track item's id (E7-S5).</param>
+    /// <param name="playlists">Resolves a jump list playlist item's id (E7-S5).</param>
+    /// <param name="bringToForeground">Raises the main window.</param>
     /// <param name="wait">How long to wait for the session; <see cref="SessionWait"/> in the app, shorter in tests.</param>
+    /// <param name="log">Where what was played is recorded.</param>
     public SessionCommandTarget(
-        IPlaybackSessionSource source, OpenFilesService open, Action bringToForeground, TimeSpan wait, ILogger<SessionCommandTarget>? log)
+        IPlaybackSessionSource source,
+        OpenFilesService open,
+        ITrackRepository tracks,
+        IPlaylistRepository playlists,
+        Action bringToForeground,
+        TimeSpan wait,
+        ILogger<SessionCommandTarget>? log)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(open);
+        ArgumentNullException.ThrowIfNull(tracks);
+        ArgumentNullException.ThrowIfNull(playlists);
         ArgumentNullException.ThrowIfNull(bringToForeground);
         _source = source;
         _open = open;
+        _tracks = tracks;
+        _playlists = playlists;
         _bringToForeground = bringToForeground;
         _wait = wait;
         _log = log ?? NullLogger<SessionCommandTarget>.Instance;
@@ -45,16 +64,7 @@ public sealed class SessionCommandTarget : ICommandTarget
     {
         PlaybackSession session = await SessionAsync(ct);
         long id = await _open.ResolveFileAsync(file, ct) ?? throw new InvalidOperationException($"'{file}' is not a playable audio file");
-        if (session.Queue.Current is null)
-        {
-            await session.PlayNowAsync([id], ct: ct);
-        }
-        else
-        {
-            // Flow 2: inserted right after the current item and moved to, so what was queued is still queued after it.
-            await session.PlayNextAsync([id], ct);
-            await session.NextAsync(ct);
-        }
+        await PlayAtCurrentPositionAsync(session, id, ct);
 
         _log.LogInformation("Activation: playing {File} at the current position; queue now {Count} item(s)", file, session.Queue.Items.Count);
     }
@@ -94,7 +104,53 @@ public sealed class SessionCommandTarget : ICommandTarget
 
     public async Task PreviousAsync(CancellationToken ct) => await (await SessionAsync(ct)).PreviousAsync(ct);
 
+    /// <summary>
+    /// A jump list track item (E7-S5). The id is checked before waiting for audio, so a track that has left the library is refused
+    /// at once, and so is one whose file was missing at the last scan. Placed as a file opened from Explorer is (flow 2).
+    /// </summary>
+    public async Task PlayTrackAsync(long trackId, CancellationToken ct)
+    {
+        TrackDto track = await _tracks.GetAsync(trackId, ct) ?? throw new InvalidOperationException($"track {trackId} is not in the library");
+        if (track.Missing)
+        {
+            throw new InvalidOperationException($"track {trackId} ({track.Path}) was missing at the last scan");
+        }
+
+        PlaybackSession session = await SessionAsync(ct);
+        await PlayAtCurrentPositionAsync(session, track.Id, ct);
+        _log.LogInformation("Activation: playing track {Id} ({Title}) at the current position; queue now {Count} item(s)", track.Id, track.Title, session.Queue.Items.Count);
+    }
+
+    /// <summary>A jump list playlist item (E7-S5): the playlist replaces the queue and plays from its first track.</summary>
+    public async Task PlayPlaylistAsync(long playlistId, CancellationToken ct)
+    {
+        PlaylistDetailDto detail = await _playlists.GetDetailAsync(playlistId, ct) ?? throw new InvalidOperationException($"playlist {playlistId} does not exist");
+        if (detail.Tracks.Count == 0)
+        {
+            throw new InvalidOperationException($"playlist {playlistId} ({detail.Playlist.Name}) has no tracks");
+        }
+
+        PlaybackSession session = await SessionAsync(ct);
+        await session.PlayNowAsync([.. detail.Tracks.Select(t => t.Id)], ct: ct);
+        _log.LogInformation(
+            "Activation: playing playlist {Id} ({Name}); queue now {Count} item(s)", playlistId, detail.Playlist.Name, session.Queue.Items.Count);
+    }
+
     public void BringToForeground() => _bringToForeground();
+
+    private static async Task PlayAtCurrentPositionAsync(PlaybackSession session, long id, CancellationToken ct)
+    {
+        if (session.Queue.Current is null)
+        {
+            await session.PlayNowAsync([id], ct: ct);
+        }
+        else
+        {
+            // Flow 2: inserted right after the current item and moved to, so what was queued is still queued after it.
+            await session.PlayNextAsync([id], ct);
+            await session.NextAsync(ct);
+        }
+    }
 
     private async Task<PlaybackSession> SessionAsync(CancellationToken ct)
     {

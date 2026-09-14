@@ -201,6 +201,33 @@ public sealed class SqlitePlaylistRepository : IPlaylistRepository
         }, ct);
     }
 
+    public async Task<bool> SetPinnedAsync(long id, bool pinned, CancellationToken ct = default)
+    {
+        using IDisposable lease = await _db.AcquireWriterAsync(ct).ConfigureAwait(false);
+        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using (SqliteCommand exists = Sql.Command(connection, "SELECT pinned FROM playlist WHERE id = $id"))
+        {
+            exists.Add("$id", id);
+            object? current = await exists.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            if (current is null or DBNull)
+            {
+                return false;
+            }
+
+            if ((Convert.ToInt64(current, System.Globalization.CultureInfo.InvariantCulture) != 0) == pinned)
+            {
+                return true; // already so: nothing written, nothing raised
+            }
+        }
+
+        await using SqliteCommand command = Sql.Command(connection, "UPDATE playlist SET pinned = $pinned WHERE id = $id");
+        command.Add("$pinned", pinned ? 1L : 0L);
+        command.Add("$id", id);
+        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        Changed?.Invoke(this, id);
+        return true;
+    }
+
     private const string SelectPlaylists = """
         SELECT p.id, p.name, p.created_at, p.modified_at, p.pinned, COUNT(t.id), COALESCE(SUM(t.duration_ms), 0)
         FROM playlist p

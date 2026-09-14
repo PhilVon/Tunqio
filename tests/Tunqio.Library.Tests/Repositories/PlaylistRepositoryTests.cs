@@ -195,6 +195,35 @@ public sealed class PlaylistRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Pinning_sets_and_clears_the_flag_and_a_pinned_playlist_is_listed_first_Async()
+    {
+        PlaylistDto alpha = await Playlists.CreateAsync("Alpha");
+        PlaylistDto zulu = await Playlists.CreateAsync("Zulu");
+        await Playlists.AddTracksAsync(zulu.Id, [Id(0)]);
+        long modified = (await Playlists.ListAsync()).Single(p => p.Id == zulu.Id).ModifiedAt;
+
+        (await Playlists.SetPinnedAsync(zulu.Id, pinned: true)).Should().BeTrue();
+
+        IReadOnlyList<PlaylistDto> pinned = await Playlists.ListAsync();
+        pinned.Select(p => (p.Name, p.Pinned)).Should().Equal(("Zulu", true), ("Alpha", false));
+        pinned[0].ModifiedAt.Should().Be(modified, "pinning is not an edit of the playlist");
+        (await Playlists.GetDetailAsync(zulu.Id))!.Playlist.Pinned.Should().BeTrue();
+
+        (await Playlists.SetPinnedAsync(zulu.Id, pinned: false)).Should().BeTrue();
+
+        (await Playlists.ListAsync()).Select(p => (p.Name, p.Pinned)).Should().Equal(("Alpha", false), ("Zulu", false));
+        (await Playlists.GetDetailAsync(alpha.Id))!.Tracks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Pinning_an_unknown_playlist_writes_nothing_and_says_so_Async()
+    {
+        (await Playlists.SetPinnedAsync(12345, pinned: true)).Should().BeFalse();
+
+        (await Playlists.ListAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task An_unknown_playlist_has_no_detail_and_changes_to_it_do_nothing_Async()
     {
         (await Playlists.GetDetailAsync(12345)).Should().BeNull();
