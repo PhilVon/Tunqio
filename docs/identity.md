@@ -30,8 +30,8 @@ Values marked **frozen at 1.0** cannot change after the first public release wit
 | Solution and projects | `Tunqio.sln`, `Tunqio.Core`, `Tunqio.Interop`, `Tunqio.Library`, `Tunqio.App` and their `.Tests`; root namespace `Tunqio` | [solution-structure.md](solution-structure.md) | no |
 | Repository folder | `tunqio/` | [solution-structure.md](solution-structure.md) | no |
 | Native core | `mpcore.dll`, `mpcore.h`, `mp_` prefix; `mp_version()` returns the product version | ADR-004 | ABI-versioned separately |
-| Release artefacts | `Tunqio_<ver>_x64.msix`, `Tunqio.appinstaller` | `release.yml`, [build-test-release.md](build-test-release.md) | the `.appinstaller` URL is **frozen** |
-| Version | SemVer `major.minor.patch` in `Directory.Build.props`; MSIX `major.minor.patch.0`; `mp_version()` reports the same string | ADR-011 | scheme frozen |
+| Release artefacts | `Tunqio_<ver>_x64.msix` (`<ver>` the four-part MSIX version), `Tunqio.appinstaller`, `Tunqio.cer` (public certificate only), `Tunqio_<ver>_x64_symbols.zip`, `Tunqio_<ver>_x64.cdx.json`, and the Windows App Runtime package Tunqio depends on | `.github/workflows/release.yml` and `tools/release-*.ps1` (T-80), published to this repository's GitHub Releases; [build-test-release.md](build-test-release.md) | the `.appinstaller` URL `https://github.com/PhilVon/Tunqio/releases/latest/download/Tunqio.appinstaller` is **frozen** |
+| Version | SemVer `major.minor.patch` in `Directory.Build.props`; MSIX `major.minor.patch.0`, or `major.minor.patch.N` for release candidate `-rc.N` (`TunqioVersionRevision`, T-80); `mp_version()` reports `major.minor.patch` | ADR-011; stamped from the tag by `tools/release-version.ps1` | scheme frozen |
 
 ## User-visible strings
 
@@ -101,4 +101,4 @@ output and in the MSIX.
 | E0-S6 logging and settings | data folder, log file name, `IAppPaths` |
 | E7-S1 manifest and protocol | execution alias, URI scheme and commands, file type association, virtualisation setting |
 | E7-S3 tray | tooltip formats, tray icon assets |
-| E8-S1 release | artefact names, `.appinstaller` name, publisher replacement and freeze |
+| E8-S1 release | artefact names, `.appinstaller` name and frozen URL, publisher freeze (`CN=Tunqio`, never replaced: D-34), release-candidate version mapping |

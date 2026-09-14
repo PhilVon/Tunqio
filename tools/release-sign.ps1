@@ -91,7 +91,7 @@ $missing = @($names | Where-Object { -not [Environment]::GetEnvironmentVariable(
 if ($missing.Count -gt 0) {
     Stop-Release ("Signing secret(s) missing or empty: $($missing -join ', '). A Tunqio release is never published unsigned. " +
         "Add both as repository secrets (GitHub: Settings > Secrets and variables > Actions > New repository secret), " +
-        "as README.md 'Releasing Tunqio (maintainer)' describes, then delete the tag's failed run and push the tag again.")
+        "as README.md 'Releasing Tunqio (maintainer)' describes, then re-run this workflow run (a re-run reads the secrets as they are now).")
 }
 
 $manifestText = [IO.File]::ReadAllText((Join-Path $repo 'src\Tunqio.App\Package.appxmanifest'))

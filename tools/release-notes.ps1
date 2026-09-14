@@ -35,9 +35,12 @@ $v = & (Join-Path $PSScriptRoot 'release-version.ps1') -Tag $Tag -PassThru
 function Invoke-Git([string[]]$arguments) {
     $previous = [Console]::OutputEncoding
     [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+    # git's stderr is expected here (describe finds no earlier tag before the first release). Windows PowerShell 5.1 turns
+    # redirected native stderr into error records, which Stop would make fatal, so this scope continues and drops them.
+    $ErrorActionPreference = 'Continue'
     try {
-        $out = & git -C $repo @arguments
-        return @{ Code = $LASTEXITCODE; Lines = @($out) }
+        $out = & git -C $repo @arguments 2>$null
+        return @{ Code = $LASTEXITCODE; Lines = @($out | Where-Object { $_ -is [string] }) }
     } finally { [Console]::OutputEncoding = $previous }
 }
 
