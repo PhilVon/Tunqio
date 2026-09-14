@@ -175,11 +175,17 @@ try {
 
     # ---- add an album -------------------------------------------------------------------------------------------------
     if (-not (Find-Id $window 'Scrubber').Current.IsEnabled) {
-        Select-Element (Wait-Until { Find-Named $window 'Albums' } 10 'the sidebar showed Albums')
+        Select-Element (Wait-Until { Find-SidebarItem $window 'Albums' } 10 'the sidebar showed Albums')
         Start-Sleep -Milliseconds 1200
+        # T-197: a scratch profile restores no queue, so this path runs on every run (the real profile's restored queue
+        # used to skip it). A walk of the whole tree while the page is still navigating can throw ElementNotAvailable,
+        # with an empty message; that reading is retried within the wait rather than ending the run.
         $tile = Wait-Until {
-            $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
-                Where-Object { $_.Current.Name -like 'Album * by *' } | Select-Object -First 1
+            try {
+                $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+                    Where-Object { $_.Current.Name -like 'Album * by *' } | Select-Object -First 1
+            }
+            catch { $null }
         } 15 'an album tile appeared'
         Invoke-Element $tile
         $startedPlayback = $true
