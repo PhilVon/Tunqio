@@ -10,6 +10,9 @@ namespace Tunqio.App.Library;
 /// <param name="LastScan">"Scanned 5 min ago · ok", "Never scanned", or "Disabled".</param>
 public sealed record LibraryFolderRow(LibraryFolderDto Folder, string Name, string Path, bool Enabled, string LastScan);
 
+/// <summary>A folder that has just been stored, and the scan of it that was started (still running when this is returned).</summary>
+public sealed record FolderAdded(LibraryFolderDto Folder, Task<ScanReport?> Scan);
+
 /// <summary>
 /// Settings › Library (docs/ui-screens-and-flows.md; E3-S12): the folder list with add, remove, enable and
 /// rescan; the running scan's status and the last report; the split-artists and write-ratings toggles; purge
@@ -194,11 +197,29 @@ public sealed partial class LibrarySettingsViewModel : ObservableObject
             return;
         }
 
+        await AddFolderAsync(path, ct);
+    }
+
+    /// <summary>Add a folder by path: the row, the watcher, then a scan of that folder, which this waits for.</summary>
+    public async Task AddFolderAsync(string path, CancellationToken ct = default)
+    {
+        FolderAdded added = await BeginAddFolderAsync(path, ct);
+        await added.Scan;
+    }
+
+    /// <summary>
+    /// The same add as <see cref="AddFolderAsync(string, CancellationToken)"/>, returning as soon as the folder is stored
+    /// and the watcher refreshed, with the scan it started still running. The first-run welcome (E6-S6) uses it so the
+    /// dialog can move on while the Albums grid fills behind it (flow 1).
+    /// </summary>
+    public async Task<FolderAdded> BeginAddFolderAsync(string path, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
         LibraryFolderDto folder = await _folders.AddAsync(path, ct);
         await _watcher.RefreshAsync(ct);
         await LoadAsync(ct);
         SetNotice("Added " + folder.Path + "; scanning it now.");
-        await _scans.ScanAsync(ScanRequest.Folder(folder.Id), ct);
+        return new FolderAdded(folder, _scans.ScanAsync(ScanRequest.Folder(folder.Id), ct));
     }
 
     /// <summary>Remove: the folder and every track under it (with their play history and playlist entries). The page confirms first.</summary>

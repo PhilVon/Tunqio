@@ -22,6 +22,12 @@ public static class SettingsKeys
 
     /// <summary>E5-S5 (Q-74): the first-hover offer to turn previews on has been made, or the user chose on the settings page; it is never made again.</summary>
     public const string UiHoverPreviewOffered = "ui.hoverPreviewOffered";
+
+    /// <summary>
+    /// E6-S6: the first-run welcome has been settled for this profile and is never shown again. True when it ran; false
+    /// when the profile was judged to predate it (a previous launch or a library folder) and it was never shown.
+    /// </summary>
+    public const string UiWelcomeShown = "ui.welcomeShown";
     public const string UiReactiveTheming = "ui.reactiveTheming";
     public const string UiReactiveSmoothing = "ui.reactiveSmoothing";
     public const string UiCloseToTray = "ui.closeToTray";

@@ -58,6 +58,7 @@ public sealed partial class MainWindow : Window
     private bool _panelLoaded;
     private bool _audioSettled;
     private nint _audioEngineNative;
+    private readonly FirstRunWelcomeViewModel? _welcome;
 
     /// <remarks>
     /// Every collaborator is <b>required and positional</b>, with no default (T-180). Each one is still nullable,
@@ -98,6 +99,11 @@ public sealed partial class MainWindow : Window
     /// The mode (E5-S1): the container's one, so the switcher, the shortcuts and the layout move the same value.
     /// Null keeps the window in Discovery with the switcher and the mode keys doing nothing.
     /// </param>
+    /// <param name="welcome">
+    /// The first-run welcome (E6-S6). The window asks it, once its root has loaded, whether this launch shows the
+    /// dialog; the answer and its recording are the view model's. Null shows no welcome, which no launch of the shell
+    /// takes today: App passes one on every launch, and an existing profile gets its "no" from the view model.
+    /// </param>
     public MainWindow(
         bool forceWarp,
         ISettingsStore? settings,
@@ -109,9 +115,11 @@ public sealed partial class MainWindow : Window
         ShellNotices? notices,
         IVisualizationHost? visualization,
         Core.Library.IArtCache? art,
-        ShellState? shell)
+        ShellState? shell,
+        FirstRunWelcomeViewModel? welcome)
     {
         _forceWarp = forceWarp;
+        _welcome = welcome;
         _settings = settings;
         _shortcuts = new ShortcutBindings(settings);
         _open = open;
@@ -249,6 +257,10 @@ public sealed partial class MainWindow : Window
             NowPlaying.OpenRequested += OnOpenRequested;
         }
 
+        // The first-run welcome (E6-S6), over the empty shell. A ContentDialog needs a loaded XamlRoot, so it waits for the
+        // root rather than the constructor.
+        Root.Loaded += (_, _) => ShowWelcomeIfDueAsync().Forget("First-run welcome");
+
         VisualizerPanel.Loaded += OnPanelLoaded;
         VisualizerPanel.SizeChanged += (_, _) => ForwardPanelSize();
         VisualizerPanel.CompositionScaleChanged += (_, _) => ForwardPanelSize();
@@ -277,6 +289,7 @@ public sealed partial class MainWindow : Window
             _focusChrome?.Dispose();
 
             _artLink?.Dispose();
+            _welcome?.Dispose();
             _reactiveTheme?.Dispose();
             _accessibility?.Dispose();
             _reactiveLayer?.Dispose();
@@ -614,6 +627,34 @@ public sealed partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The first-run welcome (E6-S6): asks the view model whether this launch shows it and, if so, shows the dialog over the
+    /// shell in the shell's theme, following a theme chosen from its own last step.
+    /// </summary>
+    private async Task ShowWelcomeIfDueAsync()
+    {
+        if (_welcome is null || _welcome.IsFinished || !await _welcome.DecideAsync())
+        {
+            return;
+        }
+
+        var dialog = new FirstRunWelcomeDialog(_welcome)
+        {
+            XamlRoot = Root.XamlRoot,
+            RequestedTheme = Root.ActualTheme,
+        };
+        Windows.Foundation.TypedEventHandler<FrameworkElement, object> follow =(_, _) => dialog.RequestedTheme = Root.ActualTheme;
+        Root.ActualThemeChanged += follow;
+        try
+        {
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            Root.ActualThemeChanged -= follow;
+        }
     }
 
     /// <summary>Shows the settings overlay (E6-S3) on <paramref name="section"/>, or where it was last left.</summary>
