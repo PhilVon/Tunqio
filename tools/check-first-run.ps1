@@ -13,7 +13,8 @@
 
   Launch 2 reuses the same data root and checks the welcome does not come back. Launch 3 is a second scratch root with
   a settings.json carrying app.launchCount and no ui.welcomeShown, the shape of a profile from before this build, and
-  checks the welcome is not shown to it either.
+  checks the welcome is not shown to it either. Launch 4 is another fresh root: Skip this step with nothing added moves
+  on, and the dialog's Skip all button closes it and records it with no folder added.
 
   WHAT IT CHANGES. Nothing outside the scratch folder under artifacts\check-first-run, which is deleted at the end
   unless -Keep. The real profile (%LocalAppData%\Tunqio) is never opened: every launch passes --data-root, and the
@@ -58,6 +59,7 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $scratch = [System.IO.Path]::GetFullPath((Join-Path $here "..\artifacts\check-first-run\$stamp"))
 $dataRoot = Join-Path $scratch 'data'
 $legacyRoot = Join-Path $scratch 'legacy-data'
+$skipRoot = Join-Path $scratch 'skip-data'
 $music = Join-Path $scratch 'music'
 $fixtures = Join-Path $here '..\tests\fixtures\library'
 $albums = @(
@@ -127,7 +129,7 @@ function Find-Tile($window, [string]$name) {
 
 $shell = $null
 try {
-    New-Item -ItemType Directory -Force -Path $dataRoot, $music, $legacyRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $dataRoot, $music, $legacyRoot, $skipRoot | Out-Null
     foreach ($album in $albums) { Copy-Item -Recurse (Join-Path $fixtures $album.Folder) $music }
     Write-Output "shell: $Exe"
     Write-Output "scratch data root: $dataRoot"
@@ -232,6 +234,23 @@ try {
     $legacy = Read-Settings $legacyRoot
     $predates = Read-Log $legacyRoot | Where-Object { $_ -match 'First-run welcome: not shown, this profile predates it' } | Select-Object -Last 1
     Check 'It records the welcome as settled without showing it' ($legacy.'ui.welcomeShown' -eq $false -and $null -ne $predates) "ui.welcomeShown '$($legacy.'ui.welcomeShown')', log line $(if ($predates) { 'present' } else { 'missing' })"
+
+    # ==== launch 4: skipping, on another fresh profile ===============================================================
+    # Skip this step with nothing added moves on and stores nothing; the dialog's own Skip all button closes it.
+    $shell = Start-Shell $skipRoot
+    $window = $shell.Window
+    $dialog = Wait-Until { Find-Welcome $window } 30 'the welcome appeared on the second fresh profile'
+    Invoke-Element (Wait-Until { Find-Named $dialog 'Skip this step' } 10 'the folder step offered Skip this step')
+    Start-Sleep -Milliseconds 700
+    Check 'Skip this step on the folder step moves to step 2 of 3' ((Find-ById $dialog 'WelcomeStepCaption').Current.Name -eq 'Step 2 of 3') "'$((Find-ById $dialog 'WelcomeStepCaption').Current.Name)'"
+    Invoke-Element (Find-Named $dialog 'Skip all')
+    $gone = Wait-Until { -not (Find-Welcome $window) } 10 'Skip all closed the welcome'
+    Check 'Skip all closes the welcome from step 2' ([bool]$gone) 'dialog gone'
+    Stop-Shell $shell
+    $shell = $null
+    $skipped = Read-Settings $skipRoot
+    $skipLine = Read-Log $skipRoot | Where-Object { $_ -match 'First-run welcome closed \(skip all on step 2\) after .* with 0 folder' } | Select-Object -Last 1
+    Check 'Skipping records the welcome and adds no folder' ($skipped.'ui.welcomeShown' -eq $true -and $null -ne $skipLine) "ui.welcomeShown '$($skipped.'ui.welcomeShown')', log $(if ($skipLine) { $skipLine.Substring($skipLine.IndexOf('First-run welcome closed')) } else { 'missing' })"
 }
 catch {
     $script:failures += "the run stopped: $($_.Exception.Message)"
