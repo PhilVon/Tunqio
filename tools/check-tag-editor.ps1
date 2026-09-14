@@ -966,6 +966,156 @@ try {
 
     if ($script:t137Verdict) { Write-Output "        verdict on screen: $($script:t137Verdict)" }
 
+    # ---- T-114: Edit tags from album detail and from search results --------------------------------------------
+    # Album detail shipped both of its Edit tags items disabled and search results offered none, so only the Tracks
+    # page reached the editor. Each is reached here the way a user reaches it (a menu the app built, opened with
+    # Shift+F10 or the More button), and each dialog is cancelled, so nothing is written.
+    Write-Output ''
+    Write-Output 'T-114  Edit tags from album detail and from search results'
+
+    function Close-TagDialog {
+        $open = Get-Dialog
+        if ($open) {
+            (Get-ElementNamed $open 'Cancel' 'Button').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            Start-Sleep -Seconds 2
+        }
+    }
+
+    function Get-ListItems($scope) {
+        @($scope.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem))))
+    }
+
+    if (-not ('TunqioTagMouse' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class TunqioTagMouse {
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+}
+'@
+    }
+
+    # Selects $row, then opens its context menu the way the keyboard does. WinUI refuses UIA SetFocus, so after a
+    # navigation the keyboard focus may not be in the list and Shift+F10 opens nothing; then the row is right-clicked
+    # at its centre instead, which raises the same ContextRequested. Rectangles are screen pixels, so no scaling. The
+    # cursor is placed a pixel short and moved the last pixel by injected input, as check-focus.ps1 learned WinUI needs.
+    function Open-RowMenu($row) {
+        $row.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        try { $row.SetFocus() } catch { }
+        Start-Sleep -Milliseconds 500
+        Send-Keys '+{F10}'
+        Start-Sleep -Seconds 2
+        if (Get-ElementNamed $script:window 'Show in folder' 'MenuItem') { return }
+        $rect = Get-UiaRect $row
+        if ($rect.Offscreen) { return }
+        Set-Foreground
+        [TunqioTagMouse]::SetCursorPos([int]($rect.Left + $rect.Width / 2) - 1, [int]($rect.Top + $rect.Height / 2)) | Out-Null
+        [TunqioTagMouse]::mouse_event(0x0001, 1, 0, 0, [UIntPtr]::Zero)
+        Start-Sleep -Milliseconds 150
+        [TunqioTagMouse]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero)
+        [TunqioTagMouse]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero)
+        Start-Sleep -Seconds 2
+        $script:detail += 'Shift+F10 opened no menu (keyboard focus was elsewhere); the row was right-clicked instead'
+    }
+
+    # The dialog's title is "Edit tags" for one track and "Edit tags - N tracks" (an em dash) for several; matched on
+    # its ASCII ends only, because a non-ASCII literal does not survive powershell -File under 5.1.
+    function Get-DialogTrackCount($dialog) {
+        if ($dialog.Current.Name -eq 'Edit tags') { return 1 }
+        if ($dialog.Current.Name -match '(\d+) tracks$') { return [int]$Matches[1] }
+        return 0
+    }
+
+    Test-Case 'album detail: the More menu''s Edit tags opens the editor over the whole album' {
+        try {
+            Close-TagDialog
+            $table = Get-ElementWithId $script:window 'List'
+            if (-not $table) { return 'there is no Tracks table to go to an album from' }
+            $first = @(Get-ListItems $table)[0]
+            if (-not $first) { return 'the Tracks table has no rows' }
+            Open-RowMenu $first
+            $goTo = Get-ElementNamed $script:window 'Go to album' 'MenuItem'
+            if (-not $goTo) { Send-Keys '{ESC}'; return 'the Tracks row menu has no "Go to album"' }
+            $goTo.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $null = Wait-For { Get-ElementNamed $script:window 'Play album' 'Button' } 15 'album detail opened'
+            $more = Wait-For { Get-ElementNamed $script:window 'More' $null } 10 'album detail showed its More button'
+            $expand = $null
+            if ($more.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expand)) { $expand.Expand() }
+            else { $more.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+            Start-Sleep -Seconds 2
+            $item = Get-ElementNamed $script:window 'Edit tags' 'MenuItem'
+            if (-not $item) { Send-Keys '{ESC}'; return 'the More menu has no "Edit tags"' }
+            if (-not $item.Current.IsEnabled) { Send-Keys '{ESC}'; return 'the More menu''s "Edit tags" is disabled' }
+            $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $dialog = Wait-For { Get-Dialog } 10 'the tag editor opened from the More menu'
+            $count = Get-DialogTrackCount $dialog
+            $script:detail += "opened as a $count-track editor"
+            if ($count -lt 2) { return "the dialog opened as '$($dialog.Current.Name)', not over the album's tracks" }
+            return $null
+        }
+        catch { return $_.Exception.Message }
+        finally { Close-TagDialog }
+    }
+
+    Test-Case 'album detail: a track row''s Edit tags opens the editor over that row' {
+        try {
+            $list = Get-ElementWithId $script:window 'List'
+            $row = if ($list) { @(Get-ListItems $list)[0] } else { $null }
+            if (-not $row) { return 'album detail lists no track rows' }
+            Open-RowMenu $row
+            $item = Get-ElementNamed $script:window 'Edit tags' 'MenuItem'
+            if (-not $item) { Send-Keys '{ESC}'; return 'the album detail row menu has no "Edit tags"' }
+            if (-not $item.Current.IsEnabled) { Send-Keys '{ESC}'; return 'the album detail row menu''s "Edit tags" is disabled' }
+            $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $dialog = Wait-For { Get-Dialog } 10 'the tag editor opened from the album detail row menu'
+            if ((Get-DialogTrackCount $dialog) -ne 1) { return "the dialog opened as '$($dialog.Current.Name)', not over the one selected row" }
+            return $null
+        }
+        catch { return $_.Exception.Message }
+        finally { Close-TagDialog }
+    }
+
+    $script:searchBox = $null
+    Test-Case 'search results: a track''s Edit tags opens the editor over that track' {
+        try {
+            $query = $selected[0].Title
+            $script:searchBox = Wait-For {
+                foreach ($candidate in Get-Descendants $script:window) {
+                    $value = $null
+                    if ($candidate.Current.Name -eq 'Search library' -and
+                        $candidate.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$value)) { $candidate; break }
+                }
+            } 10 'a search box named "Search library" that takes a value'
+            # SetValue, not Enter: the box searches as its text changes, and Enter would play the first result.
+            $script:searchBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($query)
+            $results = Wait-For { Get-ElementNamed $script:window 'Search results' 'List' } 15 'the search results list appeared'
+            $candidates = @(Wait-For { $found = @(Get-ListItems $results | Where-Object { $_.Current.Name -like "*$query*" }); if ($found.Count) { , $found } } 15 "search listed '$query'")
+            # An album or artist row gets a different menu; "Go to album" is on the track menu only, so it says which
+            # menu opened before Edit tags is looked for.
+            foreach ($row in $candidates | Select-Object -First 4) {
+                Open-RowMenu $row
+                if (-not (Get-ElementNamed $script:window 'Go to album' 'MenuItem')) { Send-Keys '{ESC}'; continue }
+                $item = Get-ElementNamed $script:window 'Edit tags' 'MenuItem'
+                if (-not $item) { Send-Keys '{ESC}'; return 'the search track menu has no "Edit tags"' }
+                if (-not $item.Current.IsEnabled) { Send-Keys '{ESC}'; return 'the search track menu''s "Edit tags" is disabled' }
+                $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                $dialog = Wait-For { Get-Dialog } 10 'the tag editor opened from search results'
+                if ((Get-DialogTrackCount $dialog) -ne 1) { return "the dialog opened as '$($dialog.Current.Name)', not over the one track" }
+                $script:detail += "searched '$query'; the track's menu opened a one-track editor"
+                return $null
+            }
+            return "none of the $($candidates.Count) results matching '$query' opened the track menu"
+        }
+        catch { return $_.Exception.Message }
+        finally {
+            Close-TagDialog
+            if ($script:searchBox) { $script:searchBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('') }
+        }
+    }
+
     # ---- what the app said about itself while all that was happening -------------------------------------------
     Write-Output ''
     Test-Case 'the app logged no error of its own during the run' {
@@ -1009,7 +1159,7 @@ try {
     if ($script:notes.Count -gt 0) { Write-Output '' }
 
     if ($script:failures.Count -eq 0) {
-        Write-Output 'PASS: F2 and the row menu reach the tag editor, the batch says which fields it does not agree on and which files it will touch, the bar moves, and the Undo bar puts it all back'
+        Write-Output 'PASS: F2 and the row menu reach the tag editor, as do album detail and search results, the batch says which fields it does not agree on and which files it will touch, the bar moves, and the Undo bar puts it all back'
         exit 0
     }
 

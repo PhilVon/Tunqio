@@ -70,6 +70,7 @@
       </MenuFlyoutItem>
       <MenuFlyoutItem Text="Play next" Click="OnTrackPlayNext" />
       <MenuFlyoutItem Text="Add to queue" Click="OnTrackEnqueue" />
+      <MenuFlyoutItem Text="Edit tags" Click="OnTrackEditTags" />
       <MenuFlyoutSeparator />
       <MenuFlyoutItem Text="Go to album" Click="OnTrackOpenAlbum" />
       <MenuFlyoutItem Text="Go to artist" Click="OnTrackOpenArtist" />

@@ -147,6 +147,14 @@ public sealed partial class AlbumDetailPage : Page, ILibraryRefreshable
     private void OnMenuAddToPlaylist(object sender, RoutedEventArgs e) =>
         PlaylistDialogs.AddToPlaylistAsync(XamlRoot, [.. SelectedRows(_menuAnchor).Select(r => r.Track.Id)]).Forget("Add tracks to playlist");
 
+    // Edit tags (T-114): the tag editor is a dialog too, opened over the selected rows or the whole album, as the
+    // Tracks page opens it.
+    private void OnEditAlbumTags(object sender, RoutedEventArgs e) =>
+        TagEditorDialog.ShowAsync(XamlRoot, [.. ViewModel.Rows.Select(r => r.Track)]).Forget("Edit album tags");
+
+    private void OnMenuEditTags(object sender, RoutedEventArgs e) =>
+        TagEditorDialog.ShowAsync(XamlRoot, [.. SelectedRows(_menuAnchor).Select(r => r.Track)]).Forget("Edit album track tags");
+
     private void EnsureSelected(AlbumTrackRow row)
     {
         if (!List.SelectedItems.Contains(row))

@@ -20,7 +20,7 @@
       <MenuFlyoutItem Text="Play next" Click="OnMenuPlayNext" />
       <MenuFlyoutItem Text="Add to queue" Click="OnMenuEnqueue" />
       <MenuFlyoutItem Text="Add to playlist" Click="OnMenuAddToPlaylist" />
-      <MenuFlyoutItem Text="Edit tags" IsEnabled="False" />
+      <MenuFlyoutItem Text="Edit tags" Click="OnMenuEditTags" />
       <MenuFlyoutSeparator />
       <MenuFlyoutItem Text="Go to artist" Click="OnMenuOpenArtist" />
       <MenuFlyoutItem Text="Show in folder" Click="OnMenuShowInFolder" />
@@ -53,7 +53,7 @@
             <DropDownButton.Flyout>
               <MenuFlyout>
                 <MenuFlyoutItem Text="Add to playlist" Click="OnAddAlbumToPlaylist" />
-                <MenuFlyoutItem Text="Edit tags" IsEnabled="False" />
+                <MenuFlyoutItem Text="Edit tags" Click="OnEditAlbumTags" />
                 <MenuFlyoutItem Text="Show in folder" Click="OnShowInFolder" />
               </MenuFlyout>
             </DropDownButton.Flyout>

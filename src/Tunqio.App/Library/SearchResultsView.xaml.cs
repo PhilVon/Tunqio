@@ -166,6 +166,15 @@ public sealed partial class SearchResultsView : UserControl
 
     private void OnTrackShowInFolder(object sender, RoutedEventArgs e) => Track(TrackAction.ShowInFolder);
 
+    // Edit tags (T-114) opens a dialog, which needs this view's XamlRoot, so it is the view's and not the view model's.
+    private void OnTrackEditTags(object sender, RoutedEventArgs e)
+    {
+        if (_menuRow is TrackDto track)
+        {
+            TagEditorDialog.ShowAsync(XamlRoot, [track]).Forget("Edit search track tags");
+        }
+    }
+
     private void OnAlbumPlay(object sender, RoutedEventArgs e) => Album(AlbumAction.Play);
 
     private void OnAlbumPlayNext(object sender, RoutedEventArgs e) => Album(AlbumAction.PlayNext);
