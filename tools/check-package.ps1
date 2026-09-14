@@ -150,7 +150,76 @@ function Test-Registrations([string]$package) {
     Check-Registration 'file system write virtualisation is disabled' ($virtualization -and $virtualization.InnerText.Trim() -eq 'disabled') "'$(if ($virtualization) { $virtualization.InnerText.Trim() } else { 'not declared' })'"
     $capabilities = @($manifest.SelectNodes("//*[local-name()='Capability']") | ForEach-Object { $_.GetAttribute('Name') })
     Check-Registration 'the unvirtualizedResources capability it requires' ($capabilities -contains 'unvirtualizedResources') "capabilities: $($capabilities -join ', ')"
+    Test-ManifestImages $manifest
     Write-Output ''
+}
+
+# ---- T-191 (AC-499): every icon asset at its size ------------------------------------------------------------------------
+# The list is assets/brand/icon-assets.json, the one tools/IconGen renders from assets/brand/tunqio-icon.svg, so it is not a
+# second copy kept here. Each file is parsed, not trusted by name: a PNG's IHDR gives its pixel size, and an .ico's directory
+# must list exactly the declared sizes with a PNG of that size behind each entry. Paths in the list are relative to the app
+# root, which is where they sit beside Tunqio.exe and inside the package alike.
+$iconSpec = Get-Content "$repo\assets\brand\icon-assets.json" -Raw | ConvertFrom-Json
+
+function Read-BigEndian32([byte[]]$b, [int]$at) { return ([int]$b[$at] -shl 24) -bor ([int]$b[$at + 1] -shl 16) -bor ([int]$b[$at + 2] -shl 8) -bor [int]$b[$at + 3] }
+function Read-Little([byte[]]$b, [int]$at, [int]$count) { $v = 0; for ($i = $count - 1; $i -ge 0; $i--) { $v = ($v -shl 8) -bor [int]$b[$at + $i] }; return $v }
+function Get-PngSize([byte[]]$b, [int]$at = 0) {
+    if ($b.Length -lt $at + 24 -or $b[$at] -ne 137 -or $b[$at + 1] -ne 80 -or $b[$at + 12] -ne 73 -or $b[$at + 15] -ne 82) { return $null }
+    return "$(Read-BigEndian32 $b ($at + 16))x$(Read-BigEndian32 $b ($at + 20))"
+}
+function Get-IcoSizes([byte[]]$b) {
+    if ($b.Length -lt 6 -or (Read-Little $b 0 2) -ne 0 -or (Read-Little $b 2 2) -ne 1) { return $null }
+    $sizes = @()
+    for ($i = 0; $i -lt (Read-Little $b 4 2); $i++) {
+        $e = 6 + 16 * $i
+        $w = if ($b[$e] -eq 0) { 256 } else { [int]$b[$e] }
+        $png = Get-PngSize $b (Read-Little $b ($e + 12) 4)
+        if ($png -ne "${w}x${w}") { return "entry $i says $w px but holds $png" }
+        $sizes += $w
+    }
+    return ($sizes -join ',')
+}
+
+# $reader: a scriptblock from an app-root-relative path to its bytes, or $null when the artifact does not hold it.
+function Test-IconAssets([string]$what, [scriptblock]$reader) {
+    $count = 0
+    foreach ($icon in @($iconSpec.icons)) {
+        $bytes = & $reader $icon.path
+        $want = (@($icon.sizes) -join ',')
+        $got = if ($bytes) { Get-IcoSizes $bytes } else { 'missing' }
+        if ($got -eq $want) { $count++ }
+        else { $script:failures += "$what - $($icon.path) should be an icon with $want px entries, is $got"; Write-Output "  FAIL  $($icon.path) ($want px wanted, $got)" }
+    }
+    foreach ($image in @($iconSpec.images)) {
+        $bytes = & $reader $image.path
+        $want = "$($image.width)x$($image.height)"
+        $got = if ($bytes) { Get-PngSize $bytes } else { 'missing' }
+        if ($got -eq $want) { $count++ }
+        else { $script:failures += "$what - $($image.path) should be a $want PNG, is $got"; Write-Output "  FAIL  $($image.path) ($want wanted, $got)" }
+    }
+    $total = @($iconSpec.icons).Count + @($iconSpec.images).Count
+    Write-Output "  $(if ($count -eq $total) { 'ok  ' } else { 'FAIL' })  icon assets at their sizes: $count of $total ($(@($iconSpec.icons).Count) .ico, $(@($iconSpec.images).Count) .png, from assets/brand/icon-assets.json)"
+    Write-Output ''
+}
+
+function Test-ManifestImages([xml]$manifest) {
+    $visual = $manifest.SelectSingleNode("//*[local-name()='VisualElements']")
+    $wanted = [ordered]@{
+        'Properties Logo' = $manifest.SelectSingleNode("//*[local-name()='Properties']/*[local-name()='Logo']").InnerText
+        'Square150x150Logo' = $visual.GetAttribute('Square150x150Logo')
+        'Square44x44Logo' = $visual.GetAttribute('Square44x44Logo')
+        'Wide310x150Logo' = $manifest.SelectSingleNode("//*[local-name()='DefaultTile']").GetAttribute('Wide310x150Logo')
+        'SplashScreen' = $manifest.SelectSingleNode("//*[local-name()='SplashScreen']").GetAttribute('Image')
+        'tunqio-audio association Logo' = "$($manifest.SelectSingleNode("//*[local-name()='FileTypeAssociation']/*[local-name()='Logo']").InnerText)"
+    }
+    $declared = @($iconSpec.images | ForEach-Object { $_.path })
+    foreach ($name in $wanted.Keys) {
+        $ref = "$($wanted[$name])".Replace('\', '/')
+        $stem = [regex]::Escape($ref -replace '\.png$', '')
+        $variants = @($declared | Where-Object { $_ -eq $ref -or $_ -match "^$stem\.(scale|targetsize)-[^.]+\.png$" })
+        Check-Registration "manifest $name is a generated image" ($ref -and $variants.Count -gt 0) "'$($wanted[$name])', $($variants.Count) file(s)"
+    }
+    Check-Registration 'the file association has its own logo' ($wanted['tunqio-audio association Logo'] -eq 'Assets\FileAssociation.png') "'$($wanted['tunqio-audio association Logo'])'"
 }
 
 foreach ($dir in $Root) {
@@ -166,6 +235,11 @@ foreach ($dir in $Root) {
     $present = @(Get-ChildItem $resolved -Recurse -File |
         ForEach-Object { $_.FullName.Substring($resolved.Length).TrimStart('\', '/').Replace('\', '/').ToLowerInvariant() })
     Test-Payload 'unpackaged app' $present
+    Test-IconAssets 'unpackaged app' {
+        param($path)
+        $file = Join-Path $resolved $path
+        if (Test-Path $file) { , [System.IO.File]::ReadAllBytes($file) }
+    }
 }
 
 if ($Msix) {
@@ -179,15 +253,26 @@ if ($Msix) {
     else {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [System.IO.Compression.ZipFile]::OpenRead($package)
-        try { $present = @($zip.Entries | ForEach-Object { $_.FullName.Replace('\', '/').ToLowerInvariant() }) }
+        try {
+            $present = @($zip.Entries | ForEach-Object { $_.FullName.Replace('\', '/').ToLowerInvariant() })
+            Test-Payload 'packaged app (MSIX payload)' $present
+            Test-IconAssets 'MSIX' {
+                param($path)
+                $entry = $zip.Entries | Where-Object { $_.FullName.Replace('\', '/') -ieq $path } | Select-Object -First 1
+                if ($entry) {
+                    $stream = $entry.Open()
+                    try { $copy = New-Object System.IO.MemoryStream; $stream.CopyTo($copy); , $copy.ToArray() }
+                    finally { $stream.Dispose() }
+                }
+            }
+        }
         finally { $zip.Dispose() }
-        Test-Payload 'packaged app (MSIX payload)' $present
         Test-Registrations $package
     }
 }
 
 if ($failures.Count -eq 0) {
-    Write-Output 'PASS: every artifact carries mpcore.dll, the BASS runtime it loads and the licence texts.'
+    Write-Output 'PASS: every artifact carries mpcore.dll, the BASS runtime it loads, the licence texts and every icon asset at its size.'
     exit 0
 }
 foreach ($failure in $failures) { Write-Output "FAIL: $failure" }

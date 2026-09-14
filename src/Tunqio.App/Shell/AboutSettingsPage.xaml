@@ -43,14 +43,22 @@
                Severity="{x:Bind shell:VisualizationSettingsPage.SeverityOf(ViewModel.NoticeIsError), Mode=OneWay}"
                IsClosable="True" Closed="OnNoticeClosed" Margin="0,8,0,0" />
 
-      <!-- Version -->
+      <!-- Version, beside the logo (T-191): Assets/TunqioLogo.png, 256 px rendered from assets/brand/tunqio-icon.svg by
+           tools/IconGen, drawn at 64 epx so it stays sharp up to 400 % scaling. Opened and failed are logged. -->
       <TextBlock Text="Version" Style="{StaticResource SectionHeader}" />
-      <TextBlock Text="{x:Bind ViewModel.VersionLine}" Style="{StaticResource BodyStrongTextBlockStyle}"
-                 AutomationProperties.AutomationId="AppVersion" />
-      <TextBlock Text="{x:Bind ViewModel.CoreLine}" Style="{StaticResource Readout}" Margin="0,2,0,0"
-                 AutomationProperties.AutomationId="CoreVersion" />
-      <TextBlock Text="{x:Bind ViewModel.OsLine}" Style="{StaticResource Hint}" Margin="0,2,0,0"
-                 AutomationProperties.AutomationId="OsVersion" />
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+        <Image x:Name="Logo" Source="ms-appx:///Assets/TunqioLogo.png" Width="64" Height="64" VerticalAlignment="Center"
+               ImageOpened="OnLogoOpened" ImageFailed="OnLogoFailed"
+               AutomationProperties.Name="Tunqio logo" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="{x:Bind ViewModel.VersionLine}" Style="{StaticResource BodyStrongTextBlockStyle}"
+                     AutomationProperties.AutomationId="AppVersion" />
+          <TextBlock Text="{x:Bind ViewModel.CoreLine}" Style="{StaticResource Readout}" Margin="0,2,0,0"
+                     AutomationProperties.AutomationId="CoreVersion" />
+          <TextBlock Text="{x:Bind ViewModel.OsLine}" Style="{StaticResource Hint}" Margin="0,2,0,0"
+                     AutomationProperties.AutomationId="OsVersion" />
+        </StackPanel>
+      </Grid>
 
       <!-- Licences -->
       <TextBlock Text="Licences" Style="{StaticResource SectionHeader}" />

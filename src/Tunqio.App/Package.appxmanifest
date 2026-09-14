@@ -55,6 +55,7 @@
         <uap:Extension Category="windows.fileTypeAssociation">
           <uap:FileTypeAssociation Name="tunqio-audio">
             <uap:DisplayName>Tunqio audio file</uap:DisplayName>
+            <uap:Logo>Assets\FileAssociation.png</uap:Logo>
             <uap:InfoTip>Audio file playable by Tunqio</uap:InfoTip>
             <uap:SupportedFileTypes>
               <uap:FileType>.mp3</uap:FileType>

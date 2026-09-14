@@ -13,8 +13,17 @@
   WHAT IT CHANGES. diagnostics.crashReporting is set to true and back to false through the page (and restored to
   its previous value in the finally). A zip is written to %TEMP% and deleted. An Explorer window is opened on the
   logs folder and closed again. The launch count and the log grow, as they do for any launch. Nothing is played.
+  T-191: also finds the Tunqio logo beside the version (an Image named "Tunqio logo", square) and reads "About logo loaded"
+  from the log, with no "About logo failed".
+
+  PROFILE. Runs on a scratch profile, artifacts\check-about\<stamp>\data, passed as --data-root and deleted at the end
+  unless -Keep; the real %LOCALAPPDATA%\Tunqio is never opened.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
+.PARAMETER DataRoot
+  The profile to run on. Defaults to a fresh scratch folder with the first-run welcome already decided.
+.PARAMETER Keep
+  Keep the scratch folder for inspection.
 .PARAMETER Seconds
   How long to give the window before reading the tree; audio and the renderer come up after the first frame.
 .PARAMETER Widths
@@ -24,6 +33,8 @@
 [CmdletBinding()]
 param(
     [string]$Exe,
+    [string]$DataRoot,
+    [switch]$Keep,
     [int]$Seconds = 10,
     [string]$Widths = '1616,716,560'
 )
@@ -45,8 +56,17 @@ if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
 
 $A = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
-$settingsPath = Join-Path $env:LOCALAPPDATA 'Tunqio\settings.json'
-$logDir = Join-Path $env:LOCALAPPDATA 'Tunqio\logs'
+$scratch = $null
+if (-not $DataRoot) {
+    $scratch = [System.IO.Path]::GetFullPath((Join-Path $here ("..\artifacts\check-about\" + (Get-Date -Format 'yyyyMMdd-HHmmss'))))
+    $DataRoot = Join-Path $scratch 'data'
+    New-Item -ItemType Directory -Force $DataRoot | Out-Null
+    # The first-run welcome already decided, as tools/check-tray.ps1 seeds it, so no dialog covers the shell.
+    [System.IO.File]::WriteAllText((Join-Path $DataRoot 'settings.json'), '{ "ui.welcomeShown": false }')
+}
+$DataRoot = [System.IO.Path]::GetFullPath($DataRoot)
+$settingsPath = Join-Path $DataRoot 'settings.json'
+$logDir = Join-Path $DataRoot 'logs'
 $propsVersion = ([xml](Get-Content (Join-Path $here '..\Directory.Build.props') -Raw)).Project.PropertyGroup.TunqioVersion | Where-Object { $_ } | Select-Object -First 1
 $zip = Join-Path $env:TEMP ('tunqio-check-about-' + [guid]::NewGuid().ToString('N') + '.zip')
 $script:failures = @()
@@ -135,7 +155,8 @@ try {
     Write-Output "Directory.Build.props TunqioVersion: $propsVersion"
     Write-Output "diagnostics.crashReporting before: $(if ($null -eq $crashBefore) { '(unset)' } else { $crashBefore })"
     Write-Output "zip: $zip"
-    $process = Start-Process $Exe -ArgumentList @('--export-diagnostics', "`"$zip`"", '--redact-paths') -PassThru
+    Write-Output "data root: $DataRoot"
+    $process = Start-Process $Exe -ArgumentList @('--data-root', "`"$DataRoot`"", '--export-diagnostics', "`"$zip`"", '--redact-paths') -PassThru
     $byPid = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
     $window = Wait-Until { $A::RootElement.FindFirst($TS::Children, $byPid) } 30 'the shell window appeared'
     Start-Sleep -Seconds $Seconds
@@ -160,6 +181,16 @@ try {
     $bass = Find-ById $overlay 'BassAttribution'
     $bassText = if ($bass) { $bass.Current.Name } else { '' }
     Check 'The BASS attribution sentence is on the page' ($bassText -like '*BASS audio library*' -and $bassText -like '*un4seen.com*') "'$($bassText.Substring(0, [math]::Min(60, $bassText.Length)))...'"
+
+    # ---- logo (T-191) ---------------------------------------------------------------------------------------------------
+    $logo = Find-Named $overlay 'Tunqio logo'
+    $logoRect = if ($logo) { Get-UiaRect $logo } else { $null }
+    $logoType = if ($logo) { $logo.Current.ControlType.ProgrammaticName } else { 'not in the tree' }
+    Check 'The Tunqio logo is on the page, an image, square and at least 48 px' ($logo -and $logoType -eq 'ControlType.Image' -and -not $logoRect.Offscreen -and $logoRect.Width -ge 48 -and [math]::Abs($logoRect.Width - $logoRect.Height) -le 2) "$logoType $(if ($logoRect) { $logoRect.Describe })"
+    if ($logo -and $appVersion) {
+        $versionRect = Get-UiaRect $appVersion
+        Check 'The logo sits to the left of the version line' ($logoRect.Right -le ($versionRect.Left + 1)) "logo $($logoRect.Describe), version $($versionRect.Describe)"
+    }
 
     # ---- licences -----------------------------------------------------------------------------------------------------
     # 'Licence list', not the 'Licences' section header, which is a text block named by its text and comes first.
@@ -377,7 +408,14 @@ if ($reachedEnd) {
     Check 'The log records the logs folder opening' ($null -ne $opened) "$(if ($opened) { $opened.Substring([math]::Max(0, $opened.IndexOf('Opened'))) } else { 'no line' })"
     $modes = @($lines | Where-Object { $_ -match 'Settings navigation is "?(\w+)"? at (\d+) px' } | ForEach-Object { $Matches[1] + ' at ' + $Matches[2] + ' px' })
     Write-Output "  note  settings navigation modes seen: $($modes -join '; ')"
+    $logoLoaded = $lines | Where-Object { $_ -match 'About logo loaded' } | Select-Object -Last 1
+    $logoFailed = $lines | Where-Object { $_ -match 'About logo failed' } | Select-Object -Last 1
+    Check 'The log says the logo image loaded, and never that it failed' ($null -ne $logoLoaded -and $null -eq $logoFailed) "$(if ($logoFailed) { $logoFailed.Substring([math]::Max(0, $logoFailed.IndexOf('About'))) } elseif ($logoLoaded) { $logoLoaded.Substring([math]::Max(0, $logoLoaded.IndexOf('About'))) } else { 'no line' })"
+    $windowIcon = $lines | Where-Object { $_ -match 'Window icon: main window uses' } | Select-Object -Last 1
+    Check 'The log says the main window took Assets/Tunqio.ico' ($null -ne $windowIcon) "$(if ($windowIcon) { $windowIcon.Substring([math]::Max(0, $windowIcon.IndexOf('Window'))) } else { 'no line' })"
 }
+
+if ($scratch -and -not $Keep) { Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($script:failures.Count -eq 0) {

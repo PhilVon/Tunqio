@@ -38,6 +38,7 @@ public sealed partial class MiniPlayerWindow : Window
         NowPlaying = new Shell.NowPlayingViewModel(audio, rater: null, navigator: null, SynchronizationContext.Current);
         InitializeComponent();
         Title = "Tunqio mini player";
+        AppIcon.Apply(AppWindow, AppContext.BaseDirectory, "mini player");
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(DragRegion);

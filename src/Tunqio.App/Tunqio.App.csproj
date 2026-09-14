@@ -17,6 +17,8 @@
     <RootNamespace>Tunqio.App</RootNamespace>
     <AssemblyName>Tunqio</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- T-191: Tunqio.exe carries the icon (Explorer, the unpackaged taskbar, the tray's fallback). Rendered by tools/IconGen. -->
+    <ApplicationIcon>Assets\Tunqio.ico</ApplicationIcon>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
@@ -79,10 +81,12 @@
       <SubType>Designer</SubType>
     </AppxManifest>
     <None Include="Package.appxmanifest" Condition="'$(TunqioPackaged)' != 'true'" />
-    <Content Include="Assets\**\*.png" />
-    <!-- E7-S3: the tray icons (docs/identity.md, Assets/Tray/tunqio-16.ico and tunqio-32.ico with -light/-dark variants),
-         loaded from beside the executable in both shapes by Tray/TrayIconFiles.cs. The icon task adds the files. -->
-    <Content Include="Assets\**\*.ico">
+    <!-- T-191: every icon asset, rendered from assets/brand/tunqio-icon.svg by tools/IconGen and listed in
+         assets/brand/icon-assets.json, in the package and beside the executable alike: the window icon (Assets/Tunqio.ico,
+         Shell/AppIcon.cs), the tray icons (Assets/Tray/tunqio-16|32-light|dark.ico, Tray/TrayIconFiles.cs, E7-S3) and the
+         About logo (Assets/TunqioLogo.png) are loaded from there in both shapes; the MSIX tiles are the manifest's.
+         tools/check-package.ps1 asserts each at its size in both artifacts. -->
+    <Content Include="Assets\**\*.png;Assets\**\*.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -17,8 +17,9 @@ What ships:
   library scanner: `.mp3 .flac .m4a .mp4 .aac .ogg .oga .opus .wav .aif .aiff .aifc .wma .wv .ape` (MPC left 1.0 with
   Q-26). Beside it, `uap:Protocol Name="tunqio"` and `uap5:AppExecutionAlias` with `tunqio.exe`;
   `desktop6:FileSystemWriteVirtualization` stays `disabled` with the `unvirtualizedResources` capability. Names come from
-  [identity.md](identity.md). There is no `uap:Logo`: the association uses the app's icon until the artwork task adds
-  `Assets/FileAssociation.png`.
+  [identity.md](identity.md). **As built (T-191):** the association has its own `uap:Logo`, `Assets\FileAssociation.png`
+  (256 px plus `targetsize-16/24/32/48/256`), rendered from `assets/brand/tunqio-icon.svg` by `tools/IconGen` like every other
+  icon asset; `tools/check-package.ps1` asserts the manifest names it and each file is in the package at its size.
 - **Checked twice.** `Tunqio.Core.Tests` (`IdentityTests`) compares the source manifest with `AudioFormats.Extensions` and
   the `Identity` constants, so adding a format without an association fails a test. `tools/check-package.ps1 -Msix`
   reads `AppxManifest.xml` out of the built package (what an install registers from) and asserts the association (every
@@ -210,7 +211,11 @@ The WinForms sample below is superseded by ADR-006 and kept only as the original
   `tunqio-16-<theme>.ico`, `tunqio-16.ico`, `tunqio-32-<theme>.ico`, `tunqio-32.ico`; above 100 % the 32 px pair first. The
   theme is read once at launch from `SystemUsesLightTheme` (read only). `Assets\**\*.ico` is a `Content` item, so files the
   icon task drops in reach both build shapes. Until one exists the tray shows the executable's own icon and the log says
-  "using the executable's own icon as the fallback".
+  "using the executable's own icon as the fallback". **As built (T-191):** `tools/IconGen` renders the four variants from
+  `assets/brand/tunqio-icon.svg`: `tunqio-16-light.ico`, `tunqio-16-dark.ico` (one 16 px entry) and `tunqio-32-light.ico`,
+  `tunqio-32-dark.ico` (one 32 px entry), light and dark the same art unless Phil asks otherwise on T-191; the unqualified
+  names are not generated. The window's own icon is `Assets/Tunqio.ico` (`Shell/AppIcon.cs`), and Tunqio.exe carries it too,
+  so the fallback is the logo as well.
 - **The rules.** `Tray/TrayController.cs`, behind `ITrayIcon`, unit tested over a fake (`TrayControllerTests`): menu choices
   go to `PlaybackSession.TogglePlayPauseAsync`, `NextAsync` and `PreviousAsync` (nothing before audio is up); the tooltip is
   `Identity.TrayTooltip`, `Tunqio` idle and `Title – Artist` with a track loaded, trimmed to 127 characters title first; the

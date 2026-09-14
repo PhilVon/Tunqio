@@ -128,6 +128,7 @@ public sealed partial class MainWindow : Window
         _visualization = visualization;
         InitializeComponent();
         Title = Identity.WindowTitle(null, null);
+        AppIcon.Apply(AppWindow, AppContext.BaseDirectory, "main window");
 
         _chrome = new ShellChrome(
             Root, ShellGrid, NowPlayingColumn, SidebarPanel, CurationEditor, ControlsPanel, SettingsPanel, NowPlaying,

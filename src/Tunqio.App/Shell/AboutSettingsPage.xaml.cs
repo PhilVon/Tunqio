@@ -95,6 +95,17 @@ public sealed partial class AboutSettingsPage : Page
 
     private void OnNoticeClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.ClearNotice();
 
+    /// <summary>T-191: the logo reached the page; logged so tools/check-about.ps1 can tell a drawn logo from an empty box.</summary>
+    private void OnLogoOpened(object sender, RoutedEventArgs e) =>
+        Serilog.Log.Information(
+            "About logo loaded: {Source} ({Width}x{Height} px)",
+            (Logo.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.UriSource,
+            (Logo.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.PixelWidth,
+            (Logo.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.PixelHeight);
+
+    private void OnLogoFailed(object sender, ExceptionRoutedEventArgs e) =>
+        Serilog.Log.Warning("About logo failed to load: {Error}", e.ErrorMessage);
+
     private void OnOpenLogsFolder(object sender, RoutedEventArgs e) =>
         OpenFolderAsync(ViewModel.LogsDirectory, "logs").Forget("Open the logs folder");
 

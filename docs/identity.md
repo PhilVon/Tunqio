@@ -72,12 +72,26 @@ Decision for 1.0: declare `<desktop6:FileSystemWriteVirtualization>disabled</des
 
 | Asset | Path in `Tunqio.App` |
 |-------|----------------------|
-| App icon (multi-size `.ico`) | `Assets/Tunqio.ico` |
-| MSIX tiles | `Assets/Square44x44Logo.png`, `Assets/Square150x150Logo.png`, `Assets/Wide310x150Logo.png`, `Assets/StoreLogo.png`, `Assets/SplashScreen.png` (standard names, scale-qualified) |
-| File association logo | `Assets/FileAssociation.png` |
-| Tray icon | `Assets/Tray/tunqio-16.ico`, `Assets/Tray/tunqio-32.ico` (light and dark variants) |
+| Source (Phil's logo, 512 x 512 viewBox, transparent) | `assets/brand/tunqio-icon.svg` at the repository root, the one file every asset below is rendered from |
+| App icon (multi-size `.ico`) | `Assets/Tunqio.ico`: PNG entries at 16, 20, 24, 32, 40, 48, 64 and 256 px. Tunqio.exe's `ApplicationIcon` and the window icon (`Shell/AppIcon.cs`, title bar, taskbar, Alt+Tab) |
+| MSIX tiles | `Assets/Square44x44Logo.png`, `Assets/Square150x150Logo.png`, `Assets/Wide310x150Logo.png`, `Assets/StoreLogo.png`, `Assets/SplashScreen.png` (standard names, each as `scale-100`, `125`, `150`, `200` and `400`; Square44x44Logo also as `targetsize-16`, `24`, `32`, `48` and `256`, plain and `_altform-unplated`). The wide tile and the splash screen are the icon centred on transparency |
+| File association logo | `Assets/FileAssociation.png` (256 px, plus `targetsize-16`, `24`, `32`, `48` and `256`), the manifest's `tunqio-audio` `uap:Logo` |
+| Tray icon | `Assets/Tray/tunqio-16-light.ico`, `tunqio-16-dark.ico`, `tunqio-32-light.ico`, `tunqio-32-dark.ico`, named for the taskbar they sit on (`Tray/TrayIconFiles.cs` also accepts an unqualified `tunqio-16.ico` or `tunqio-32.ico`, which are not generated) |
+| About page logo | `Assets/TunqioLogo.png` (256 px, shown at 64 epx) |
 
-Artwork is a separate task; until it exists the WinUI template placeholders ship with the name applied.
+**Generator (T-191).** Every file above is rendered, never hand-exported, by `tools/IconGen` from the source, at each pixel size
+directly rather than downscaled; the list of files and sizes is `assets/brand/icon-assets.json`. After changing the SVG or the list:
+
+```
+dotnet run -c Release -p:Platform=x64 --project tools/IconGen
+dotnet run -c Release -p:Platform=x64 --project tools/IconGen -- --check
+dotnet run -c Release -p:Platform=x64 --project tools/IconGen -- --previews artifacts/icon-previews
+```
+
+The first writes the assets (a second run changes no byte), `--check` fails unless the committed files are what a fresh render
+gives, and `--previews` also writes the small sizes over light and dark taskbar colours, enlarged 8x. `Tunqio.App.Tests`
+(`IconAssetsTests`) parses every file at its declared size, and `tools/check-package.ps1` asserts each one in the unpackaged
+output and in the MSIX.
 
 ## What each story takes from here
 
