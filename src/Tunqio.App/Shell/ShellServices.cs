@@ -51,6 +51,10 @@ public static class ShellServices
             p.GetRequiredService<ISettingsStore>(),
             p.GetRequiredService<IAppPaths>().DataRoot));
         services.AddSingleton(p => new AppearanceSettingsViewModel(p.GetRequiredService<ISettingsStore>()));
+        // Settings > Shortcuts (E6-S4). The page's view of the table; the window keeps its own ShortcutBindings over the
+        // same store, which is what makes the two agree.
+        services.AddSingleton(p => new ShortcutBindings(p.GetRequiredService<ISettingsStore>()));
+        services.AddSingleton(p => new ShortcutsSettingsViewModel(p.GetRequiredService<ShortcutBindings>()));
         // Settings > About & Diagnostics (E6-S5). The renderer is read through the container's visualizer surface, which
         // answers null until the window attaches it; the readout says "no renderer" until then.
         services.AddSingleton(p => new AboutSettingsViewModel(

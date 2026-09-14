@@ -285,7 +285,7 @@ Close-to-tray, when enabled, only hides the window.
 | `viz.quality` | `auto` \| `low` \| `medium` \| `high` | `auto` |
 | `viz.params.<preset>.<name>` | float | preset default |
 | `diagnostics.crashReporting` | bool | false |
-| `shortcuts.<action>` | string | see ui-screens-and-flows.md |
+| `shortcuts.<action>` | string, a `KeyChord` (`Ctrl+Alt+P`); `""` unbinds | absent: the table's default (E6-S4; `<action>` is `ShellShortcuts.ActionId`, e.g. `playPause`, `seekBack30`, `volumeUp`) |
 
 ## Coding conventions
 

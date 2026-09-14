@@ -39,6 +39,8 @@ public sealed partial class MainWindow : Window
     private MiniPlayerWindow? _miniPlayer;
     private bool _closing;
     private readonly ISettingsStore? _settings;
+    private readonly ShortcutBindings _shortcuts;
+    private readonly List<KeyboardAccelerator> _shellAccelerators = [];
     private readonly TransportViewModel? _transport;
     private readonly NowPlayingViewModel? _nowPlaying;
     private readonly QueueViewModel? _queue;
@@ -111,6 +113,7 @@ public sealed partial class MainWindow : Window
     {
         _forceWarp = forceWarp;
         _settings = settings;
+        _shortcuts = new ShortcutBindings(settings);
         _open = open;
         _audio = audio;
         _visualization = visualization;
@@ -735,18 +738,40 @@ public sealed partial class MainWindow : Window
     /// Registers the shell's shortcuts (E2-S6). What each one is and how it has to be delivered is
     /// <see cref="ShellShortcuts"/>'s table; this is the two ways of listening it names — a tunnelling handler at
     /// the root for the keys an ordinary control would otherwise eat, and a <c>KeyboardAccelerator</c> for the
-    /// arrows, which fire only on a key the focused grid or list did not want.
+    /// arrows, which fire only on a key the focused grid or list did not want. The keys come from
+    /// <see cref="ShortcutBindings"/> (E6-S4), so a change made on the Shortcuts page is in force at once: the
+    /// pre-empting half is looked up per keystroke, and the accelerators are registered again when the store changes.
     /// </summary>
     private void AddShellShortcuts()
     {
         Root.PreviewKeyDown += OnShellKeyDown;
-        foreach (ShellShortcut shortcut in ShellShortcuts.Accelerated)
+        RegisterShellAccelerators();
+        // Raised on whatever thread wrote the setting; the accelerator collection is this thread's.
+        _shortcuts.Changed += (_, _) => DispatcherQueue.TryEnqueue(RegisterShellAccelerators);
+    }
+
+    /// <summary>Replaces the shell's accelerators with the ones the table has now, leaving any other accelerator on the root alone.</summary>
+    private void RegisterShellAccelerators()
+    {
+        foreach (KeyboardAccelerator stale in _shellAccelerators)
+        {
+            Root.KeyboardAccelerators.Remove(stale);
+        }
+
+        _shellAccelerators.Clear();
+        foreach (ShellShortcut shortcut in _shortcuts.Accelerated)
         {
             var accelerator = new KeyboardAccelerator { Key = shortcut.Key, Modifiers = shortcut.Modifiers };
             ShellShortcut invoked = shortcut;
             accelerator.Invoked += (_, args) => args.Handled = Invoke(invoked);
             Root.KeyboardAccelerators.Add(accelerator);
+            _shellAccelerators.Add(accelerator);
         }
+
+        Serilog.Log.Debug(
+            "Shell shortcuts registered: {Accelerators} accelerators, {PreEmpting} pre-empting",
+            _shellAccelerators.Count,
+            _shortcuts.PreEmpting.Count());
     }
 
     /// <summary>
@@ -758,12 +783,12 @@ public sealed partial class MainWindow : Window
     {
         // Any key is input to Focus's controls (E5-S2), whoever goes on to handle it.
         _focusChrome?.Activity();
-        if (e is null || e.Handled)
+        if (e is null || e.Handled || IsCapturingShortcut())
         {
             return;
         }
 
-        ShellShortcut? found = ShellShortcuts.Find(e.Key, CurrentModifiers(), IsTypingSomewhere());
+        ShellShortcut? found = _shortcuts.Find(e.Key, ShellKeyboard.CurrentModifiers(), IsTypingSomewhere());
         if (found is not { Delivery: ShortcutDelivery.PreEmpt } shortcut)
         {
             return;
@@ -853,35 +878,12 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Which modifiers are down right now. <c>PreviewKeyDown</c> reports the key but not the modifiers, and the
-    /// table matches them exactly, because Ctrl+Space is not Space and Shift+S is a capital S.
+    /// True while the Shortcuts page is recording a chord (E6-S4): the keystroke is the binding being typed, and
+    /// no shortcut — not even the one that still works while typing — may fire on it. Checked the same way as
+    /// <see cref="IsTypingSomewhere"/>, for the same reason given there.
     /// </summary>
-    private static Windows.System.VirtualKeyModifiers CurrentModifiers()
-    {
-        var modifiers = Windows.System.VirtualKeyModifiers.None;
-        if (Controls.Modifiers.Control)
-        {
-            modifiers |= Windows.System.VirtualKeyModifiers.Control;
-        }
-
-        if (Controls.Modifiers.Shift)
-        {
-            modifiers |= Windows.System.VirtualKeyModifiers.Shift;
-        }
-
-        if (Controls.Modifiers.IsDown(Windows.System.VirtualKey.Menu))
-        {
-            modifiers |= Windows.System.VirtualKeyModifiers.Menu;
-        }
-
-        if (Controls.Modifiers.IsDown(Windows.System.VirtualKey.LeftWindows)
-            || Controls.Modifiers.IsDown(Windows.System.VirtualKey.RightWindows))
-        {
-            modifiers |= Windows.System.VirtualKeyModifiers.Windows;
-        }
-
-        return modifiers;
-    }
+    private bool IsCapturingShortcut() =>
+        Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Root.XamlRoot) is ShortcutCaptureButton { IsCapturing: true };
 
     /// <summary>
     /// True when focus is in something that wants the keystroke more than the transport does. Checked for every

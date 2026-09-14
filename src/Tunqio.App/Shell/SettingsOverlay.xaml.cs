@@ -16,6 +16,7 @@ public sealed partial class SettingsOverlay : UserControl
         ["library"] = typeof(LibrarySettingsPage),
         ["appearance"] = typeof(AppearanceSettingsPage),
         ["visualization"] = typeof(VisualizationSettingsPage),
+        ["shortcuts"] = typeof(ShortcutsSettingsPage),
         ["about"] = typeof(AboutSettingsPage),
     };
 
