@@ -253,6 +253,22 @@ struct headless_renderer {
         REQUIRE(core(handle)->capture_frame(c.bgra, c.width, c.height));
         return c;
     }
+
+    // Temporal smoothing (T-184) on the renderer's manual clock: the frame is installed, THEN the envelope's clock
+    // moves by `seconds`, then the next frame is captured. The render thread reads that clock before the override,
+    // so the frame that takes the step takes it toward this input, and every frame between two calls steps by zero.
+    // One call is therefore one frame of a display running at 1 / seconds, whatever the unpaced renderer drew.
+    void ease(float attack_ms, float decay_ms) const {
+        core(handle)->set_smoothing_clock_manual(true);
+        REQUIRE(mp_renderer_set_temporal_smoothing(handle, attack_ms, decay_ms) == MP_OK);
+    }
+    capture shoot_after(const mp_analysis_frame& frame, double seconds) const {
+        core(handle)->set_analysis_override(&frame);
+        core(handle)->advance_smoothing_clock(seconds);
+        capture c;
+        REQUIRE(core(handle)->capture_frame(c.bgra, c.width, c.height));
+        return c;
+    }
 };
 
 // ---- the theme, pinned ---------------------------------------------------------------------------
@@ -412,12 +428,20 @@ size_t lit_pixels(const capture& c) {
 // WCAG relative luminance of one sRGB-encoded pixel. The render target is B8G8R8A8_UNORM, not _SRGB, so the
 // bytes in it are exactly what a display is handed; linearising them is what turns "how bright" into a number
 // the accessibility threshold is expressed in.
+//
+// The linearisation is a table of the same formula, built once: T-184's smoothing search measures thousands of
+// 640x360 captures, and three pow() calls a pixel there is minutes of a desktop someone else is using. Every entry
+// is the value the formula gives for that byte, so nothing measured changes.
 double relative_luminance(uint8_t b, uint8_t g, uint8_t r) {
-    const auto linear = [](uint8_t v) {
-        const double c = v / 255.0;
-        return c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
-    };
-    return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+    static const std::array<double, 256> linear = [] {
+        std::array<double, 256> table{};
+        for (size_t v = 0; v < table.size(); ++v) {
+            const double c = static_cast<double>(v) / 255.0;
+            table[v] = c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+        }
+        return table;
+    }();
+    return 0.2126 * linear[r] + 0.7152 * linear[g] + 0.0722 * linear[b];
 }
 
 struct flash_measurement {
@@ -1380,6 +1404,169 @@ TEST_CASE("no shipped preset can flash the field under a worst-case theme", "[re
                       "full-field luminance change %.4f - against 25%% and 0.10",
                       id, worst_area * 100.0, worst_name, worst_mean);
         WARN(note);
+    }
+}
+
+// ---- temporal smoothing (T-184) --------------------------------------------------------------------
+//
+// The envelope's curve is test_temporal_smoothing.cpp's. What is here is what it does to a picture: that off is
+// the picture every golden above was recorded from, that an eased picture is a function of time and not of the
+// display's frame rate, and that the flash search above still holds with the envelope at its extremes.
+
+// AC-515. A renderer that has had smoothing on, eased a frame, and been switched off again draws exactly what a
+// renderer that was never touched draws - which is the picture every golden in this file compares against. This
+// is the stronger half: a fresh renderer is off by construction, and the goldens already pass on one.
+TEST_CASE("temporal smoothing switched off draws the untouched picture byte for byte", "[render][preset][smoothing]") {
+    const preset_root_override root{shipped_presets()};
+    for (const char* id : k_shipped_presets) {
+        INFO(id);
+        const capture reference = render_preset(id);
+
+        const headless_renderer fx{k_golden_width, k_golden_height};
+        REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
+        fx.ease(20.0f, 300.0f);
+        fx.shoot_after(silent_frame(), 1000.0);
+        const capture eased = fx.shoot_after(fixed_frame(), 1.0 / 60.0);
+        REQUIRE(mp_renderer_set_temporal_smoothing(fx.handle, 0.0f, 0.0f) == MP_OK);
+        const capture off = fx.shoot_after(fixed_frame(), 1.0 / 60.0);
+
+        const difference back = compare(off, reference);
+        INFO("switched off: max channel delta " << back.max_channel << ", " << back.pixels_differing << " pixels");
+        CHECK(back.max_channel == 0);
+        // And the envelope did something while it was on, or "off draws the same" would be true of an envelope that
+        // never ran. Waveform is left out: it draws the waveform, which the envelope does not touch.
+        if (std::string{id} != "waveform") {
+            CHECK(compare(eased, reference).max_channel > 0);
+        }
+    }
+}
+
+// AC-516 through the renderer: a full-scale step at 60 Hz and at 144 Hz, captured at the instants both rates draw
+// (every 1/12 s: 5 frames at 60 Hz, 12 at 144), rising and then falling. Each capture is one frame of that display
+// on the manual clock, so the two renderers took different numbers of envelope steps to reach the same instant.
+TEST_CASE("an eased picture is a function of time and not of the frame rate", "[render][preset][smoothing]") {
+    const preset_root_override root{shipped_presets()};
+    struct run {
+        double hz;
+        int frames_per_twelfth;
+        std::vector<capture> at_twelfths; // rise at 1/12 and 2/12 s, then fall at 1/12 and 2/12 s after it
+    };
+    std::array<run, 2> runs{{{60.0, 5, {}}, {144.0, 12, {}}}};
+    capture quiet;
+    capture loud;
+    for (run& r : runs) {
+        const headless_renderer fx{k_golden_width, k_golden_height};
+        REQUIRE(mp_renderer_set_preset(fx.handle, "spectrum-bars") == MP_OK);
+        fx.ease(100.0f, 400.0f);
+        quiet = fx.shoot_after(silent_frame(), 1000.0);
+        const mp_analysis_frame step = full_scale_frame();
+        for (const bool rising : {true, false}) {
+            for (int frame = 1; frame <= 2 * r.frames_per_twelfth; ++frame) {
+                capture c = fx.shoot_after(rising ? step : silent_frame(), 1.0 / r.hz);
+                if (frame % r.frames_per_twelfth == 0) {
+                    r.at_twelfths.push_back(std::move(c));
+                }
+            }
+        }
+    }
+    loud = [] {
+        const headless_renderer fx{k_golden_width, k_golden_height};
+        REQUIRE(mp_renderer_set_preset(fx.handle, "spectrum-bars") == MP_OK);
+        return fx.shoot(full_scale_frame());
+    }();
+
+    REQUIRE(runs[0].at_twelfths.size() == 4);
+    REQUIRE(runs[1].at_twelfths.size() == 4);
+    static const char* const k_instants[4] = {"rise + 1/12 s", "rise + 2/12 s", "fall + 1/12 s", "fall + 2/12 s"};
+    for (size_t i = 0; i < 4; ++i) {
+        const difference d = compare(runs[0].at_twelfths[i], runs[1].at_twelfths[i]);
+        INFO(k_instants[i] << ": 60 Hz vs 144 Hz max channel delta " << d.max_channel << ", mean " << d.mean_channel);
+        // One step of rounding: the two envelopes agree to 2e-5 (test_temporal_smoothing.cpp), which can move a
+        // bar's top edge across a pixel centre and nothing more.
+        CHECK(d.max_channel <= 1);
+        // Eased, so neither where it started nor where it is going.
+        CHECK(compare(runs[1].at_twelfths[i], quiet).max_channel > 0);
+        CHECK(compare(runs[1].at_twelfths[i], loud).max_channel > 0);
+    }
+}
+
+// AC-518. The flash search above (T-181: every preset, every colour mode, a centroid sweep) extended in TIME, with
+// the envelope at the two extremes that matter to a flash, each against the other at its default:
+//   - the fastest attack, 0 ms, with the default 300 ms decay. A rise then arrives in one frame exactly as it does
+//     with smoothing off, and the fall trails through every level in between.
+//   - the slowest decay the ABI accepts, 5000 ms (Settings > Visualization offers up to 2000), with the default
+//     20 ms attack. The rise steps through intermediate loudness on its way up and then the field hangs there.
+// The worry an envelope adds is not a larger step - every eased value is between two values the analysis really
+// published - but INTERMEDIATE levels: T-181 found that a middle input can paint a brighter field than either end,
+// and an envelope manufactures middles on every change. So each preset x colour x centroid is driven silence ->
+// full loudness for three 60 Hz frames -> silence for six, and every frame is measured against the silence it
+// started from and against the frame before it. 60 Hz rather than 144 because a longer frame is a larger change per
+// frame at every setting but the zero attack, which is the same one frame at any rate.
+TEST_CASE("no shipped preset can flash the field with temporal smoothing at its extremes",
+          "[render][preset][a11y][smoothing]") {
+    const preset_root_override root{shipped_presets()};
+    constexpr std::array<float, 9> k_centroids{0.0f,    300.0f,  600.0f,  1200.0f, 1600.0f,
+                                               2400.0f, 4800.0f, 8500.0f, 12000.0f};
+    struct extreme {
+        const char* name;
+        float attack_ms;
+        float decay_ms;
+    };
+    constexpr std::array<extreme, 2> k_extremes{{
+        {"fastest attack (0 ms rise, 300 ms fall)", 0.0f, 300.0f},
+        {"slowest decay (20 ms rise, 5000 ms fall)", 20.0f, 5000.0f},
+    }};
+    constexpr double k_frame = 1.0 / 60.0;
+
+    for (const char* id : k_shipped_presets) {
+        for (const extreme& e : k_extremes) {
+            // One renderer per preset and extreme, reset between cases by a step long enough to settle any envelope
+            // exactly (1000 s against a 5 s time constant leaves exp(-200), which the envelope takes as zero).
+            const headless_renderer fx{k_golden_width, k_golden_height};
+            REQUIRE(mp_renderer_set_preset(fx.handle, id) == MP_OK);
+            fx.ease(e.attack_ms, e.decay_ms);
+            double worst_mean = 0.0;
+            double worst_area = 0.0;
+            int worst_colour = 0;
+            float worst_centroid = 0.0f;
+            size_t measured = 0;
+
+            for (int colour = 0; colour <= 2; ++colour) {
+                REQUIRE(mp_renderer_set_param(fx.handle, "colour", static_cast<float>(colour)) == MP_OK);
+                for (const float centroid : k_centroids) {
+                    mp_analysis_frame loud_frame = full_scale_frame();
+                    loud_frame.spectral_centroid_hz = centroid;
+                    const capture quiet = fx.shoot_after(silent_frame(), 1000.0);
+                    capture previous = quiet;
+                    for (int n = 0; n < 9; ++n) {
+                        const bool is_loud = n < 3;
+                        capture now = fx.shoot_after(is_loud ? loud_frame : silent_frame(), k_frame);
+                        for (const flash_measurement& m : {measure_flash(quiet, now), measure_flash(previous, now)}) {
+                            ++measured;
+                            if (m.mean_delta > worst_mean) {
+                                worst_mean = m.mean_delta;
+                                worst_colour = colour;
+                                worst_centroid = centroid;
+                            }
+                            worst_area = std::max(worst_area, m.flashing_area);
+                            INFO(id << ", " << e.name << ", colour=" << colour << ", " << centroid << " Hz, frame " << n
+                                    << (is_loud ? " (loud)" : " (silence)"));
+                            CHECK(m.flashing_area < 0.25);
+                            CHECK(m.mean_delta < 0.10);
+                        }
+                        previous = std::move(now);
+                    }
+                }
+            }
+            char note[360];
+            std::snprintf(note, sizeof note,
+                          "%s with %s over 3 colour modes x %zu centroids x 9 frames (%zu measurements): worst mean "
+                          "full-field luminance change %.4f (colour=%d, %.0f Hz), worst flashing area %.2f%% - against "
+                          "0.10 and 25%%",
+                          id, e.name, k_centroids.size(), measured, worst_mean, worst_colour, worst_centroid,
+                          worst_area * 100.0);
+            WARN(note);
+        }
     }
 }
 

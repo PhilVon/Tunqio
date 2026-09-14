@@ -197,6 +197,27 @@ MP_API mp_result MP_CALL mp_renderer_set_av_sync(mp_renderer* r, const mp_av_syn
     });
 }
 
+// T-184, ABI 0.19. Two floats and no struct, deliberately: a struct would be a new row in D-33's minimum-size table
+// for two numbers that will never grow a third, and a function that takes them is a minor with nothing to freeze.
+// Neither call locks or allocates - the setting is two atomic stores the render thread reads each frame - so both
+// are forwarded bare, as set_quality is.
+MP_API mp_result MP_CALL mp_renderer_set_temporal_smoothing(mp_renderer* r, float attack_ms, float decay_ms) {
+    if (r == nullptr) {
+        return invalid("mp_renderer_set_temporal_smoothing: NULL renderer");
+    }
+    return as_renderer(r)->set_temporal_smoothing(attack_ms, decay_ms);
+}
+
+MP_API mp_result MP_CALL mp_renderer_get_temporal_smoothing(mp_renderer* r, float* out_attack_ms, float* out_decay_ms) {
+    if (r == nullptr || out_attack_ms == nullptr || out_decay_ms == nullptr) {
+        return invalid("mp_renderer_get_temporal_smoothing: NULL renderer or out pointer");
+    }
+    const mp::render::envelope_times times = as_renderer(r)->temporal_smoothing();
+    *out_attack_ms = times.attack_ms;
+    *out_decay_ms = times.decay_ms;
+    return MP_OK;
+}
+
 // out_array, like the enumerations, because out[0].struct_size is the stride and a short caller has to be
 // repacked. The drain is destructive, which out_array's short-caller path is safe against: the extra call it
 // makes first is the (nullptr, &total) count query, and that takes nothing.

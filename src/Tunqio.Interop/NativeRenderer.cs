@@ -252,6 +252,25 @@ public sealed unsafe class NativeRenderer : IDisposable
         NativeException.ThrowIfFailed(NativeMethods.RendererSetQuality(RequireHandle(), (MpQualityPolicy)policy), "mp_renderer_set_quality");
 
     /// <summary>
+    /// The attack and decay envelope the renderer applies to the analysis frame before a preset sees it (T-184,
+    /// ABI 0.19), in milliseconds; both 0 is off. Values above 1000 (attack) and 5000 (decay) are clamped by the
+    /// core; a negative or non-finite one throws and changes nothing.
+    /// </summary>
+    public void SetTemporalSmoothing(float attackMs, float decayMs) =>
+        NativeException.ThrowIfFailed(
+            NativeMethods.RendererSetTemporalSmoothing(RequireHandle(), attackMs, decayMs), "mp_renderer_set_temporal_smoothing");
+
+    /// <summary>The two time constants in force, as the core clamped them.</summary>
+    public TemporalSmoothing GetTemporalSmoothing()
+    {
+        float attack = 0f;
+        float decay = 0f;
+        NativeException.ThrowIfFailed(
+            NativeMethods.RendererGetTemporalSmoothing(RequireHandle(), &attack, &decay), "mp_renderer_get_temporal_smoothing");
+        return new TemporalSmoothing(attack, decay);
+    }
+
+    /// <summary>
     /// Which analysis frame the renderer draws, and whether it records what it drew (E4-S8). A
     /// <paramref name="probeCapacity"/> of 0 turns the probe off, which is the default and what ships.
     /// </summary>

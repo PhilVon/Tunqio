@@ -152,6 +152,10 @@ public class ReactiveThemeControllerTests(ITestOutputHelper output)
 
         public void SetQualityPolicy(QualityPolicy policy) => Quality = policy;
 
+        public void SetTemporalSmoothing(TemporalSmoothing smoothing)
+        {
+        }
+
         public void SetThemeColors(ThemeColors colors)
         {
             if (Refuses is { } problem)

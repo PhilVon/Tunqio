@@ -150,6 +150,7 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
     private readonly PresetParameterMemory _memory;
     private string? _parametersPresetId;
     private bool _seeding;
+    private bool _seedingMotion;
     private bool _toldNoRenderer;
 
     public VisualizationSettingsViewModel(
@@ -165,7 +166,65 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         _memory = memory;
         // A switch can come from somewhere other than this page (Ctrl+V, T-185), and the page's selection follows it.
         _host.PresetChanged += OnHostPresetChanged;
+
+        // The envelope's three keys (T-184), read once: this page is the only thing that writes them.
+        _seedingMotion = true;
+        try
+        {
+            TemporalSmoothingEnabled = TemporalSmoothingStore.ReadEnabled(settings);
+            TemporalAttackMs = TemporalSmoothingStore.ReadAttackMs(settings);
+            TemporalDecayMs = TemporalSmoothingStore.ReadDecayMs(settings);
+        }
+        finally
+        {
+            _seedingMotion = false;
+        }
     }
+
+    /// <summary><c>viz.temporalSmoothing</c> (T-184): the renderer eases every preset's levels over time.</summary>
+    [ObservableProperty]
+    public partial bool TemporalSmoothingEnabled { get; set; }
+
+    /// <summary><c>viz.temporalAttackMs</c>: the rise time constant, 0 to <see cref="TemporalAttackMaximum"/>.</summary>
+    [ObservableProperty]
+    public partial double TemporalAttackMs { get; set; }
+
+    /// <summary><c>viz.temporalDecayMs</c>: the fall time constant, 0 to <see cref="TemporalDecayMaximum"/>.</summary>
+    [ObservableProperty]
+    public partial double TemporalDecayMs { get; set; }
+
+    public static double TemporalAttackMaximum => TemporalSmoothingStore.MaxAttackMs;
+
+    public static double TemporalDecayMaximum => TemporalSmoothingStore.MaxDecayMs;
+
+    /// <summary>"20 ms", for the value beside the Rise slider.</summary>
+    public string TemporalAttackDisplay => Milliseconds(TemporalAttackMs);
+
+    /// <summary>"300 ms", for the value beside the Fall slider.</summary>
+    public string TemporalDecayDisplay => Milliseconds(TemporalDecayMs);
+
+    /// <summary>What Narrator reads for the Rise slider: its label and its value.</summary>
+    public string TemporalAttackAutomationName => "Rise, " + TemporalAttackDisplay;
+
+    /// <summary>What Narrator reads for the Fall slider.</summary>
+    public string TemporalDecayAutomationName => "Fall, " + TemporalDecayDisplay;
+
+    /// <summary>
+    /// What the setting costs, in the one number a person can hold it against: how long after a sudden beat the picture
+    /// shows half of it. That is attack times ln 2, and it is ON TOP of the audio-to-picture delay the renderer already
+    /// compensates (ADR-012), which is why the page says so rather than leaving it to be noticed.
+    /// </summary>
+    public string TemporalSmoothingCost => !TemporalSmoothingEnabled
+        ? "Off: every preset draws each moment of the music exactly as it is analysed."
+        : TemporalAttackMs <= 0
+            ? "A beat still appears at once; only the fall is eased."
+            : string.Format(
+                CultureInfo.CurrentCulture,
+                "A sudden beat shows at half height about {0:0} ms later than it would with this off.",
+                TemporalAttackMs * Math.Log(2));
+
+    private static string Milliseconds(double value) =>
+        Math.Round(value).ToString("0", CultureInfo.CurrentCulture) + " ms";
 
     /// <summary>Where a user's own presets go. Shown on the page, because "drop one in" needs a path.</summary>
     public string UserPresetDirectory => _paths.PresetsDirectory;
@@ -482,6 +541,58 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
     }
 
     private void OnHostPresetChanged(object? sender, string id) => FollowActivePreset(id);
+
+    partial void OnTemporalSmoothingEnabledChanged(bool value)
+    {
+        OnPropertyChanged(nameof(TemporalSmoothingCost));
+        if (!_seedingMotion)
+        {
+            _settings.SetValue(SettingsKeys.VizTemporalSmoothing, value);
+            ApplyTemporalSmoothing("Save temporal smoothing");
+        }
+    }
+
+    partial void OnTemporalAttackMsChanged(double value)
+    {
+        OnPropertyChanged(nameof(TemporalAttackDisplay));
+        OnPropertyChanged(nameof(TemporalAttackAutomationName));
+        OnPropertyChanged(nameof(TemporalSmoothingCost));
+        if (!_seedingMotion)
+        {
+            // Whole milliseconds, as the slider steps: a pointer between two steps is not a finer setting.
+            _settings.SetValue(SettingsKeys.VizTemporalAttackMs, (float)Math.Round(Math.Clamp(value, 0, TemporalAttackMaximum)));
+            ApplyTemporalSmoothing("Save temporal rise");
+        }
+    }
+
+    partial void OnTemporalDecayMsChanged(double value)
+    {
+        OnPropertyChanged(nameof(TemporalDecayDisplay));
+        OnPropertyChanged(nameof(TemporalDecayAutomationName));
+        if (!_seedingMotion)
+        {
+            _settings.SetValue(SettingsKeys.VizTemporalDecayMs, (float)Math.Round(Math.Clamp(value, 0, TemporalDecayMaximum)));
+            ApplyTemporalSmoothing("Save temporal fall");
+        }
+    }
+
+    /// <summary>
+    /// Stored as it changes and applied at once to the running visualizer, which picks it up on its next frame: no
+    /// restart, no preset reload. With no renderer attached it is only stored, and the window applies it on attach.
+    /// </summary>
+    private void ApplyTemporalSmoothing(string saveWhat)
+    {
+        _settings.FlushAsync().Forget(saveWhat);
+        try
+        {
+            TemporalSmoothing applied = TemporalSmoothingStore.Apply(_host, _settings);
+            Serilog.Log.Debug("Temporal smoothing: rise {Attack} ms, fall {Decay} ms{Off}", applied.AttackMs, applied.DecayMs, applied.IsOff ? " (off)" : string.Empty);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or ObjectDisposedException)
+        {
+            Serilog.Log.Warning(ex, "Temporal smoothing could not be given to the visualizer");
+        }
+    }
 
     /// <summary>
     /// Puts the selection and the controls on <paramref name="id"/>, applying nothing: the renderer is already there.

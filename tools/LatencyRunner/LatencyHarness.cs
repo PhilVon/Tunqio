@@ -72,6 +72,8 @@ internal sealed class LatencyHarness : IDisposable
         // High, pinned. The adaptive controller is E4-S7's story and a tier change mid-phase would move the
         // frame rate underneath a measurement whose whole subject is the beat between two rates.
         renderer.SetQuality((int)QualityPolicy.High);
+        // T-184. Set once for both phases, so the comparison between them is still only about av-sync.
+        renderer.SetTemporalSmoothing(_options.SmoothingAttackMs, _options.SmoothingDecayMs);
         string preset = ChoosePreset(renderer);
 
         NativeTrack track = engine.OpenTrack(trackPath);
@@ -82,7 +84,7 @@ internal sealed class LatencyHarness : IDisposable
             CultureInfo.InvariantCulture,
             $"measuring on {opened.OutputFormat} / {opened.OutputSampleRate} Hz, {(opened.Exclusive ? "exclusive" : "shared")}, " +
             $"a {opened.OutputBuffer.TotalMilliseconds:F0} ms buffer, preset '{preset}' at {_options.Width}x{_options.Height}, " +
-            $"{_options.Phase.TotalSeconds:F0} s a phase")).ConfigureAwait(false);
+            $"{_options.Phase.TotalSeconds:F0} s a phase, temporal smoothing rise {_options.SmoothingAttackMs:F0} ms / fall {_options.SmoothingDecayMs:F0} ms")).ConfigureAwait(false);
 
         // A second of settling before anything is counted: the first pictures are drawn before the analysis has
         // published anything, the preset's first frames pay for shader warm-up, and the WASAPI buffer has not
@@ -112,6 +114,8 @@ internal sealed class LatencyHarness : IDisposable
             RenderFps: Math.Round(rendered.Fps, 1),
             Track: Path.GetFileName(trackPath),
             BudgetMs: Math.Round(_options.BudgetMs, 3),
+            SmoothingAttackMs: _options.SmoothingAttackMs,
+            SmoothingDecayMs: _options.SmoothingDecayMs,
             Uncompensated: uncompensated,
             Compensated: compensated,
             NotMeasured: NotMeasured,
@@ -173,10 +177,13 @@ internal sealed class LatencyHarness : IDisposable
         }
 
         int distinct = samples.Select(s => s.AnalysisSequence).Distinct().Count();
+        long spanned = samples[^1].FrameIndex - samples[0].FrameIndex;
+        double frameIntervalMs = spanned > 0 ? clock.Elapsed.TotalMilliseconds / spanned : 0;
+        double addedMs = SmoothingAddedMs(_options.SmoothingAttackMs, frameIntervalMs);
         await _out.WriteLineAsync(string.Create(
             CultureInfo.InvariantCulture,
             $"  {mode,-8} offset {offsetMs,6:F1} ms: {samples.Count} pictures, {distinct} distinct analysis frames, " +
-            $"{dropped} lost to the ring")).ConfigureAwait(false);
+            $"{dropped} lost to the ring, {frameIntervalMs:F2} ms a frame, smoothing adds {addedMs:F2} ms")).ConfigureAwait(false);
 
         return new LatencyPhase(
             mode.ToString(),
@@ -188,7 +195,25 @@ internal sealed class LatencyHarness : IDisposable
             Distribution.Of([.. samples.Select(s => Math.Abs(s.ErrorMs))]),
             Distribution.Of([.. samples.Select(s => s.OutputBufferMs)]),
             Distribution.Of([.. samples.Select(s => s.AnalysisToSeenMs)]),
-            Distribution.Of([.. samples.Select(s => s.FrameAgeAtPresentMs)]));
+            Distribution.Of([.. samples.Select(s => s.FrameAgeAtPresentMs)]),
+            Math.Round(frameIntervalMs, 3),
+            Math.Round(addedMs, 3));
+    }
+
+    /// <summary>
+    /// What the envelope adds to a full-scale transient at this frame interval (T-184): the first frame at which
+    /// 1 - exp(-n * interval / attack) reaches one half, less the frame the transient arrives on. The same arithmetic
+    /// mpcore.tests' "the delay the envelope adds to a transient" asserts on the envelope itself.
+    /// </summary>
+    private static double SmoothingAddedMs(float attackMs, double frameIntervalMs)
+    {
+        if (attackMs <= 0f || frameIntervalMs <= 0)
+        {
+            return 0;
+        }
+
+        double frames = Math.Ceiling((attackMs * Math.Log(2) / frameIntervalMs) - 1e-9);
+        return Math.Max(0, frames - 1) * frameIntervalMs;
     }
 
     private string ChoosePreset(NativeRenderer renderer)

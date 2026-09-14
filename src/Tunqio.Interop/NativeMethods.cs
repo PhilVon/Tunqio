@@ -202,4 +202,12 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "mp_renderer_drain_latency")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult RendererDrainLatency(nint renderer, MpLatencySample* samples, uint* count);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_temporal_smoothing")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererSetTemporalSmoothing(nint renderer, float attackMs, float decayMs);
+
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_get_temporal_smoothing")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererGetTemporalSmoothing(nint renderer, float* attackMs, float* decayMs);
 }

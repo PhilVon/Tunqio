@@ -93,6 +93,7 @@
     <ClCompile Include="src\test_renderer.cpp" />
     <ClCompile Include="src\test_replaygain.cpp" />
     <ClCompile Include="src\test_spsc_ring.cpp" />
+    <ClCompile Include="src\test_temporal_smoothing.cpp" />
     <ClCompile Include="src\test_triple_buffer.cpp" />
     <!-- pffft and Catch2: third-party, compiled at a lower warning level. -->
     <ClCompile Include="$(TunqioNativeRoot)third_party\pffft\pffft.c">

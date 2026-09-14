@@ -14,6 +14,7 @@
 
 #include "render/preset.h"
 #include "render/quality.h"
+#include "render/temporal_envelope.h"
 
 #include <array>
 #include <atomic>
@@ -70,6 +71,10 @@ public:
     // whether it keeps a record of what it drew. Both take effect on the next frame.
     mp_result set_av_sync(const mp_av_sync_config& config);
     mp_result drain_latency(mp_latency_sample* out, uint32_t* count);
+    // Temporal smoothing (T-184): the attack and decay envelope on the analysis frame before upload. Both zero is
+    // off, which is the default and draws exactly what the analysis published. Takes effect on the next frame.
+    mp_result set_temporal_smoothing(float attack_ms, float decay_ms);
+    envelope_times temporal_smoothing() const noexcept;
     std::string active_preset_id() const;
 
     // ---- diagnostics, not on the ABI (mpcore.tests compiles these sources directly) ----
@@ -99,6 +104,14 @@ public:
     // rasteriser without asserting an absolute frame rate on a machine somebody else is also using (T-150).
     void set_quality_tuning(const quality_tuning& tuning);
     quality_tuning quality_tuning_now() const;
+    // The envelope's clock, taken off the wall and handed to the test (T-184). While manual, the envelope advances
+    // only by what advance_smoothing_clock adds, however many frames an unpaced headless renderer draws in between:
+    // frames with nothing added step by zero and change nothing. That is what makes "the picture 3 frames after a
+    // step at 60 Hz" a capture rather than a race, and it is the fake clock the machine rules ask for in place of a
+    // stopwatch. The render thread reads it at the top of the frame, BEFORE the analysis override, so a frame that
+    // sees an advance also sees any override set before that advance.
+    void set_smoothing_clock_manual(bool manual);
+    void advance_smoothing_clock(double seconds);
 
 private:
     // One analysis frame the render thread has seen, and when it first saw it. The stamp is taken once, on the
@@ -273,6 +286,19 @@ private:
     std::atomic<bool> analysis_override_active_{false};
     std::atomic<uint32_t> analysis_override_generation_{0};
     uint32_t analysis_override_seen_ = 0; // render thread only
+
+    // ---- temporal smoothing (T-184) ------------------------------------------------------------------
+    // Two relaxed atomics rather than the theme's generation handover: a frame that reads a new attack beside the
+    // previous decay eases one frame with a mixed pair of time constants, which moves no value outside the range
+    // between its old state and its input, so there is nothing a half-applied pair can make flash.
+    std::atomic<float> smoothing_attack_ms_{0.0f};
+    std::atomic<float> smoothing_decay_ms_{0.0f};
+    temporal_envelope envelope_;                  // render thread only
+    std::unique_ptr<mp_analysis_frame> smoothed_; // render thread only: what is uploaded while smoothing is on
+    bool gpu_holds_smoothed_ = false;             // render thread only: the spectrum on the GPU is not analysis_'s
+    std::atomic<bool> smoothing_clock_manual_{false};
+    std::atomic<int64_t> smoothing_clock_ns_{0};
+    int64_t smoothing_clock_seen_ns_ = 0; // render thread only
 
     // ---- audio-to-picture sync (E4-S8) --------------------------------------------------------------
     // The analysis frames this thread has seen, newest last, so it can draw one that is NOT the newest. The

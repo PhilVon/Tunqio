@@ -314,6 +314,9 @@ Close-to-tray, when enabled, only hides the window.
 | `viz.preset` | string | `ambient-glow` (E5-S3, Q-72: one preset for every mode) |
 | `viz.quality` | `auto` \| `low` \| `medium` \| `high` | `auto` |
 | `viz.params.<preset>.<name>` | float | preset default |
+| `viz.temporalSmoothing` | bool | false (T-184: an envelope delays a transient, so it is opted into) |
+| `viz.temporalAttackMs` | float 0..250 | 20 |
+| `viz.temporalDecayMs` | float 0..2000 | 300 |
 | `diagnostics.crashReporting` | bool | false |
 | `shortcuts.<action>` | string, a `KeyChord` (`Ctrl+Alt+P`); `""` unbinds | absent: the table's default (E6-S4; `<action>` is `ShellShortcuts.ActionId`, e.g. `playPause`, `seekBack30`, `volumeUp`) |
 

@@ -415,6 +415,10 @@ public sealed class PresetParameterPersistenceTests : IDisposable
         {
         }
 
+        public void SetTemporalSmoothing(TemporalSmoothing smoothing)
+        {
+        }
+
         public void Dispose()
         {
         }
