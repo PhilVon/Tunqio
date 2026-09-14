@@ -194,11 +194,16 @@ function Get-WindowOf([int]$processId) {
 function Get-TunqioOn([string]$dataRoot) {
     @(Get-CimInstance Win32_Process -Filter "Name='Tunqio.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($dataRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
-# The window title is "Title - Artist - Tunqio" with a track loaded (Identity.WindowTitle); it names what is playing and
-# nothing else, unlike a search of the tree, which also finds the playlist page's rows.
+# Now Playing's title (NowPlayingPanel's TitleText): it names what is playing and nothing else, unlike a search of the tree
+# by name, which also finds the playlist page's rows. The window's own title stays "Tunqio" (measured), so it is not read.
+function Get-NowPlayingTitle([object]$window) {
+    $text = Find-ById $window 'TitleText'
+    if ($text) { return $text.Current.Name }
+    return ''
+}
 function Wait-Title([object]$window, [string]$title, [int]$seconds) {
     $found = $null
-    try { $found = Wait-Until { if ($window.Current.Name -like "$title*") { $window.Current.Name } } $seconds "the window title named '$title'" } catch { }
+    try { $found = Wait-Until { $now = Get-NowPlayingTitle $window; if ($now -eq $title) { $now } } $seconds "Now Playing showed '$title'" } catch { }
     return $found
 }
 function Close-Welcome($window) {
@@ -232,6 +237,10 @@ function Invoke-Setup([string]$label, [scriptblock]$ready, [int]$seconds) {
     $p = Start-Shell ("--data-root {0}" -f (Quote $root))
     $script:launched += $p
     try {
+        # The first launch on a new root shows the first-run welcome, and a window closed with it open does not shut down
+        # (measured: no Shutdown line, killed after 20 s), so it is skipped first, as check-single-instance does.
+        $setupWindow = Wait-Until { Get-WindowOf $p.Id } 30 "the $label window appeared"
+        Close-Welcome $setupWindow
         Wait-Until $ready $seconds $label | Out-Null
     }
     finally {
@@ -320,7 +329,8 @@ try {
     Invoke-Second 'a missing track' (Quote "tunqio://track?id=$missingId")
     Invoke-Second 'a missing playlist' (Quote "tunqio://playlist?id=$missingId")
     Start-Sleep -Seconds 3
-    Check 'Neither missing item changed what plays' ($window.Current.Name -like 'Jump Three*') "title '$($window.Current.Name)'"
+    $still = Get-NowPlayingTitle $window
+    Check 'Neither missing item changed what plays' ($still -eq 'Jump Three') "Now Playing '$still'"
 
     $problem = Close-TunqioShell $script:main $window 20
     if ($problem) { $script:failures += $problem }
