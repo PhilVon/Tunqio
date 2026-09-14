@@ -60,7 +60,7 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
     private readonly string? _userProfile;
     private readonly SynchronizationContext? _ui;
     private readonly TimeProvider _time;
-    private readonly Crash.CrashReportStore? _crashReports;
+    private readonly Crash.CrashReportStore _crashReports;
     private ITimer? _timer;
     private bool _seeding;
     private bool _disposed;
@@ -113,11 +113,14 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
     /// <param name="paths">The logs directory and the settings file the export copies.</param>
     /// <param name="folders">The library folders, whose paths the export can redact.</param>
     /// <param name="renderer">Reads the renderer's statistics; null when there is no renderer.</param>
+    /// <param name="crashReports">
+    /// The crash folder (E8-S5), whose kept reports the export includes. Required, not optional: an export that silently
+    /// left kept reports out would be the T-156 shape CompositionRootTests guards against.
+    /// </param>
     /// <param name="ui">The XAML thread's context; null runs the refresh inline, which is what the tests want.</param>
     /// <param name="clock">Drives the readout; a fake clock is how a test advances it.</param>
     /// <param name="workingSet">The process's working set in bytes; the real one by default.</param>
     /// <param name="userProfile">The profile directory the export redacts; the real one by default, empty for none.</param>
-    /// <param name="crashReports">The crash folder (E8-S5), whose kept reports the export includes; null exports none.</param>
     public AboutSettingsViewModel(
         AboutEnvironment environment,
         IPlaybackSessionSource source,
@@ -125,12 +128,13 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
         IAppPaths paths,
         ILibraryFolderRepository folders,
         Func<RenderStats?> renderer,
+        Crash.CrashReportStore crashReports,
         SynchronizationContext? ui = null,
         TimeProvider? clock = null,
         Func<long>? workingSet = null,
-        string? userProfile = null,
-        Crash.CrashReportStore? crashReports = null)
+        string? userProfile = null)
     {
+        ArgumentNullException.ThrowIfNull(crashReports);
         _crashReports = crashReports;
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(source);
@@ -363,7 +367,7 @@ public sealed partial class AboutSettingsViewModel : ObservableObject, IDisposab
                 redact = DiagnosticsExport.Placeholders(_userProfile, [.. folders.Select(f => f.Path)]);
             }
 
-            IReadOnlyList<string> kept = _crashReports is null ? [] : [.. _crashReports.KeptReports().Select(r => r.Folder)];
+            IReadOnlyList<string> kept = [.. _crashReports.KeptReports().Select(r => r.Folder)];
             var request = new DiagnosticsExportRequest(_paths.LogsDirectory, _paths.SettingsPath, SystemInfo(), redact, kept);
             DiagnosticsExportResult result = await DiagnosticsExport.WriteAsync(zipPath, request, ct);
             Serilog.Log.Information("Diagnostics exported to {Path}: {Entries} entries, {Redactions} path redactions", result.ZipPath, result.Entries.Count, result.Redactions);

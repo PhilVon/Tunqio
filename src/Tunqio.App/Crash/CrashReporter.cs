@@ -34,10 +34,10 @@ public sealed class CrashReporter
 
     private const string NativeSource = "Native";
 
-    private static CrashReporter? s_installed;
-    private static TopLevelFilter? s_filter;
-    private static TopLevelFilter? s_previous;
-    private static int s_filterRegistered;
+    private static CrashReporter? _installed;
+    private static TopLevelFilter? _filter;
+    private static TopLevelFilter? _previousFilter;
+    private static int _filterRegistered;
 
     private readonly CrashReportStore _store;
     private readonly CrashLogBuffer _log;
@@ -88,7 +88,7 @@ public sealed class CrashReporter
     /// </summary>
     public void Install()
     {
-        s_installed = this;
+        _installed = this;
         if (_enabled)
         {
             RegisterNativeFilter();
@@ -100,7 +100,7 @@ public sealed class CrashReporter
     }
 
     /// <summary>App's unhandled-exception handlers: a report from the installed reporter, or null when there is none or it is off.</summary>
-    public static CrashReport? CaptureUnhandled(string source, Exception? exception) => s_installed?.CaptureManaged(source, exception);
+    public static CrashReport? CaptureUnhandled(string source, Exception? exception) => _installed?.CaptureManaged(source, exception);
 
     /// <summary>Writes a report for a managed exception that is ending the process; null when off, already captured, or it failed.</summary>
     public CrashReport? CaptureManaged(string source, Exception? exception) =>
@@ -164,7 +164,7 @@ public sealed class CrashReporter
         try
         {
             uint code = exceptionPointers == 0 ? 0 : unchecked((uint)Marshal.ReadInt32(Marshal.ReadIntPtr(exceptionPointers)));
-            if (code != ClrExceptionCode && s_installed is { } reporter)
+            if (code != ClrExceptionCode && _installed is { } reporter)
             {
                 reporter.CaptureNative(exceptionPointers, code);
             }
@@ -174,21 +174,21 @@ public sealed class CrashReporter
             // Whatever happened, the previous filter still gets its turn.
         }
 
-        return s_previous is { } previous ? previous(exceptionPointers) : 0; // EXCEPTION_CONTINUE_SEARCH
+        return _previousFilter is { } previous ? previous(exceptionPointers) : 0; // EXCEPTION_CONTINUE_SEARCH
     }
 #pragma warning restore CA1031
 
     private static void RegisterNativeFilter()
     {
-        if (Interlocked.Exchange(ref s_filterRegistered, 1) != 0)
+        if (Interlocked.Exchange(ref _filterRegistered, 1) != 0)
         {
             return;
         }
 
         MiniDump.Prepare();
-        s_filter = OnNativeException;
-        nint previous = SetUnhandledExceptionFilter(s_filter);
-        s_previous = previous == 0 ? null : Marshal.GetDelegateForFunctionPointer<TopLevelFilter>(previous);
+        _filter = OnNativeException;
+        nint previous = SetUnhandledExceptionFilter(_filter);
+        _previousFilter = previous == 0 ? null : Marshal.GetDelegateForFunctionPointer<TopLevelFilter>(previous);
         Log.Information("Crash reporting: native crash filter registered (a previous filter to hand on to: {HasPrevious})", previous != 0);
     }
 
@@ -207,7 +207,7 @@ public sealed class CrashReporter
 
         _enabled = enabled;
         Log.Information("Crash reporting turned {State}", enabled ? "on" : "off");
-        if (enabled && ReferenceEquals(s_installed, this))
+        if (enabled && ReferenceEquals(_installed, this))
         {
             RegisterNativeFilter();
         }

@@ -131,8 +131,8 @@
  * off draws the analysis frame exactly as 0.18 did.
  * 0.20 a test-only crash (T-84, E8-S5): mp_debug_crash. One appended export and no type, so a minor by the plainest
  * reading of the rule at the top. It exists because nothing else can crash inside mpcore on purpose: every export runs
- * under the SEH guard, which turns an access violation into MP_E_INTERNAL, so the crash reporter's native path could not
- * be proven against the real core without it. The shell reaches it only through a switch that needs an environment
+ * under the SEH guard, which turns an access violation into MP_E_INTERNAL, so the crash reporter's native path could
+ * not be proven against the real core without it. The shell reaches it only through a switch that needs an environment
  * variable and a scratch --data-root; no caller in the product calls it.
  */
 #pragma once

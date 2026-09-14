@@ -286,6 +286,45 @@ Close-to-tray, when enabled, only hides the window.
 - Native crash: the SEH guards convert what they can; a genuine access violation triggers the minidump writer (E8-S5). The soak and interop tests exist to make this rare.
 - Every `async void` event handler goes through a `SafeFireAndForget` helper that logs.
 
+**As built (E8-S5, T-84).** Crash reporting is opt-in (`diagnostics.crashReporting`, off by default) and **local-only**:
+Q-123, answered by Phil on 2026-09-14, keeps every report on the machine. Nothing is uploaded and there is no upload address
+setting; a user who wants to send a report keeps it and sends an Export diagnostics zip themselves.
+
+- **Registration is in `OnLaunched`, not the App constructor** (startup step 1 above): the data root the reports go under and
+  the opt-in are only known once the settings are open, so `CrashReporter.Install()` runs right after the launch line is
+  logged. With the setting off nothing is registered and nothing is captured, beyond what Windows itself does.
+- **Managed crashes.** App's XAML handler (when the exception is not handled, because XAML then ends the process with a
+  stowed-exception fail-fast that no filter sees) and its AppDomain handler (when terminating) call
+  `CrashReporter.CaptureUnhandled` after logging (T-188). Unobserved task exceptions are only logged: in .NET 8 they do not end
+  the process, so there is no crash to report.
+- **Native crashes.** A top-level filter (`SetUnhandledExceptionFilter`), registered when the setting is on at launch or is
+  turned on later. It leaves the CLR's own code (0xE0434352) to the AppDomain handler, and always hands on to the filter
+  registered before it, so the runtime and Windows still do what they would have. A fault inside an mpcore export on a managed
+  caller's thread never reaches it: the export's SEH guard has already turned it into `MP_E_INTERNAL`. What it catches is a fault
+  on a thread with no guard, which for the core means its own audio, analysis and render threads.
+- **What is written**, once per process, into `<data root>\crashes\<yyyyMMdd-HHmmss-fff>-<pid>\`: `tunqio.dmp` through
+  `MiniDumpWriteDump` from inside the process (no WER LocalDumps keys, nothing in the registry), with `MiniDumpNormal |
+  WithUnloadedModules | WithProcessThreadData | WithThreadInfo` and no heap, so a dump is a few megabytes; its size is logged.
+  Then `log.txt`, the session's last 200 log lines from `CrashLogBuffer`, a Serilog sink beside the file sink that formats each
+  event with the file's template, so the handler copies strings instead of reading the shared log back. Then `report.json`
+  (source, exception type and message, stack, native code, time, session, version, dump size) last, so a folder without it is
+  a report the crash cut short; it is still listed. The handler catches everything and never throws.
+- **Next launch.** `Crash/CrashReportViewModel` and `CrashReportDialog`, after the first-run welcome (one ContentDialog at a
+  time). With the setting on, each report nobody has answered is offered once, newest first, at most three per launch. The
+  dialog says in plain words what was captured: the exception, the log lines in a read-only box, the dump's size and location,
+  and that a dump can hold file paths and track names; and that nothing leaves the PC unless the user sends it. Keep report
+  writes a `kept` marker; Delete report (declining) removes the folder; Esc keeps. With the setting off no report is offered,
+  and any that exist stay on disk.
+- **Export.** `DiagnosticsExport` copies each kept report under `crashes/<report>/` in the zip: its text files redacted like the
+  logs, the dump as it is. The About page switch ("Save crash reports on this PC") says exactly this.
+- **Test switch.** `--crash-test managed|xaml|native` counts only with `TUNQIO_CRASH_TEST=1` in the environment and a
+  `--data-root`. The process calls `SetErrorMode` on itself so no crash box reaches the desktop. `native` calls
+  `mp_debug_crash` (ABI 0.20), which faults on a thread inside mpcore.dll. It is the one export no guard covers, and it exists
+  because nothing else can crash inside the core on purpose.
+- **Proof.** `Tunqio.App.Tests/CrashReportTests` (store, buffer, opt-in rule with a real dump of the test host, switch rule,
+  dialog keep/delete/once, export); `tools/check-crash-report.ps1` forces each crash on a scratch root, finds the report, sees
+  the dialog by UIA, declines or keeps, exports, and repeats with the setting off.
+
 ## Settings keys (JSON values in `settings.json`; Q-15 kept the file over the `setting` table)
 
 | Key | Type | Default |
