@@ -23,8 +23,12 @@ yield, and above-normal priority starves the desktop itself.
 
 - No load generators: no spinning or busy threads, no raised thread or process priority, no unbounded
   parallel loops. Reproduce a timing bug with a fake clock or a controlled scheduler instead.
-- Cap build parallelism at half the threads: `-m:4` on MSBuild.exe and `-maxcpucount:4` on dotnet.
-- Every repeat loop has a count and a timeout, and one heavy build or test run happens at a time.
+- Cap build parallelism: `-m:4` on MSBuild.exe and `-maxcpucount:4` on dotnet when you are the only agent
+  building, and `-m:2` / `-maxcpucount:2` whenever other agents may be building at the same time (Phil allows
+  several agents at once again since 2026-09-14; the freezes came from load, not from the number of agents).
+- Every repeat loop has a count and a timeout.
+- The UIA harnesses refuse while any Tunqio runs, so harness runs take turns: retry within the harness's bounded
+  wait, then record the refusal and move on rather than waiting indefinitely.
 
 **Phil reviews the build, not the branch: rebuild main's app before you ask** (T-76, T-191). Both were rejected
 on 2026-09-14 as "not in the build": they were merged, but main's `artifacts\bin\Tunqio.App\release_win-x64` was
