@@ -253,13 +253,9 @@ function Restore-Database {
 
 function Close-Shell($process) {
     if (-not $process) { return }
-    try {
-        if (-not $process.HasExited) {
-            $process.CloseMainWindow() | Out-Null
-            if (-not $process.WaitForExit(20000)) { $process.Kill() }
-        }
-    }
-    catch { }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $null 20
+    if ($closeProblem) { $script:failures += $closeProblem }
     Start-Sleep -Seconds 1
 }
 

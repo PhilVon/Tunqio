@@ -263,8 +263,9 @@ try {
     Check 'An outside seek moves the app to the requested position' ($null -ne $seeked) "live position $seeked"
 
     # ---- close, then the log ---------------------------------------------------------------------------------------
-    try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
-    if (-not $process.WaitForExit(20000)) { Write-Output '  note  the shell did not exit within 20 s of Close; killing the one this script started'; $process.Kill(); $process.WaitForExit(5000) | Out-Null }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $window 20
+    if ($closeProblem) { $script:failures += $closeProblem }
     $process = $null
     $gone = Wait-Until { if (-not (Find-TunqioSession (Get-Manager))) { 'gone' } } 15 "Tunqio's media session went away after exit"
     Check 'The media session goes when the app exits' ($gone -eq 'gone') $gone
@@ -288,8 +289,8 @@ catch {
 }
 finally {
     if ($process -and -not $process.HasExited) {
-        try { $process.CloseMainWindow() | Out-Null } catch { }
-        if (-not $process.WaitForExit(20000)) { $process.Kill(); $process.WaitForExit(5000) | Out-Null }
+        $closeProblem = Close-TunqioShell $process $null 20
+        if ($closeProblem) { $script:failures += $closeProblem }
     }
     if (-not $Keep) { Remove-Item -Recurse -Force $scratch -ErrorAction SilentlyContinue }
     else { Write-Output "  note  scratch kept at $scratch" }

@@ -27,6 +27,7 @@ $resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
 if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+. (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188)
 
 if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'Tunqio is already running. This script makes and deletes a playlist and changes the mode through the instance it launches, so it will not touch one somebody is using.'
@@ -214,9 +215,10 @@ finally {
             if ($startMode) { Select-Mode $window $startMode; Write-Output "cleanup: mode back to $startMode" }
         }
         catch { Write-Output "WARNING: cleanup did not finish: $($_.Exception.Message). Check Library > Playlists for '$name' and the mode switcher." }
-        try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
     }
-    if ($process -and -not $process.WaitForExit(15000)) { $process.Kill() }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $window 15
+    if ($closeProblem) { $script:failures += $closeProblem }
 }
 
 # ---- the add's timing, from the log ----------------------------------------------------------------------------------

@@ -105,5 +105,6 @@ public sealed partial class AlbumsPage : Page, ILibraryRefreshable
     // Hover preview (E5-S5). The controller is the container's one; it decides whether a hover means anything.
     private void OnAlbumHover(object? sender, AlbumHoverEventArgs e) => HoverPreview.Report(e);
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => HoverPreview.Controller.LeaveAll();
+    // Also raised when the app closes, after the host is gone (T-188): LeaveAll does nothing then.
+    private void OnUnloaded(object sender, RoutedEventArgs e) => HoverPreview.LeaveAll();
 }

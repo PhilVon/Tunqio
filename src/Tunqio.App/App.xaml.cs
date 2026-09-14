@@ -49,8 +49,15 @@ public partial class App : Application
     public static nint MainWindowHandle => _mainWindowHandle;
 
     /// <summary>The application's service provider, available after <see cref="OnLaunched"/>.</summary>
-    public static IServiceProvider Services => ((App)Current)._host?.Services
-        ?? throw new InvalidOperationException("The host has not started yet.");
+    public static IServiceProvider Services => ServicesIfRunning
+        ?? throw new InvalidOperationException("The host has not started yet, or has already shut down.");
+
+    /// <summary>
+    /// The service provider while the host is running; null before start-up and once shutdown has begun disposing it.
+    /// For XAML callbacks that can arrive after the window has closed - a page's Unloaded among them (T-188) - and must
+    /// do nothing then rather than throw on the XAML thread, which ends the process with a stowed exception.
+    /// </summary>
+    public static IServiceProvider? ServicesIfRunning => (Current as App)?._host?.Services;
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -382,9 +389,12 @@ public partial class App : Application
         finally
         {
             // No hosted services yet; Dispose is the whole shutdown. E7 adds StopAsync for the integration services.
+            // Unpublished before it is disposed (T-188): XAML unloads the window's pages after this handler returns, and a
+            // callback that looks for services then must find none, not a disposed provider that throws.
             Log.Information("Shutdown: host");
-            _host.Dispose();
+            IHost host = _host;
             _host = null;
+            host.Dispose();
             // The logger stays open (T-188): XAML keeps running after this, and an exception it raises on the way out has
             // to reach the file. ProcessExit closes it; the file sink writes each event through, so a crash loses nothing.
             Log.Information("Shutdown: host disposed");

@@ -96,11 +96,10 @@ function Start-Shell {
 
 function Stop-Shell($shell) {
     if (-not $shell) { return }
-    try {
-        $shell.Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
-        if (-not $shell.Process.WaitForExit(15000)) { $shell.Process.Kill() }
-    }
-    catch { if (-not $shell.Process.HasExited) { $shell.Process.Kill() } }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+    $closeProblem = Close-TunqioShell $shell.Process $shell.Window 15
+    if ($closeProblem) { $script:failures += $closeProblem }
 }
 
 function Select-Mode($window, [string]$mode) {

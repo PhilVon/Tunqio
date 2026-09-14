@@ -28,6 +28,7 @@ $resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
 if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+. (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188)
 
 if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'Tunqio is already running. This script changes and restores the theme through the instance it launches.'
@@ -104,9 +105,10 @@ finally {
             }
         }
         catch { Write-Output "WARNING: cleanup did not finish: $($_.Exception.Message). Check Settings > Appearance > Theme." }
-        try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
     }
-    if ($process -and -not $process.WaitForExit(15000)) { $process.Kill() }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $window 15
+    if ($closeProblem -and $null -eq $stopped) { $stopped = $closeProblem }
 }
 
 # Read after the app has exited: the file sink buffers.

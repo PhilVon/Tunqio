@@ -411,12 +411,9 @@ function Start-ScratchShell([string]$root) {
 
 function Stop-ScratchShell($p) {
     if (-not $p -or $p.HasExited) { return }
-    try { $script:window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
-    if (-not $p.WaitForExit(20000)) {
-        Write-Output '  note  the shell did not exit within 20 s of Close; killing it'
-        $p.Kill()
-        $p.WaitForExit(5000) | Out-Null
-    }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $p $script:window 20
+    if ($closeProblem) { $script:failures += $closeProblem }
 }
 
 # Settings > Visualization without a key: the controls bar's button, then the section. Returns a problem or $null.
@@ -883,9 +880,10 @@ try {
     exit 1
 }
 finally {
-    if (-not $process.HasExited) { $process.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 3 }
-    if (-not $process.HasExited) { $process.Kill() }
+    # An app that does not exit, or exits with a crash code, fails the run (T-188); exit here overrides the try's exit code.
+    $closeProblem = Close-TunqioShell $process $null 20
     if (-not $KeepScratch -and (Test-Path $scratchDir)) { Remove-Item $scratchDir -Recurse -Force }
     if ($hadSettings) { Copy-Item $settingsBackup $settingsFile -Force; Remove-Item $settingsBackup -Force }
     elseif (Test-Path $settingsFile) { Remove-Item $settingsFile -Force }
+    if ($closeProblem) { Write-Output "FAIL: $closeProblem"; exit 1 }
 }
