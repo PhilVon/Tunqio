@@ -137,6 +137,16 @@ public readonly record struct ShellShortcut(
 /// does with them is worth more than the mode. Esc is the opposite: a search box clears on it, a flyout closes on it
 /// and a dialog cancels on it, so it is an accelerator, and it is handled only while there is a Focus to leave.
 /// </para>
+/// <para>
+/// The table is the <em>defaults</em> (E6-S4). What the shell actually listens to is <see cref="Resolve"/>'s copy of
+/// it with <c>shortcuts.&lt;action&gt;</c> from <c>settings.json</c> applied — a stored chord replaces the key, an
+/// empty string unbinds the action, an absent key means the default — and <see cref="ShortcutBindings"/> keeps that
+/// copy current as the store changes. The delivery, the typing rule and the amount stay with the action whatever key
+/// it is on: Space rebound to J is still taken on the way down, because the reason it is taken is that a focused
+/// button would eat it, and a button eats J as readily as Space. The action's name in the file is derived from its
+/// row (<see cref="ActionId"/>), so a command added to the table gets its setting, its page row and its name without
+/// a second list to keep in step.
+/// </para>
 /// </remarks>
 public static class ShellShortcuts
 {
@@ -189,25 +199,31 @@ public static class ShellShortcuts
             WhileTyping: true),
     ];
 
-    /// <summary>Every shortcut the shell registers, in the order the design document lists them.</summary>
+    /// <summary>Every default shortcut, in the order the design document lists them (and the Shortcuts page shows them).</summary>
     public static IReadOnlyList<ShellShortcut> All => Table;
 
-    /// <summary>The shortcuts taken at the root on the way down.</summary>
+    /// <summary>The default shortcuts taken at the root on the way down.</summary>
     public static IEnumerable<ShellShortcut> PreEmpting =>
         Table.Where(shortcut => shortcut.Delivery == ShortcutDelivery.PreEmpt);
 
-    /// <summary>The shortcuts registered as accelerators, which fire only on a key nothing else wanted.</summary>
+    /// <summary>The default shortcuts registered as accelerators, which fire only on a key nothing else wanted.</summary>
     public static IEnumerable<ShellShortcut> Accelerated =>
         Table.Where(shortcut => shortcut.Delivery == ShortcutDelivery.Accelerator);
 
     /// <summary>
-    /// The shortcut for <paramref name="key"/> with exactly <paramref name="modifiers"/> down, or null — including
-    /// for all but the <see cref="ShellShortcut.WhileTyping"/> ones while <paramref name="typing"/>, since focus is
-    /// then in something the keystroke belongs to more than the transport.
+    /// The default shortcut for <paramref name="key"/> with exactly <paramref name="modifiers"/> down, or null —
+    /// including for all but the <see cref="ShellShortcut.WhileTyping"/> ones while <paramref name="typing"/>, since
+    /// focus is then in something the keystroke belongs to more than the transport. The live shell asks
+    /// <see cref="ShortcutBindings"/>, which asks the same question of the resolved table.
     /// </summary>
-    public static ShellShortcut? Find(VirtualKey key, VirtualKeyModifiers modifiers, bool typing)
+    public static ShellShortcut? Find(VirtualKey key, VirtualKeyModifiers modifiers, bool typing) =>
+        Find(Table, key, modifiers, typing);
+
+    /// <summary><see cref="Find(VirtualKey, VirtualKeyModifiers, bool)"/> over any table, such as a resolved one.</summary>
+    public static ShellShortcut? Find(IReadOnlyList<ShellShortcut> table, VirtualKey key, VirtualKeyModifiers modifiers, bool typing)
     {
-        foreach (ShellShortcut shortcut in Table)
+        ArgumentNullException.ThrowIfNull(table);
+        foreach (ShellShortcut shortcut in table)
         {
             if (shortcut.Key == key && shortcut.Modifiers == modifiers)
             {
@@ -216,5 +232,121 @@ public static class ShellShortcuts
         }
 
         return null;
+    }
+
+    // ---- E6-S4: the action behind a row, and the table with the stored bindings applied -----------------------------
+
+    /// <summary>
+    /// The name of a row's action in <c>settings.json</c> (<c>shortcuts.playPause</c>, <c>shortcuts.seekBack30</c>,
+    /// <c>shortcuts.volumeUp</c>): the command in camel case, with the amount folded in for the commands that carry
+    /// one, since Seek forward 5 s and Seek back 30 s are four rows on one command.
+    /// </summary>
+    public static string ActionId(ShellShortcut shortcut)
+    {
+        string command = shortcut.Command.ToString();
+        string id = char.ToLowerInvariant(command[0]) + command[1..];
+        return shortcut.Command switch
+        {
+            ShellCommand.Seek => id + (shortcut.Amount < 0 ? "Back" : "Forward") + Math.Abs(shortcut.Amount).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ShellCommand.Volume => id + (shortcut.Amount < 0 ? "Down" : "Up"),
+            _ => id,
+        };
+    }
+
+    /// <summary>
+    /// What the Shortcuts page calls the action. Named commands read as a person would say them; a command not named
+    /// here is its enum name with spaces put back (<c>RateClear</c> is "Rate clear"), so a row is never blank.
+    /// </summary>
+    public static string ActionName(ShellShortcut shortcut) => shortcut.Command switch
+    {
+        ShellCommand.PlayPause => "Play / Pause",
+        ShellCommand.Next => "Next track",
+        ShellCommand.Previous => "Previous track",
+        ShellCommand.Seek => string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"Seek {(shortcut.Amount < 0 ? "back" : "forward")} {Math.Abs(shortcut.Amount)} s"),
+        ShellCommand.Volume => shortcut.Amount < 0 ? "Volume down" : "Volume up",
+        ShellCommand.Mute => "Mute",
+        ShellCommand.Shuffle => "Shuffle",
+        ShellCommand.Repeat => "Repeat",
+        ShellCommand.Queue => "Queue",
+        ShellCommand.Diagnostics => "Diagnostics overlay",
+        ShellCommand.Discovery => "Discovery mode",
+        ShellCommand.Focus => "Focus mode",
+        ShellCommand.Curation => "Curation mode",
+        ShellCommand.ToggleFocus => "Toggle Focus",
+        ShellCommand.LeaveFocus => "Leave Focus",
+        ShellCommand.MiniPlayer => "Mini player",
+        ShellCommand.OpenSettings => "Settings",
+        ShellCommand.Undo => "Undo (Curation)",
+        ShellCommand.Redo => "Redo (Curation)",
+        _ => Humanise(shortcut.Command.ToString()),
+    };
+
+    /// <summary>The default chord of a row, in the form the store and the page use.</summary>
+    public static KeyChord DefaultChord(ShellShortcut shortcut) => new(shortcut.Key, shortcut.Modifiers);
+
+    /// <summary>
+    /// The table the shell listens to: <paramref name="defaults"/> with each action's stored binding applied.
+    /// <paramref name="stored"/> answers for an action id with the chord string, an empty string for "unbound", or
+    /// null for "no setting". A value that cannot be read leaves the default (and is logged), so a typo in the file
+    /// costs nothing. If two actions end up on one chord — which the page never writes, but a hand-edited file can —
+    /// the first in table order keeps it and the other is left unbound, because a table in which one chord names
+    /// two actions is a table in which one of them silently never happens (<c>Every_key_appears_once</c>).
+    /// </summary>
+    public static IReadOnlyList<ShellShortcut> Resolve(IReadOnlyList<ShellShortcut> defaults, Func<string, string?> stored)
+    {
+        ArgumentNullException.ThrowIfNull(defaults);
+        ArgumentNullException.ThrowIfNull(stored);
+        var resolved = new List<ShellShortcut>(defaults.Count);
+        var taken = new HashSet<KeyChord>();
+        foreach (ShellShortcut shortcut in defaults)
+        {
+            string id = ActionId(shortcut);
+            string? value = stored(id);
+            KeyChord chord;
+            if (value is null)
+            {
+                chord = DefaultChord(shortcut);
+            }
+            else if (value.Length == 0)
+            {
+                continue; // unbound on purpose
+            }
+            else if (!KeyChord.TryParse(value, out chord))
+            {
+                Serilog.Log.Warning("shortcuts.{Action} is '{Value}', which names no key; using the default", id, value);
+                chord = DefaultChord(shortcut);
+            }
+
+            if (!taken.Add(chord))
+            {
+                Serilog.Log.Warning("shortcuts.{Action} would put a second action on {Chord}; leaving it unbound", id, chord);
+                continue;
+            }
+
+            resolved.Add(shortcut with { Key = chord.Key, Modifiers = chord.Modifiers });
+        }
+
+        return resolved;
+    }
+
+    private static string Humanise(string pascal)
+    {
+        var text = new System.Text.StringBuilder(pascal.Length + 4);
+        for (int i = 0; i < pascal.Length; i++)
+        {
+            char c = pascal[i];
+            if (i > 0 && (char.IsUpper(c) || (char.IsDigit(c) && !char.IsDigit(pascal[i - 1]))))
+            {
+                text.Append(' ').Append(char.ToLowerInvariant(c));
+            }
+            else
+            {
+                text.Append(c);
+            }
+        }
+
+        return text.ToString();
     }
 }

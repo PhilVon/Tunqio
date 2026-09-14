@@ -37,6 +37,15 @@ public static class SettingsKeys
 
     public const string DiagnosticsCrashReporting = "diagnostics.crashReporting";
 
+    /// <summary>
+    /// E6-S4: <c>shortcuts.&lt;action&gt;</c>, one per row of the shell's shortcut table, holding the chord as text
+    /// ("Ctrl+Alt+P"), or "" for an action left without a key. An absent key means the default, which stays in code.
+    /// </summary>
+    public const string ShortcutsPrefix = "shortcuts.";
+
+    /// <summary>The key for one shortcut action, such as <c>shortcuts.playPause</c>.</summary>
+    public static string Shortcut(string actionId) => ShortcutsPrefix + actionId;
+
     /// <summary>Bookkeeping written by the host on every launch (E0-S6 proves persistence with it).</summary>
     public const string AppLaunchCount = "app.launchCount";
     public const string AppLastLaunchUtc = "app.lastLaunchUtc";

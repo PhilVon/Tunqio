@@ -556,7 +556,8 @@ As built: `IPlaylistRepository` / `SqlitePlaylistRepository` over the existing `
 - [ ] Every setting key in solution-structure.md has a control; changes apply live where the design says so; "test tone" plays through the selected device
 
 ### E6-S4 · Shortcuts settings page · **S** · `ui` `a11y`
-- [ ] Rebinding detects conflicts; reset restores defaults; bindings persist
+As built: `ShortcutsSettingsPage` over `ShortcutsSettingsViewModel`, one row per row of `ShellShortcuts` with a `ShortcutCaptureButton` that reads the next chord (the shell root steps aside while it records); a conflict is named in a dialog and the key is only taken on "use it anyway", leaving the other row Not bound; Clear and Reset; `shortcuts.<action>` in `settings.json` as `KeyChord` text, absent for a default. The shell listens to `ShortcutBindings` (the table with the store applied) and re-registers on the store's `Changed`. `tools/check-shortcuts-settings.ps1` walks the page by UIA without typing; the rebinding rules are `KeyChordTests`, `ShortcutBindingsTests` and `ShortcutsSettingsViewModelTests`. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "Settings".
+- [x] Rebinding detects conflicts; reset restores defaults; bindings persist
 
 ### E6-S5 · About and Diagnostics page · **S** · `ui`
 - [ ] Licences listed from `THIRD-PARTY-NOTICES.md`; export diagnostics zip contains logs, settings (redacted paths optional) and system info
