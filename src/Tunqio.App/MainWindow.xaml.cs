@@ -267,6 +267,10 @@ public sealed partial class MainWindow : Window
         // root rather than the constructor.
         Root.Loaded += (_, _) => ShowWelcomeIfDueAsync().Forget("First-run welcome");
 
+        // T-195 diagnosis: every close request, before any other Closing handler (App's close-to-tray rule) can cancel it.
+        AppWindow.Closing += (_, _) => Serilog.Log.Information(
+            "Close: main window close requested (root loaded {Loaded})", Root.XamlRoot is not null);
+
         VisualizerPanel.Loaded += OnPanelLoaded;
         VisualizerPanel.SizeChanged += (_, _) => ForwardPanelSize();
         VisualizerPanel.CompositionScaleChanged += (_, _) => ForwardPanelSize();
@@ -681,7 +685,9 @@ public sealed partial class MainWindow : Window
         Root.ActualThemeChanged += follow;
         try
         {
-            await dialog.ShowAsync();
+            Serilog.Log.Information("Dialog: first-run welcome opening (window closing {Closing})", _closing);
+            ContentDialogResult result = await dialog.ShowAsync();
+            Serilog.Log.Information("Dialog: first-run welcome returned {Result} (window closing {Closing})", result, _closing);
         }
         finally
         {
