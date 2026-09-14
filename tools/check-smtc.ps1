@@ -197,9 +197,11 @@ try {
 
     # ---- a library of one album, through the first-run welcome --------------------------------------------------------
     $dialog = Wait-Until { Find-Named $window 'Welcome to Tunqio' } 30 'the welcome dialog appeared'
-    Set-Value (Find-Named $dialog 'Folder to add') $music
+    # The dialog's title reaches UIA before its content does (T-186: 'Folder to add' was still null 86 ms after the
+    # welcome showed), so wait for the box and the button rather than reading them once.
+    Set-Value (Wait-Until { Find-Named $dialog 'Folder to add' } 10 'the welcome offered the folder box') $music
     Start-Sleep -Milliseconds 400
-    Invoke-Element (Find-Named $dialog 'Add this folder')
+    Invoke-Element (Wait-Until { Find-Named $dialog 'Add this folder' } 10 'the welcome offered Add this folder')
     Wait-Until { $n = Find-ById $dialog 'WelcomeFolderNotice'; if ($n -and $n.Current.Name -like 'Added *') { $n } } 15 'the welcome said the folder was added' | Out-Null
     Invoke-Element (Wait-Until { Find-Named $dialog 'Skip all' } 5 'the welcome offered Skip all')
     Wait-Until { -not (Find-Named $window 'Welcome to Tunqio') } 10 'the welcome closed' | Out-Null
