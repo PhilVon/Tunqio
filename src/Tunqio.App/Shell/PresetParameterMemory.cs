@@ -135,7 +135,7 @@ public sealed class PresetParameterMemory : IDisposable
             return 0;
         }
 
-        IReadOnlyList<string> keys = StoredKeys(presetId);
+        List<string> keys = StoredKeys(presetId);
         if (keys.Count == 0)
         {
             return 0;

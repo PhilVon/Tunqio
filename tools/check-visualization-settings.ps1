@@ -22,8 +22,17 @@
   The built shell. Defaults to the Debug x64 output.
 .PARAMETER Seconds
   How long to give the window before reading the tree. The renderer is created when the SwapChainPanel loads.
+  T-157 adds a first phase that needs neither the keyboard nor the real profile: on a scratch data root
+  (artifacts\check-visualization-settings\<stamp>\data, passed as --data-root on every launch) it moves a slider
+  through UIA RangeValue, closes the app, relaunches, and reads the same value back; then Reset, another relaunch,
+  and the default read back. -PersistenceOnly runs that phase alone. Like check-first-run.ps1, the script refuses
+  to start while any Tunqio process is running, checking once a minute for at most -WaitMinutes.
 .PARAMETER KeepScratch
-  Leave the scratch preset behind, for looking at what the page did with it.
+  Leave the scratch preset (and the T-157 scratch data root) behind, for looking at what the page did with it.
+.PARAMETER PersistenceOnly
+  Run only the T-157 relaunch phase: keystroke-free, and nothing outside the scratch data root is touched.
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else opened to go away, retrying once a minute, before refusing (exit 2).
 #>
 [CmdletBinding()]
 param(
@@ -32,6 +41,8 @@ param(
     [string]$Exe,
     [int]$Seconds = 10,
     [switch]$KeepScratch,
+    [switch]$PersistenceOnly,
+    [int]$WaitMinutes = 10,
     [switch]$DumpGeometry,
     # Comma-separated. A string because under powershell.exe -File an [int[]] of "1600,1000" becomes one integer.
     [string]$Widths = '1600,1200,1000'
@@ -362,6 +373,208 @@ function Test-Case([string]$what, [scriptblock]$check) {
     }
 }
 
+# ---- T-157: a moved slider survives a relaunch, on a scratch data root ------------------------------------------
+#
+# Keystroke-free (UIA patterns only, so it runs while somebody else is using the machine) and on its own profile: every
+# launch passes --data-root, so the real settings.json is never opened. Three launches: move Bars on Spectrum Bars and
+# Thickness on Waveform; relaunch and read both back without touching anything, then Reset Spectrum Bars; relaunch and
+# read the default back. The log is read only after the last launch has exited, because the file sink buffers.
+
+function Wait-For([scriptblock]$condition, [int]$seconds) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $found = & $condition
+        if ($found) { return $found }
+        Start-Sleep -Milliseconds 250
+    }
+    return $null
+}
+
+function Start-ScratchShell([string]$root) {
+    $full = [System.IO.Path]::GetFullPath($root)
+    $real = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Tunqio'))
+    if ($full.StartsWith($real, [System.StringComparison]::OrdinalIgnoreCase) -or $full -like '*\Packages\*\LocalCache\*') {
+        throw "refusing data root ${full}: it is (or is a redirected copy of) the real profile"
+    }
+    $p = Start-Process $Exe -ArgumentList @('--data-root', "`"$full`"") -PassThru
+    $byPid = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $p.Id)
+    $w = Wait-For { [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid) } 30
+    if (-not $w) {
+        if (-not $p.HasExited) { $p.Kill() }
+        throw 'the shell window never appeared in the automation tree'
+    }
+    $script:window = $w
+    $script:processId = $p.Id
+    return $p
+}
+
+function Stop-ScratchShell($p) {
+    if (-not $p -or $p.HasExited) { return }
+    try { $script:window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
+    if (-not $p.WaitForExit(20000)) {
+        Write-Output '  note  the shell did not exit within 20 s of Close; killing it'
+        $p.Kill()
+        $p.WaitForExit(5000) | Out-Null
+    }
+}
+
+# Settings > Visualization without a key: the controls bar's button, then the section. Returns a problem or $null.
+function Open-VisualizationPage {
+    $button = Wait-For { Get-ElementNamed 'Open settings' 'Button' } 20
+    if (-not $button) { return 'no Open settings button' }
+    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $item = Wait-For { Get-ElementNamed 'Visualization settings' 'ListItem' } 10
+    if (-not $item) { return 'Settings did not open, or it has no Visualization section' }
+    $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    if (-not (Wait-For { Get-ElementNamed 'Presets' 'List' } 10)) { return 'the visualization page has no preset list' }
+    return $null
+}
+
+function Read-ScratchSettings([string]$root) {
+    $file = Join-Path $root 'settings.json'
+    if (-not (Test-Path $file)) { return $null }
+    return Get-Content $file -Raw | ConvertFrom-Json
+}
+
+function Get-VizParamKeys($json) {
+    if (-not $json) { return @() }
+    return @($json.PSObject.Properties | Where-Object { $_.Name -like 'viz.params.*' } | ForEach-Object { "$($_.Name)=$($_.Value)" })
+}
+
+function Get-SliderList { return (Get-NamesOfType 'Slider') -join ' | ' }
+
+# Through UIA RangeValue, which is what a drag ends in. Returns a problem or $null.
+function Set-SliderNamed([string]$sliderName, [double]$to) {
+    $slider = Wait-For { Get-ElementNamed $sliderName 'Slider' } 15
+    if (-not $slider) { return "no slider named '$sliderName'; sliders are [$(Get-SliderList)]" }
+    $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).SetValue($to)
+    Start-Sleep -Milliseconds 500
+    return $null
+}
+
+function Invoke-PersistencePhase {
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $scratchRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\artifacts\check-visualization-settings\$stamp"))
+    $root = Join-Path $scratchRoot 'data'
+    New-Item -ItemType Directory -Force -Path $root | Out-Null
+    # A profile that has settled its welcome (E6-S6) and starts on Spectrum Bars. WriteAllText: no BOM.
+    [System.IO.File]::WriteAllText((Join-Path $root 'settings.json'), '{ "ui.welcomeShown": false, "viz.preset": "spectrum-bars" }')
+    Write-Output ''
+    Write-Output 'Preset parameters survive a relaunch (T-157), keystroke-free, on a scratch data root'
+    Write-Output "  data root       $root"
+
+    $p = $null
+    try {
+        # ---- launch 1: move a slider on two presets
+        $p = Start-ScratchShell $root
+        Start-Sleep -Seconds $Seconds
+        Test-Case 'launch 1: Settings > Visualization opens by UIA alone' { Open-VisualizationPage }
+        Test-Case 'launch 1: Bars moved from 64 to 96 on Spectrum Bars' {
+            $problem = Set-SliderNamed 'Bars, 64' 96
+            if ($problem) { return $problem }
+            if (-not (Wait-For { Get-ElementNamed 'Bars, 96' 'Slider' } 5)) { return "the sliders read [$(Get-SliderList)]" }
+        }
+        Test-Case 'launch 1: Thickness moved from 2.5 px to 4 px on Waveform' {
+            Select-ListRow 'Presets' 'Waveform'
+            $problem = Set-SliderNamed 'Thickness, 2.5 px' 4
+            if ($problem) { return $problem }
+            if (-not (Wait-For { Get-ElementNamed 'Thickness, 4 px' 'Slider' } 5)) { return "the sliders read [$(Get-SliderList)]" }
+        }
+        Test-Case 'launch 1: back on Spectrum Bars the slider reads Bars, 96 again' {
+            Select-ListRow 'Presets' 'Spectrum Bars'
+            if (-not (Wait-For { Get-ElementNamed 'Bars, 96' 'Slider' } 5)) { return "after the switch back the sliders read [$(Get-SliderList)]" }
+        }
+        Test-Case 'launch 1: settings.json holds viz.params.<preset>.<name> as the sliders moved, and no art_ key' {
+            $json = Wait-For { $j = Read-ScratchSettings $root; if ($j -and $j.'viz.params.waveform.thickness' -eq 4) { $j } } 10
+            $keys = Get-VizParamKeys (Read-ScratchSettings $root)
+            Write-Host "        $($keys -join '  ')"
+            if (-not $json) { return "viz.params keys while the app runs: [$($keys -join ', ')]" }
+            if ($json.'viz.params.spectrum-bars.bars' -ne 96) { return "viz.params.spectrum-bars.bars is '$($json.'viz.params.spectrum-bars.bars')'" }
+            if ($keys | Where-Object { $_ -like '*art_*' }) { return "a hidden parameter was stored: $($keys -join ', ')" }
+        }
+        Stop-ScratchShell $p
+
+        # ---- launch 2: read both back, then Reset one preset
+        $p = Start-ScratchShell $root
+        Start-Sleep -Seconds $Seconds
+        Test-Case 'launch 2: the page opens on Spectrum Bars' {
+            $problem = Open-VisualizationPage
+            if ($problem) { return $problem }
+            $selected = Get-SelectedRow 'Presets'
+            if ($selected -ne 'Spectrum Bars') { return "the selected preset is '$selected'" }
+        }
+        Test-Case 'launch 2: Bars reads 96 with nothing touched (reapplied after the preset loaded)' {
+            if (-not (Wait-For { Get-ElementNamed 'Bars, 96' 'Slider' } 10)) { return "the sliders read [$(Get-SliderList)]" }
+        }
+        Test-Case 'launch 2: Waveform reads Thickness, 4 px, and Spectrum Bars reads Bars, 96 after switching back' {
+            Select-ListRow 'Presets' 'Waveform'
+            if (-not (Wait-For { Get-ElementNamed 'Thickness, 4 px' 'Slider' } 5)) { return "on Waveform the sliders read [$(Get-SliderList)]" }
+            Select-ListRow 'Presets' 'Spectrum Bars'
+            if (-not (Wait-For { Get-ElementNamed 'Bars, 96' 'Slider' } 5)) { return "back on Spectrum Bars the sliders read [$(Get-SliderList)]" }
+        }
+        Test-Case 'launch 2: Reset puts Bars back to 64 and removes the Spectrum Bars keys, and only those' {
+            Invoke-Named 'Reset to defaults'
+            if (-not (Wait-For { Get-ElementNamed 'Bars, 64' 'Slider' } 5)) { return "after Reset the sliders read [$(Get-SliderList)]" }
+            $gone = Wait-For { $k = Get-VizParamKeys (Read-ScratchSettings $root); if (-not ($k | Where-Object { $_ -like 'viz.params.spectrum-bars.*' })) { 'gone' } } 10
+            $keys = Get-VizParamKeys (Read-ScratchSettings $root)
+            Write-Host "        $($keys -join '  ')"
+            if (-not $gone) { return "Spectrum Bars keys are still stored: [$($keys -join ', ')]" }
+            if (-not ($keys | Where-Object { $_ -eq 'viz.params.waveform.thickness=4' })) { return "Reset took the Waveform key too: [$($keys -join ', ')]" }
+        }
+        Stop-ScratchShell $p
+
+        # ---- launch 3: the reset survives a relaunch too
+        $p = Start-ScratchShell $root
+        Start-Sleep -Seconds $Seconds
+        Test-Case 'launch 3: Bars reads 64 after the reset and a relaunch, and Waveform still reads 4 px' {
+            $problem = Open-VisualizationPage
+            if ($problem) { return $problem }
+            if (-not (Wait-For { Get-ElementNamed 'Bars, 64' 'Slider' } 10)) { return "the sliders read [$(Get-SliderList)]" }
+            Select-ListRow 'Presets' 'Waveform'
+            if (-not (Wait-For { Get-ElementNamed 'Thickness, 4 px' 'Slider' } 5)) { return "on Waveform the sliders read [$(Get-SliderList)]" }
+        }
+        Stop-ScratchShell $p
+        $p = $null
+
+        Test-Case 'the log shows stored values reapplied after a preset started' {
+            $lines = @()
+            foreach ($log in @(Get-ChildItem (Join-Path $root 'logs') -Filter '*.log' -ErrorAction SilentlyContinue)) { $lines += @(Get-Content $log.FullName) }
+            $reapplied = @($lines | Where-Object { $_ -match 'Reapplied [1-9][0-9]* stored parameter' })
+            foreach ($line in $reapplied) { Write-Host "        $($line.Substring($line.IndexOf('Reapplied')))" }
+            if ($reapplied.Count -eq 0) { return "no 'Reapplied N stored parameter(s)' line with N above 0 in $($lines.Count) log line(s)" }
+        }
+    }
+    finally {
+        Stop-ScratchShell $p
+        if (-not $KeepScratch) { Remove-Item $scratchRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# ---- refuse while somebody's Tunqio is open: once a minute, for at most -WaitMinutes (T-174: every wait has an end) ----
+$refuseDeadline = (Get-Date).AddMinutes($WaitMinutes)
+while (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
+    if ((Get-Date) -ge $refuseDeadline) {
+        Write-Output "check-visualization-settings: REFUSED (a Tunqio process was still running after $WaitMinutes minute(s); this script launches its own and will not run beside one somebody is using)"
+        exit 2
+    }
+    Write-Output "  wait  Tunqio is running; checking again in 60 s (until $($refuseDeadline.ToString('HH:mm')))"
+    Start-Sleep -Seconds 60
+}
+
+Invoke-PersistencePhase
+if ($PersistenceOnly) {
+    Write-Output ''
+    if ($failures.Count -eq 0) {
+        Write-Output 'PASS: preset parameters survive a relaunch'
+        exit 0
+    }
+
+    foreach ($failure in $failures) { Write-Output "FAIL: $failure" }
+    exit 1
+}
+
+Write-Output ''
 Write-Output "Settings > Visualization (E4-S9), read off the live automation tree"
 Write-Output "  exe             $Exe"
 Write-Output "  user presets    $userPresets"
