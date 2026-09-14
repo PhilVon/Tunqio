@@ -39,6 +39,10 @@ public sealed partial class AppearanceSettingsViewModel : ObservableObject
     [ObservableProperty]
     public partial bool MinimizeToTray { get; set; }
 
+    /// <summary><c>ui.toastOnTrackChange</c> (E7-S4): a toast when a new track starts, while Tunqio is not the window in use.</summary>
+    [ObservableProperty]
+    public partial bool ToastOnTrackChange { get; set; }
+
     public AppearanceSettingsViewModel(ISettingsStore settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -51,6 +55,7 @@ public sealed partial class AppearanceSettingsViewModel : ObservableObject
             ReactiveSmoothing = settings.GetValue(SettingsKeys.UiReactiveSmoothing, SettingsKeys.Defaults.UiReactiveSmoothing);
             CloseToTray = settings.GetValue(SettingsKeys.UiCloseToTray, SettingsKeys.Defaults.UiCloseToTray);
             MinimizeToTray = settings.GetValue(SettingsKeys.UiMinimizeToTray, SettingsKeys.Defaults.UiMinimizeToTray);
+            ToastOnTrackChange = settings.GetValue(SettingsKeys.UiToastOnTrackChange, SettingsKeys.Defaults.UiToastOnTrackChange);
         }
         finally
         {
@@ -139,5 +144,17 @@ public sealed partial class AppearanceSettingsViewModel : ObservableObject
 
         _settings.SetValue(SettingsKeys.UiMinimizeToTray, value);
         _settings.FlushAsync().Forget("Save minimise to tray");
+    }
+
+    partial void OnToastOnTrackChangeChanged(bool value)
+    {
+        if (_seeding)
+        {
+            return;
+        }
+
+        // The toast controller follows the store's Changed event: it registers when this turns on and stops when it turns off.
+        _settings.SetValue(SettingsKeys.UiToastOnTrackChange, value);
+        _settings.FlushAsync().Forget("Save toast on track change");
     }
 }

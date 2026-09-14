@@ -92,10 +92,14 @@ public sealed class CommandRouter
         "--data-root", "--export-diagnostics", "--library-spike", "--seconds", "--step", "--out", "--resizes",
     }.ToFrozenSet(StringComparer.Ordinal);
 
-    /// <summary>The app's own switches that take no value.</summary>
+    /// <summary>
+    /// The app's own switches that take no value. <c>----AppNotificationActivated:</c> is the command line Windows App SDK starts
+    /// Tunqio with to deliver a toast press (E7-S4); the press itself arrives as a <c>tunqio://</c> command.
+    /// </summary>
     private static readonly FrozenSet<string> FlagSwitches = new[]
     {
-        "--redact-paths", "--render-spike", "--nowplaying-spike", "--shell-spike", "--warp",
+        "--redact-paths", "--render-spike", "--nowplaying-spike", "--shell-spike", "--warp", "--unregister-notifications",
+        Notifications.ToastActions.ActivatedSwitch,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private readonly ICommandTarget _target;

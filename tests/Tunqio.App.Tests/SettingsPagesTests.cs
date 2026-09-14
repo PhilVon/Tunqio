@@ -164,6 +164,23 @@ public sealed class SettingsPagesTests : IAsyncLifetime
         new AppearanceSettingsViewModel(_settings).MinimizeToTray.Should().BeTrue("the page reopens on what was stored");
     }
 
+    /// <summary>E7-S4 (AC-494): the toast switch starts off and writes its key as it changes.</summary>
+    [Fact]
+    public void The_toast_switch_starts_off_and_writes_its_key()
+    {
+        var vm = new AppearanceSettingsViewModel(_settings);
+        var changed = new List<string>();
+        _settings.Changed += (_, key) => changed.Add(key);
+
+        vm.ToastOnTrackChange.Should().BeFalse("ui.toastOnTrackChange is off by default (docs/solution-structure.md)");
+
+        vm.ToastOnTrackChange = true;
+
+        _settings.GetValue(SettingsKeys.UiToastOnTrackChange, false).Should().BeTrue();
+        changed.Should().Equal(SettingsKeys.UiToastOnTrackChange);
+        new AppearanceSettingsViewModel(_settings).ToastOnTrackChange.Should().BeTrue("the page reopens on what was stored");
+    }
+
     [Fact]
     public void Seeding_appearance_from_the_store_does_not_write_it_back()
     {

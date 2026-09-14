@@ -30,6 +30,32 @@ internal static class NativeWindowing
     /// <summary>Lets <paramref name="processId"/> take the foreground this process was given.</summary>
     public static bool AllowFor(uint processId) => AllowSetForegroundWindow(processId);
 
+    /// <summary>
+    /// True when the foreground window is one of this process's, visible and not minimised (E7-S4). A window hidden to the tray
+    /// is not visible, a minimised one is iconic, and one behind another window is not the foreground window.
+    /// </summary>
+    public static bool ThisProcessIsInForeground()
+    {
+        nint foreground = GetForegroundWindow();
+        if (foreground == nint.Zero)
+        {
+            return false;
+        }
+
+        _ = GetWindowThreadProcessId(foreground, out uint processId);
+        return processId == (uint)Environment.ProcessId && IsWindowVisible(foreground) && !IsIconic(foreground);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint hwnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(nint hwnd);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsIconic(nint hwnd);

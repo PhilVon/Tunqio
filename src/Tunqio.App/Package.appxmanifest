@@ -13,7 +13,9 @@
   xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
-  IgnorableNamespaces="uap uap5 rescap desktop6">
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  IgnorableNamespaces="uap uap5 rescap desktop6 com desktop">
 
   <Identity
     Name="Tunqio"
@@ -86,6 +88,19 @@
             <uap5:ExecutionAlias Alias="tunqio.exe" />
           </uap5:AppExecutionAlias>
         </uap5:Extension>
+        <!-- E7-S4: toast presses. Windows App SDK app notifications activate this CLSID, and COM starts Tunqio.exe with the
+             argument the SDK reads as an AppNotification activation. The CLSID is fixed for the package's life; asserted in the
+             built MSIX by tools/check-package.ps1. Unpackaged, the SDK's Register writes the equivalent under HKCU instead. -->
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="A50CBD6A-91AB-4045-8EBD-F7FE4C9BE29C" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Tunqio.exe" DisplayName="Tunqio" Arguments="----AppNotificationActivated:">
+              <com:Class Id="A50CBD6A-91AB-4045-8EBD-F7FE4C9BE29C" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>
