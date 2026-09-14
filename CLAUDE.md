@@ -42,6 +42,11 @@ matched an agent's. An agent's worktree build is not main's build.
   checkpoint saying it is ready to merge; whoever merges it into main moves it to Review after rebuilding main.
   T-79's agent moved its card to Review before the merge, which would have had Phil test a build without it.
 
+**Some docs are tested: run Tunqio.Core.Tests after editing them** (D-34, 2026-09-14). `IdentityTests` reads
+`docs/identity.md` and matches identity table rows word for word, and the notices tests read
+`THIRD-PARTY-NOTICES.md`. A docs-only commit that reworded the identity table's publisher row turned main red, and it
+was caught only because the next merge ran the suites before a push. A docs change to either file is not docs-only.
+
 **Account for every background task before you report** (T-174). Before your final report, list what you
 started in the background that is still running, and stop it or say why it should keep running. Look where the
 human looks (the harness's background task list); a process list filtered by name misses a `sleep` loop.

@@ -105,7 +105,9 @@ public class IdentityTests
         string doc = File.ReadAllText(RepoPaths.File("docs", "identity.md"));
 
         doc.Should().Contain($"| Package identity name | `{Identity.PackageName}` |");
-        doc.Should().Contain($"| Publisher (dev / self-signed) | `{Identity.DevelopmentPublisher}` |");
+        // Releases stay self-signed for the foreseeable future (D-34), so the row names the one publisher both
+        // development and release builds use; DevelopmentPublisher is that value despite its name.
+        doc.Should().Contain($"| Publisher (self-signed) | `{Identity.DevelopmentPublisher}` |");
         doc.Should().Contain($"| Application Id | `{Identity.ApplicationId}` |");
         doc.Should().Contain($"| Execution alias | `{Identity.ExecutionAlias}` |");
         doc.Should().Contain($"| URI scheme | `{Identity.UriScheme}` |");
