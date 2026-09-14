@@ -354,6 +354,10 @@ public class ToastActivator : NotificationActivator
 
 ## Media Key Support
 
+> **Superseded (ADR-006, E7-S2).** Media keys reach Tunqio only through SMTC, below: Windows routes the hardware
+> Play/Pause, Next, Previous and Stop keys to the app's media session whether or not the window has focus. There is no
+> `WM_APPCOMMAND` hook, and the shell's shortcut table cannot hold a media key (see "As built (E7-S2)").
+
 ### Global Media Key Handler
 
 ```csharp
@@ -437,6 +441,42 @@ public class MediaKeyHandler
 ```
 
 ### System Media Transport Controls (SMTC)
+
+**As built (E7-S2).** The sample below is the original design and does not run in a desktop WinUI 3 app:
+`GetForCurrentView` needs a `CoreWindow`, which a desktop window does not have. What ships:
+
+- **Route.** `SystemMediaTransportControlsInterop.GetForWindow(hwnd)` on the main window's handle, in
+  `WindowsMediaControls` (Tunqio.App/Playback), built in `App.OnLaunched` as soon as the window has a handle. The
+  alternative, a `Windows.Media.Playback.MediaPlayer`'s controls through its `CommandManager`, belongs to a player
+  instance that plays the audio; Tunqio's audio is mpcore's, so it would mean an idle `MediaPlayer` kept alive only to
+  borrow its session. `GetForWindow` needs no package identity and was measured working unpackaged by
+  `tools/check-smtc.ps1`. Unpackaged, the session's source app id is the executable's name; packaged it is the AUMID.
+- **`SmtcBridge`** follows `PlaybackSession.Snapshots` (10 Hz) and writes to `ISystemMediaControls`, the small face over
+  the WinRT object that the unit tests fake (`SmtcBridgeTests`). Everything is written on a change. Status is Playing,
+  Paused, Stopped (nothing loaded but the queue has an item) or Closed (nothing queued, which takes the session out of
+  the flyout). Music properties (title, artists, album artist, album, track number) and the thumbnail, the art cache's
+  96 px file opened as a `StorageFile`, are written once per track; a transient file dropped from outside the library
+  (D-24) has no art hash and gets no thumbnail. The timeline (start 0, end and max seek at the duration) is written on
+  a track change, a state change, a seek (the position more than 2 s from where the last write puts it), and every 5 s
+  while playing; the flyout moves the bar itself between writes.
+- **Buttons.** Play, Pause, Stop, Next and Previous, and `PlaybackPositionChangeRequested`, arrive on a Windows thread;
+  the bridge hands each to the pool and runs them one at a time through the session's own commands
+  (`TogglePlayPauseAsync` only when the state needs it, so Play on a playing session does nothing, `NextAsync`,
+  `PreviousAsync`, `StopAsync`, `SeekAsync` clamped to the track). Next is enabled while `PlayQueue.Advance(manual:
+  true)` would move on (a later item, or repeat); Previous, Pause and Stop while a track is loaded; Play while
+  something is loaded or queued.
+- **Media keys are handled once.** The shell handles no media virtual key itself, and `KeyChord` refuses VK 173 to 183
+  (volume, media and launch keys) in both capture and `settings.json`, so Settings › Shortcuts cannot bind one and have
+  a press toggled by SMTC and toggled back by the shell.
+- **Lifetime.** Disabled until the session exists; at shutdown the bridge closes the media session before
+  `AudioStartup` disposes the session, so a late flyout press cannot reach a session being torn down. A machine that
+  refuses a media session logs an error and runs without it.
+- **Live check.** `tools/check-smtc.ps1` launches the Release build on a scratch `--data-root`, adds one fixture album
+  through the first-run welcome, starts it through UIA with the output muted, and then reads and presses Tunqio's
+  session from outside the process through `GlobalSystemMediaTransportControlsSessionManager`, matched by source app
+  id so a browser's session is never touched: title, artist, album, track number, thumbnail, Playing, a timeline that
+  moves, and `TryPauseAsync`, `TryPlayAsync`, `TrySkipNextAsync` and `TryChangePlaybackPositionAsync` each changing the
+  app. That is the path the flyout and the hardware keys use, without pressing a key.
 
 ```csharp
 public class SystemMediaTransportManager

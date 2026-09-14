@@ -294,7 +294,7 @@ public partial class App : Application
     /// </summary>
     private SmtcBridge? StartMediaControls(ILogger<App> logger)
     {
-        ISystemMediaControls? controls = null;
+        WindowsMediaControls? controls = null;
         try
         {
             controls = WindowsMediaControls.ForWindow(_mainWindowHandle, _host!.Services.GetRequiredService<ILogger<WindowsMediaControls>>());

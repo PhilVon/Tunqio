@@ -207,7 +207,8 @@ public sealed class SmtcBridge : IDisposable
                 dto.ArtistNames,
                 dto.AlbumArtist ?? string.Empty,
                 dto.AlbumTitle ?? string.Empty,
-                dto.TrackNo ?? 0,
+                // SMTC's track number is unsigned; an untagged or nonsensical one is "no number", not a wrap to 4 billion.
+                dto.TrackNo is int number && number > 0 ? number : 0,
                 // A file dropped from outside the library (D-24) has no art row: no hash, so no path, and no thumbnail.
                 _art?.PathFor(dto.ArtHash, ArtSize.Thumbnail))
             : null;

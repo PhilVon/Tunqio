@@ -40,7 +40,7 @@ public sealed record SmtcTimeline(TimeSpan Position, TimeSpan End);
 /// <summary>Which buttons the session offers.</summary>
 public readonly record struct SmtcButtons(bool Play, bool Pause, bool Stop, bool Next, bool Previous)
 {
-    public static SmtcButtons None { get; } = default;
+    public static SmtcButtons None => default;
 }
 
 /// <summary>
