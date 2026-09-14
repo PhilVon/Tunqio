@@ -12,6 +12,9 @@
        Play (paused); then tunqio://next: Now Playing shows the second title;
     4. a second process with 50 file paths: it exits, one instance remains, and the log says the queue holds 50 items;
        then one with tunqio://play?path=<the first FLAC>: Now Playing shows its title again;
+    4c. (T-192) a second process started from the all-lowercase spelling of the shell's path, then one from the real path with
+       root A spelled in lowercase: each exits with 0 and root A keeps one process and one window; the log shows exactly
+       one relaunch from the true path, and eight redirects in all;
     5. a process on scratch root B: it does not exit, and it has a window of its own;
   then closes both windows it launched (Close-TunqioShell, which fails the run on a hang or a crash code) and reads root
   A's log for the redirect, receive and route lines.
@@ -128,9 +131,11 @@ function Start-Shell([string]$argumentLine) {
 }
 function Quote([string]$text) { '"' + $text + '"' }
 
-# A second process on root A: it must hand over its activation and exit, cleanly, within $seconds.
-function Invoke-Second([string]$label, [string]$arguments, [int]$seconds = 15) {
-    $second = Start-Shell ("--data-root {0} {1}" -f (Quote $rootA), $arguments)
+# A second process on root A: it must hand over its activation and exit, cleanly, within $seconds. $path and $root default
+# to the shell's own spelling and root A's; T-192 passes other spellings of both.
+function Invoke-Second([string]$label, [string]$arguments, [int]$seconds = 15, [string]$path = $Exe, [string]$root = $rootA) {
+    $second = Start-Process $path -ArgumentList ("--data-root {0} {1}" -f (Quote $root), $arguments) -PassThru
+    $null = $second.Handle
     $script:launched += $second
     $exited = $second.WaitForExit($seconds * 1000)
     Check "$label - the second process exits" $exited "pid $($second.Id), $(if ($exited) { 'exited' } else { "still running after $seconds s" })"
@@ -141,7 +146,10 @@ function Invoke-Second([string]$label, [string]$arguments, [int]$seconds = 15) {
         $problem = Close-TunqioShell $second $null 10
         if ($problem) { $script:failures += $problem }
     }
+    # A relaunched process (T-192) may still be handing over when its parent exits: give root A up to 10 s to settle to one.
     # @() at the call as well: a function's one-item array unrolls to a bare CimInstance, whose Count reads back empty in 5.1.
+    $settleBy = (Get-Date).AddSeconds(10)
+    while (@(Get-TunqioOn $rootA).Count -gt 1 -and (Get-Date) -lt $settleBy) { Start-Sleep -Milliseconds 250 }
     $onA = @(Get-TunqioOn $rootA)
     Check "$label - root A still has exactly one Tunqio process" ($onA.Count -eq 1 -and $onA[0].ProcessId -eq $script:first.Id) "$($onA.Count) process(es): $(($onA | ForEach-Object { $_.ProcessId }) -join ', ')"
     Check "$label - and one window" ((Get-WindowsOf $script:first.Id).Count -eq 1 -and (Get-WindowsOf $second.Id).Count -eq 0) "first $((Get-WindowsOf $script:first.Id).Count), second $((Get-WindowsOf $second.Id).Count)"
@@ -226,6 +234,11 @@ try {
     try { $replayed = Wait-Until { Find-Named $window $titleOne } 15 "Now Playing showed '$titleOne' again" } catch { }
     Check 'tunqio://play?path= plays that file in the running window' ($null -ne $replayed) "$(if ($replayed) { "'$titleOne' shown" } else { 'not shown within 15 s' })"
 
+    # ---- 4c. T-192: another spelling of Tunqio.exe's path, and of the data root, still find root A's instance -----------
+    # COM starts a toast press from the SDK's all-lowercase path; AppInstance scopes keys by the exact module path.
+    Invoke-Second 'a lowercased Tunqio.exe path' 'tunqio://show' -path $Exe.ToLowerInvariant()
+    Invoke-Second 'a lowercased data root' 'tunqio://show' -root $rootA.ToLowerInvariant()
+
     # ---- 5. a different data root is a different instance -------------------------------------------------------------
     $other = Start-Shell ("--data-root {0}" -f (Quote $rootB))
     $script:launched += $other
@@ -254,8 +267,10 @@ try {
     $refused = @($log | Where-Object { $_ -match 'Activation input refused|Activation command .* refused' })
     $queue50 = $log | Where-Object { $_ -match 'queue replaced from 50 path\(s\); queue now 50 item\(s\)' } | Select-Object -Last 1
     $foreground = @($log | Where-Object { $_ -match 'main window activated \(foreground granted' })
-    Check 'Root A logged six redirected activations from the second processes' ($redirected.Count -eq 6) "$($redirected.Count) redirect line(s)"
-    Check 'The running instance received all six' ($received.Count -eq 6) "$($received.Count) receive line(s)"
+    $relaunchedLines = @($log | Where-Object { $_ -match 'Single instance: started as .*; relaunched as pid' })
+    Check 'Root A logged eight redirected activations from the second processes' ($redirected.Count -eq 8) "$($redirected.Count) redirect line(s)"
+    Check 'The running instance received all eight' ($received.Count -eq 8) "$($received.Count) receive line(s)"
+    Check 'Only the lowercased Tunqio.exe launch was relaunched from the true path (T-192)' ($relaunchedLines.Count -eq 1) "$($relaunchedLines.Count) relaunch line(s)"
     Check 'Nothing the harness sent was refused' ($refused.Count -eq 0) "$(if ($refused.Count) { $refused[0] } else { 'no refusal lines' })"
     Check 'Fifty paths from one launch became a 50-item queue in one instance' ($null -ne $queue50) "$(if ($queue50) { 'queue now 50 item(s)' } else { 'no such line' })"
     Check 'The play and file activations asked for the foreground' ($foreground.Count -ge 2) "$($foreground.Count) line(s); last: $(if ($foreground.Count) { $foreground[-1].Substring($foreground[-1].IndexOf('main window')) } else { 'none' })"

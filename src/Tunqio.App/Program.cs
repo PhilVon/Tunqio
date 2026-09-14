@@ -30,9 +30,14 @@ namespace Tunqio.App;
 /// registers for app notifications, as the SDK requires before the activation can be read, reads the press, and starts
 /// Tunqio.exe again with the press as a <c>tunqio://</c> command (and the press's <c>--data-root</c>), then exits with 0. That
 /// launch is an ordinary one: it redirects to the running instance through the key above, or starts the app. The press process
-/// cannot redirect itself: COM starts it from the lowercase path the SDK registered, and AppInstance did not find the instance
-/// started from the real path (check-toasts measured a second instance on the same data root). <c>--unregister-notifications</c>
+/// cannot redirect itself: it is a COM activation, which a relaunch would lose, and COM starts it from the lowercase path the
+/// SDK registered. It starts Tunqio.exe from the true spelling of its path, as the step below would. <c>--unregister-notifications</c>
 /// removes Tunqio's app notification registration and exits.
+/// </para>
+/// <para>
+/// T-192: before the key, an unpackaged launch from any other spelling of Tunqio.exe's path (letter case, above all) starts
+/// Tunqio.exe again from the file system's spelling and exits, because AppInstance scopes keys by the exact module path
+/// (<see cref="ExecutablePath"/>). Only then is the key found or registered.
 /// </para>
 /// </remarks>
 public static class Program
@@ -65,6 +70,11 @@ public static class Program
         if (ToastActions.IsActivationLaunch(args))
         {
             DeliverToastPress();
+            return 0;
+        }
+
+        if (RelaunchedFromTruePath(args))
+        {
             return 0;
         }
 
@@ -163,6 +173,82 @@ public static class Program
         {
             Log.Error(e, "Toasts: {Switch} failed (HRESULT 0x{HResult:X8}); nothing may have been registered", UnregisterNotificationsSwitch, e.HResult);
             return 1;
+        }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
+    }
+
+    /// <summary>
+    /// T-192: true when this unpackaged process was started from a spelling of Tunqio.exe other than the file system's own
+    /// (a lowercase path, a shortcut, a script) and has started Tunqio.exe again from the true spelling with the same
+    /// arguments, so it must exit. AppInstance scopes instance keys by a hash of the exact module path, so without this the
+    /// process would miss the running instance and open a second one on the same data root; <see cref="ExecutablePath"/>
+    /// has the measurement. Anything that goes wrong here carries on in this process, as before.
+    /// </summary>
+    private static bool RelaunchedFromTruePath(string[] args)
+    {
+        if (!InstanceKey.Applies(args))
+        {
+            return false;
+        }
+
+        bool relaunched = Environment.GetEnvironmentVariable(ExecutablePath.RelaunchedVariable) is not null;
+        if (relaunched)
+        {
+            // Not passed on to anything this instance starts later (a toast press's own relaunch, for one).
+            Environment.SetEnvironmentVariable(ExecutablePath.RelaunchedVariable, null);
+            return false;
+        }
+
+        string? processPath = Environment.ProcessPath;
+        string? target;
+        try
+        {
+            target = processPath is null
+                ? null
+                : ExecutablePath.RelaunchTarget(processPath, ExecutablePath.WithTrueCase(processPath), ToastActivation.IsPackaged, relaunched);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Debug.WriteLine($"Single instance: the executable's true path could not be read, carrying on: {e}");
+            return false;
+        }
+
+        if (target is null)
+        {
+            return false;
+        }
+
+        string? dataRoot = DataRootSwitch.Path(args);
+        Log.Logger = AppLogging.Create(dataRoot is null ? new AppPaths() : new AppPaths(dataRoot), Guid.NewGuid());
+        try
+        {
+            var start = new ProcessStartInfo(target) { UseShellExecute = false };
+            start.Environment[ExecutablePath.RelaunchedVariable] = "1";
+            foreach (string arg in args)
+            {
+                start.ArgumentList.Add(arg);
+            }
+
+            using Process? launched = Process.Start(start);
+            if (launched is null)
+            {
+                Log.Warning("Single instance: started as {ProcessPath}; relaunching from {TruePath} started nothing, so this process carries on", processPath, target);
+                return false;
+            }
+
+            bool allowed = NativeWindowing.AllowFor((uint)launched.Id);
+            Log.Information(
+                "Single instance: started as {ProcessPath}, not the file system's spelling {TruePath} that AppInstance keys instances by; relaunched as pid {Pid} (foreground passed on {Allowed}); this process exits",
+                processPath, target, launched.Id, allowed);
+            return true;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Log.Error(e, "Single instance: started as {ProcessPath}; relaunching from {TruePath} failed, so this process carries on", processPath, target);
+            return false;
         }
         finally
         {
