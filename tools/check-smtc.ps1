@@ -48,6 +48,8 @@ if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
+# Close-TunqioShell (T-188); the calls below were added without it, so they threw instead of closing (T-195).
+. (Join-Path $here 'uia-geometry.ps1')
 
 # ---- refuse while somebody's Tunqio is open: once a minute, for at most -WaitMinutes (T-174: every wait has an end) ----
 $refuseDeadline = (Get-Date).AddMinutes($WaitMinutes)
