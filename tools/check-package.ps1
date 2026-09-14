@@ -290,7 +290,11 @@ function Test-NoticesCoverage([string[]]$entries) {
     foreach ($entry in $entries) {
         if ($entry.EndsWith('/')) { continue }
         if ($ownFiles -contains $entry -or @($ownPatterns | Where-Object { $entry -like $_ }).Count -gt 0) { $own++; continue }
-        $hit = $patterns | Where-Object { $entry -like $_.Pattern.Replace('\', '/') } | Select-Object -First 1
+        # The most specific pattern wins: an exact name before a wildcard, then the longest, so System.Reactive.dll counts for
+        # its own row and not for the runtime's System.*.dll.
+        $hit = $patterns | Where-Object { $entry -like $_.Pattern.Replace('\', '/') } |
+            Sort-Object @{ Expression = { if ($_.Pattern.Contains('*')) { 1 } else { 0 } } }, @{ Expression = { $_.Pattern.Length }; Descending = $true } |
+            Select-Object -First 1
         if ($hit) { $mapped++; $usedRows[$hit.Row] = $true }
         else { $unmapped += $entry }
     }
