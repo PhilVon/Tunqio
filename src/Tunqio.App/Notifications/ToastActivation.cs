@@ -13,7 +13,7 @@ namespace Tunqio.App.Notifications;
 /// A press on a running Tunqio that is registered reaches <see cref="OnInvoked"/> in that process: the SDK registers the COM
 /// activator for many uses when a handler is present, so no second process starts. A press when no Tunqio is registered makes
 /// Windows start <c>Tunqio.exe ----AppNotificationActivated:</c>; <see cref="Program"/> registers first, reads the press from
-/// the activation, and redirects it to a running instance or starts with it.
+/// the activation, and hands it to an ordinary launch of Tunqio.exe, which redirects to a running instance or starts.
 /// </remarks>
 internal static class ToastActivation
 {
@@ -37,8 +37,12 @@ internal static class ToastActivation
         }
     }
 
-    /// <summary>Adds the press handler if it is not there and registers the process. False when it was already registered.</summary>
-    public static bool Register()
+    /// <summary>
+    /// Registers the process, adding the press handler first when <paramref name="receivePresses"/> is true. False when it was
+    /// already registered. Without the handler the SDK takes the one activation this process was started for and no more,
+    /// which is what the press trampoline in <see cref="Program"/> wants.
+    /// </summary>
+    public static bool Register(bool receivePresses)
     {
         lock (Gate)
         {
@@ -48,7 +52,7 @@ internal static class ToastActivation
             }
 
             AppNotificationManager manager = AppNotificationManager.Default;
-            if (!_handlerAdded)
+            if (receivePresses && !_handlerAdded)
             {
                 // Before Register, or the SDK refuses it ("Must register event handlers before calling Register()").
                 manager.NotificationInvoked += OnInvoked;

@@ -68,9 +68,9 @@ public partial class App : Application
     {
         Stopwatch startup = Stopwatch.StartNew();
         string[] commandLine = Environment.GetCommandLineArgs().Skip(1).ToArray();
-        // --data-root PATH (E6-S6): a scratch profile for a harness, read before anything is opened under the default one. A process
-        // Windows started to deliver a toast press has no switch; the press names the root instead (E7-S4, Program).
-        string? dataRootSwitch = DataRootSwitch.Path(commandLine) ?? Program.ActivationDataRoot;
+        // --data-root PATH (E6-S6): a scratch profile for a harness, read before anything is opened under the default one. Toasts
+        // carry it in their presses (E7-S4), so a press that has to start Tunqio again starts it on the same root.
+        string? dataRootSwitch = DataRootSwitch.Path(commandLine);
         var paths = dataRootSwitch is { } dataRoot ? new AppPaths(dataRoot) : new AppPaths();
         paths.EnsureCreated();
 
@@ -452,7 +452,13 @@ public partial class App : Application
                 // T-191's logo, beside the executable in both shapes: the picture for a track with no art.
                 Path.Combine(AppContext.BaseDirectory, "Assets", "TunqioLogo.png"),
                 () => shell.Mode == ShellMode.Focus,
-                NativeWindowing.ThisProcessIsInForeground,
+                () =>
+                {
+                    // Read once per track that would get a toast, and logged: what the rule saw is the evidence (check-toasts).
+                    NativeWindowing.ForegroundWindow foreground = NativeWindowing.Foreground();
+                    log.LogInformation("Toasts: foreground window {Foreground}", foreground);
+                    return foreground.IsThisProcess;
+                },
                 log);
             logger.LogInformation("Toasts: controller started (ui.toastOnTrackChange {Enabled})", toasts.IsEnabled);
             return toasts;

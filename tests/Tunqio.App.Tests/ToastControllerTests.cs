@@ -361,6 +361,17 @@ public sealed class ToastControllerTests : IAsyncLifetime
     }
 
     [Fact]
+    public void A_path_spelled_in_another_case_comes_back_as_the_file_system_spells_it()
+    {
+        string file = Path.Combine(_folder, "Tunqio.Case.Check.exe");
+        File.WriteAllText(file, "not a program");
+
+        ExecutablePath.WithTrueCase(file.ToLowerInvariant()).Should().Be(file,
+            "COM starts a toast press from the SDK's lowercase path, and the relaunch has to use the real one");
+        ExecutablePath.WithTrueCase(Path.Combine(_folder, "missing.exe")).Should().Be(Path.Combine(_folder, "missing.exe"));
+    }
+
+    [Fact]
     public void Disposing_removes_the_toast_and_stops_receiving_presses()
     {
         Build();

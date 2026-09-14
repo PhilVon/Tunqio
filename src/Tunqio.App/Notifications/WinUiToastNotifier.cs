@@ -37,7 +37,7 @@ internal sealed class WinUiToastNotifier : IToastNotifier
 
     public void Register() => Enqueue("register", () =>
     {
-        if (ToastActivation.Register())
+        if (ToastActivation.Register(receivePresses: true))
         {
             _log.LogInformation("Toasts: AppNotificationManager registered (packaged {Packaged})", ToastActivation.IsPackaged);
         }

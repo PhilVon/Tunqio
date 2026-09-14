@@ -376,11 +376,18 @@ public class SystemTrayManager : IDisposable
   goes through `Program.Inbox` and the same `CommandRouter` as every other activation (E7-S1): the three buttons drive
   `PlaybackSession` and leave the window where it is, and only the body brings it forward. A press on a running, registered Tunqio
   reaches `ToastActivation`'s `NotificationInvoked` handler in that process (the handler is added before `Register`, so the SDK
-  registers the activator for many uses and no second process starts). A press when no Tunqio is registered makes COM start
-  `Tunqio.exe ----AppNotificationActivated:`: `Program.Main` registers before reading its activation, as the SDK requires, takes
-  the data root from the press (carried as `dataRoot` only when Tunqio runs on `--data-root`), and redirects the AppNotification
-  activation to the running instance, exiting with 0, or starts with it. A press it cannot read ends that process with 0 and
-  starts nothing.
+  registers the activator for many uses and no second process starts). A press when no Tunqio is registered (toasts turned off,
+  or Tunqio not running) makes COM start `Tunqio.exe ----AppNotificationActivated:`. That process is a trampoline
+  (`Program.DeliverToastPress`): it registers without a handler before reading its activation, as the SDK requires, reads the
+  press, and starts Tunqio.exe again with the press as a `tunqio://` command and the press's `--data-root` (carried as `dataRoot`
+  only when Tunqio runs on one), then exits with 0. That launch is an ordinary one: it redirects to the running instance through
+  E7-S1's key and exits with 0, or starts the app. A press it cannot read starts nothing.
+- **Why a trampoline.** COM starts the press process from the path the SDK registered in LocalServer32, which the SDK writes in
+  lowercase, and AppInstance's single-instance key does not find an instance started from the real spelling of the same path.
+  Measured on a scratch profile: a second launch from the lowercased path started a second instance on the same data root
+  (launch #2), and the same launch from the real path redirected and exited with 0. So the trampoline relaunches from the path
+  as the file system spells it (`ExecutablePath.WithTrueCase`, `GetFinalPathNameByHandle`). The same limit applies to any
+  launch of Tunqio from a differently cased path, which is E7-S1's to settle.
 - **Shutdown.** The toasts are the first step, before the tray icon (T-188's order): the toast is removed from the notification
   centre, presses stop, and the queue drains for at most a few seconds.
 - **Proof.** `tools/check-toasts.ps1` on a scratch `--data-root` with the setting seeded on: no toast for a Next pressed through

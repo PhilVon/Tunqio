@@ -241,21 +241,25 @@ function Get-Registration {
 }
 function Show-RegQuery([string]$label, $registration) {
     Write-Output "  reg   $label"
-    foreach ($key in @("HKCU\Software\Classes\AppUserModelId\$($registration.PathKey)", "HKCU\Software\Classes\AppUserModelId\$($registration.Aumid)", "HKCU\Software\Classes\CLSID\$($registration.Clsid)")) {
+    foreach ($key in @("HKCU\Software\Classes\AppUserModelId\$($registration.PathKey)", "HKCU\Software\Classes\AppUserModelId\$($registration.Aumid)", "HKCU\Software\Classes\CLSID\$($registration.Clsid)", "HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\$($registration.Aumid)")) {
         if ($key -match '\\$') { continue }
-        $out = & reg.exe query $key /s 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -ne '' }
+        # Through cmd, so reg.exe's "unable to find" on stderr is a line of output rather than a terminating error under Stop.
+        $out = & cmd.exe /c "reg query `"$key`" /s 2>&1" | ForEach-Object { "$_" } | Where-Object { $_ -ne '' }
         Write-Output "        > reg query $key /s"
         foreach ($line in $out) { Write-Output "          $line" }
     }
 }
 
+# The window is handed back in $script:shown, not returned: Check writes to the pipeline, and a function's return value is
+# everything it wrote (check-tray.ps1 learned this first).
 function Invoke-Show([string]$label) {
+    $script:shown = $null
     $second = Start-Shell ("--data-root {0} tunqio://show" -f (Quote $dataRoot))
     $script:launched += $second
     $exited = $second.WaitForExit(15000)
     Check "$label - the tunqio://show process exits with code 0" ($exited -and $second.ExitCode -eq 0) "exited $exited, code $($second.ExitCode)"
     $null = Try-Until { if ([TunqioToastPress]::VisibleWindows($script:app.Id) -ge 1) { $true } } 10
-    return (Try-Until { Get-UiaWindow $script:app.Id } 10)
+    $script:shown = Try-Until { Get-UiaWindow $script:app.Id } 10
 }
 
 # The button's own arguments from the posted payload, as the platform hands them to the activator.
@@ -326,8 +330,12 @@ try {
     Show-RegQuery 'created by Register' $script:registration
 
     # ---- 2. no toast while the window is in the foreground ----------------------------------------------------------------
+    # Windows may not give a freshly launched window the foreground (the log says "foreground granted false"), and then Toast One
+    # rightly gets a toast. tunqio://show from a second process passes the foreground on (T-74), which step 2 needs.
+    Write-Output "  note  toasts for Toast One at launch: $(Log-Count 'Toasts: shown for Toast One') (Windows granted the new window the foreground: $((Log-Count 'main window activated \(foreground granted True\)') -ge 1))"
     if ([TunqioUiaGeometry]::ForegroundProcess() -ne $script:app.Id) {
-        $window = Invoke-Show 'foreground for step 2'
+        Invoke-Show 'foreground for step 2'
+        if ($script:shown) { $window = $script:shown }
         $null = Try-Until { if ([TunqioUiaGeometry]::ForegroundProcess() -eq $script:app.Id) { $true } } 5
     }
     $front = [TunqioUiaGeometry]::ForegroundProcess() -eq $script:app.Id
@@ -335,6 +343,9 @@ try {
     Invoke-Element (Wait-Until { Find-ById $window 'NextButton' } 10 'the Next button appeared')
     $two = Try-Until { if ((Get-SessionTitle) -eq 'Toast Two') { $true } } 10
     Check 'Next through UIA plays Toast Two' ($two -eq $true) "title '$(Get-SessionTitle)'"
+    Check 'Tunqio is still the foreground process after the press' ([TunqioUiaGeometry]::ForegroundProcess() -eq $script:app.Id) "foreground pid $([TunqioUiaGeometry]::ForegroundProcess())"
+    $seen = Try-Until { Read-Log | Where-Object { $_ -match 'Toasts: foreground window' } | Select-Object -Last 1 } 10
+    Write-Output "  note  what the rule saw for Toast Two: $(if ($seen) { $seen.Substring($seen.IndexOf('Toasts:')) } else { 'no foreground line' })"
     $none = Try-Until { if ((Log-Count 'Toasts: none for Toast Two: a Tunqio window is in the foreground') -ge 1) { $true } } 10
     Check 'No toast for Toast Two: the log names the foreground window' ($none -eq $true) "$(Log-Count 'Toasts: none for Toast Two') line(s)"
     Check 'And none was shown for it' ((Log-Count 'Toasts: shown for Toast Two') -eq 0) "$(Log-Count 'Toasts: shown for Toast Two') line(s)"
@@ -388,7 +399,8 @@ try {
     Check 'The window is still hidden after all three buttons' ([TunqioToastPress]::VisibleWindows($script:app.Id) -eq 0) "$([TunqioToastPress]::VisibleWindows($script:app.Id)) visible window(s)"
 
     # ---- 5. toasts off: a press starts a second process, which redirects and exits 0 --------------------------------------
-    $window = Invoke-Show 'tunqio://show for Settings'
+    Invoke-Show 'tunqio://show for Settings'
+    $window = $script:shown
     if (-not $window) { throw 'the main window did not come back after tunqio://show' }
     Invoke-Element (Wait-Until { Find-Named $window 'Open settings' } 10 'the controls bar offered Settings')
     $overlay = Wait-Until { Find-Named $window 'Settings overlay' } 10 'the settings overlay opened'
@@ -407,7 +419,8 @@ try {
 
     $statusBefore = Get-SessionStatus
     $pidsBefore = @(Get-Process Tunqio -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
-    $redirectsBefore = Log-Count 'Single instance: received a redirected AppNotification activation'
+    $redirectsBefore = Log-Count 'Single instance: received a redirected "?Launch"? activation'
+    $handedBefore = Log-Count 'Toasts: a press started this process; handed tunqio://toggle'
     $pressJob = Start-Job -ScriptBlock {
         param($clsid, $aumid, $arguments)
         Add-Type -TypeDefinition @"
@@ -444,10 +457,17 @@ public static class TunqioToastPressJob {
             if ($problem) { $script:failures += $problem }
         }
     }
-    $redirected = Try-Until { if ((Log-Count 'Single instance: received a redirected AppNotification activation') -gt $redirectsBefore) { $true } } 10
-    Check 'The running Tunqio received the press as a redirected AppNotification activation' ($redirected -eq $true) "$((Log-Count 'Single instance: received a redirected AppNotification activation') - $redirectsBefore) line(s)"
+    # The press process is a trampoline (Program.DeliverToastPress): it hands tunqio://toggle to an ordinary launch of Tunqio.exe
+    # from its true-cased path, and that launch redirects to the running instance through T-74's key and exits 0 too.
+    $handed = Try-Until { if ((Log-Count 'Toasts: a press started this process; handed tunqio://toggle') -gt $handedBefore) { $true } } 10
+    Check 'The press process handed tunqio://toggle to an ordinary launch' ($handed -eq $true) "$((Log-Count 'Toasts: a press started this process; handed tunqio://toggle') - $handedBefore) line(s)"
+    $redirected = Try-Until { if ((Log-Count 'Single instance: received a redirected "?Launch"? activation') -gt $redirectsBefore) { $true } } 15
+    Check 'The running Tunqio received it through single-instance redirection' ($redirected -eq $true) "$((Log-Count 'Single instance: received a redirected "?Launch"? activation') - $redirectsBefore) line(s)"
     $toggled = Try-Until { if ((Get-SessionStatus) -ne $statusBefore) { $true } } 10
     Check 'And Play/Pause took effect' ($toggled -eq $true) "$statusBefore then $(Get-SessionStatus)"
+    $settled = Try-Until { if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -eq 1) { $true } } 20
+    Check 'Only the running Tunqio is left: no second instance was started' ($settled -eq $true) "$(@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count) Tunqio process(es)"
+    Check 'No second session was started on the data root' ((Log-Count 'session .* started: launch #2') -eq 0) "$(Log-Count 'session .* started: launch #2') line(s)"
 
     # ---- 6. close for real, then the log ----------------------------------------------------------------------------------
     $window = Get-UiaWindow $script:app.Id
@@ -482,6 +502,16 @@ finally {
 
     # ---- 7. remove the registration through the SDK and prove it gone ----------------------------------------------------
     $current = Get-Registration
+    if ($script:registration) {
+        # A clean exit removed the toast; an app this script had to kill did not. Its own test toasts only, by its own AUMID.
+        try {
+            [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+            $left = @([Windows.UI.Notifications.ToastNotificationManager]::History.GetHistory($script:registration.Aumid))
+            Check 'No toast is left in the notification centre after the exit' ($left.Count -eq 0) "$($left.Count) toast(s)"
+            if ($left.Count -gt 0) { [Windows.UI.Notifications.ToastNotificationManager]::History.Clear($script:registration.Aumid) }
+        }
+        catch { Write-Output "  note  the notification history could not be read or cleared ($($_.Exception.Message))" }
+    }
     if ($current.Aumid -or $script:registration) {
         $unregister = Start-Shell ("--unregister-notifications --data-root {0}" -f (Quote $dataRoot))
         $done = $unregister.WaitForExit(30000)
@@ -495,14 +525,17 @@ finally {
             $leftClsid = Test-Path (Join-Path $clsidRoot $script:registration.Clsid)
             Check "The AppUserModelId key $($script:registration.Aumid) is gone" (-not $leftAumid) "present $leftAumid"
             Check "The CLSID key $($script:registration.Clsid) is gone" (-not $leftClsid) "present $leftClsid"
-            Check "The per-path key $($script:registration.PathKey) is gone" (-not $leftPath) "present $leftPath"
+            # UnregisterAll keeps the per-path NotificationGUID key by design (so the same Tunqio.exe keeps its identity), and Windows
+            # keeps its own per-app Notifications\Settings key; neither is this script's to delete (T-77, Q-110). Reported, not failed.
+            Write-Output "  note  kept by the SDK: AppUserModelId\$($script:registration.PathKey) present $leftPath; kept by Windows: Notifications\Settings\$($script:registration.Aumid) present $(Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\$($script:registration.Aumid)")"
         }
         $aumidKeysAfter = Get-KeyNames $aumidRoot
         $clsidKeysAfter = Get-KeyNames $clsidRoot
         if ($aumidKeysBefore) {
-            $diffA = @(Compare-Object $aumidKeysBefore $aumidKeysAfter | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+            $kept = if ($script:registration) { $script:registration.PathKey } else { '' }
+            $diffA = @(Compare-Object $aumidKeysBefore $aumidKeysAfter | Where-Object { $_.InputObject -ne $kept } | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
             $diffC = @(Compare-Object $clsidKeysBefore $clsidKeysAfter | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
-            Check 'The AppUserModelId key list is what it was before the run' ($diffA.Count -eq 0) "$(if ($diffA.Count) { $diffA -join '; ' } else { "$($aumidKeysAfter.Count) key(s), unchanged" })"
+            Check 'The AppUserModelId key list is what it was before the run, apart from the per-path key the SDK keeps' ($diffA.Count -eq 0) "$(if ($diffA.Count) { $diffA -join '; ' } else { "$($aumidKeysAfter.Count) key(s)" })"
             Check 'The CLSID key list is what it was before the run' ($diffC.Count -eq 0) "$(if ($diffC.Count) { $diffC -join '; ' } else { "$($clsidKeysAfter.Count) key(s), unchanged" })"
         }
     }
