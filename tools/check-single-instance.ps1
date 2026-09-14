@@ -140,7 +140,8 @@ function Invoke-Second([string]$label, [string]$arguments, [int]$seconds = 15) {
         $problem = Close-TunqioShell $second $null 10
         if ($problem) { $script:failures += $problem }
     }
-    $onA = Get-TunqioOn $rootA
+    # @() at the call as well: a function's one-item array unrolls to a bare CimInstance, whose Count reads back empty in 5.1.
+    $onA = @(Get-TunqioOn $rootA)
     Check "$label - root A still has exactly one Tunqio process" ($onA.Count -eq 1 -and $onA[0].ProcessId -eq $script:first.Id) "$($onA.Count) process(es): $(($onA | ForEach-Object { $_.ProcessId }) -join ', ')"
     Check "$label - and one window" ((Get-WindowsOf $script:first.Id).Count -eq 1 -and (Get-WindowsOf $second.Id).Count -eq 0) "first $((Get-WindowsOf $script:first.Id).Count), second $((Get-WindowsOf $second.Id).Count)"
 }
@@ -229,7 +230,9 @@ try {
         try { $otherWindow = Wait-Until { $A::RootElement.FindFirst($TS::Children, $byOther) } 30 'root B window appeared' } catch { }
     }
     Check 'Root B has a window of its own' ($null -ne $otherWindow) "$(if ($otherWindow) { "window for pid $($other.Id)" } else { 'no window' })"
-    Check 'Root A still has its one process beside it' ((Get-TunqioOn $rootA).Count -eq 1) "$((Get-TunqioOn $rootA).Count) on root A, $((Get-TunqioOn $rootB).Count) on root B"
+    $besideA = @(Get-TunqioOn $rootA)
+    $besideB = @(Get-TunqioOn $rootB)
+    Check 'Root A still has its one process beside it' ($besideA.Count -eq 1 -and $besideB.Count -eq 1) "$($besideA.Count) on root A, $($besideB.Count) on root B"
 
     # ---- close both, then read root A's log ---------------------------------------------------------------------------
     $problem = Close-TunqioShell $other $otherWindow 20
