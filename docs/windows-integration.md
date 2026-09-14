@@ -371,7 +371,10 @@ public class SystemTrayManager : IDisposable
 - **Turning it off** removes the toast and calls `Unregister`, which only stops this process receiving presses. It does not call
   `UnregisterAll`: that deletes the notification identity Windows keeps the user's own choices for Tunqio under (Settings ›
   System › Notifications), so turning toasts back on would arrive as a new app with those choices forgotten. `Tunqio.exe
-  --unregister-notifications` runs `UnregisterAll` and exits, for removing it for good.
+  --unregister-notifications` runs `UnregisterAll` and exits, for removing it for good. Measured (T-77): `UnregisterAll` removes the
+  AUMID key and the CLSID key, and keeps the per-path `NotificationGUID` key on purpose, so the same Tunqio.exe keeps its
+  identity; Windows keeps its own `Notifications\Settings\<AUMID>` key from the first toast shown. Neither launches anything.
+  The SDK also caches the icon as `%LOCALAPPDATA%\Microsoft\WindowsAppSDK\<AUMID>.png`.
 - **Presses.** The values are the `tunqio://` commands (`previous`, `toggle`, `next`, and `show` for the toast's body), so a press
   goes through `Program.Inbox` and the same `CommandRouter` as every other activation (E7-S1): the three buttons drive
   `PlaybackSession` and leave the window where it is, and only the body brings it forward. A press on a running, registered Tunqio
