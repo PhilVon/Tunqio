@@ -15,9 +15,11 @@
 
   WHAT IT TOUCHES. It sends real keystrokes, so before every one it brings its own window to the foreground and
   CHECKS that it got there, refusing to type otherwise (T-168: the previous version assumed AppActivate worked, and
-  a keystroke sent after it silently fails goes to whatever window has focus). It reads and restores the
-  clipboard, and resizes its own window. The app runs on a scratch profile, artifacts\check-shortcuts\<stamp>\data,
-  passed as --data-root and deleted at the end unless -KeepScratch; the real %LOCALAPPDATA%\Tunqio is never opened, and
+  a keystroke sent after it silently fails goes to whatever window has focus). It presses Copy diagnostics, which
+  writes to the real clipboard: an empty clipboard is cleared afterwards and text is put back exactly, while an
+  image, files or rich data make that check SKIP and the clipboard is left alone (T-201). Exit 0 is a pass, 1 a
+  failure, 2 no failure but a skipped check, which is not a pass. It resizes its own window. The app runs on a
+  scratch profile, artifacts\check-shortcuts\<stamp>\data, passed as --data-root and deleted at the end unless -KeepScratch; the real %LOCALAPPDATA%\Tunqio is never opened, and
   a data root inside it or inside a package's redirected LocalCache is refused (tools/scratch-profile.ps1, T-197). The
   scratch library is empty, which is the empty queue every case here is written for.
 .PARAMETER KeepScratch
@@ -58,6 +60,7 @@ if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 
 . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
 . (Join-Path $PSScriptRoot 'scratch-profile.ps1')
+. (Join-Path $PSScriptRoot 'clipboard-guard.ps1')
 
 # T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. It types into the window
 # it drives, so it must not run beside one somebody is using.
@@ -139,10 +142,19 @@ function Send-Keys([string]$keys) {
 }
 
 $failures = @()
+$skips = @()
+$script:skipNote = $null
 
+# A check that sets $script:skipNote and returns nothing is recorded as SKIP with that note, never as ok (T-201).
 function Test-Case([string]$what, [scriptblock]$check) {
+    $script:skipNote = $null
     $problem = & $check
-    if ($problem) {
+    if (-not $problem -and $script:skipNote) {
+        $script:skips += "$what - $($script:skipNote)"
+        Write-Output "  SKIP  $what"
+        Write-Output "        $($script:skipNote)"
+    }
+    elseif ($problem) {
         $script:failures += "$what - $problem"
         Write-Output "  FAIL  $what"
         Write-Output "        $problem"
@@ -290,22 +302,46 @@ try {
         if ($problems.Count -gt 0) { $problems -join '; ' }
     }
 
+    # The clipboard is the user's, not the test's, and the scratch profile does not isolate it (T-201). What it holds
+    # is read first without changing it: empty, it is cleared afterwards; text, exactly that text goes back; anything
+    # else (an image, files, rich data), the check is skipped and the clipboard is not touched, because a text restore
+    # would destroy it. The restore never throws; a restore that fails is this check's failure. tools/clipboard-guard.ps1,
+    # whose branches tools/test-clipboard-guard.ps1 covers with fakes.
     Test-Case 'Copy puts the whole report on the clipboard' {
         $button = Get-ElementNamed 'Copy diagnostics' 'Button'
         if (-not $button) { return 'no Copy button to press' }
-        $before = Get-Clipboard -Raw -ErrorAction SilentlyContinue
+        # Needs the STA thread powershell.exe runs on by default; any other apartment reads as unreadable and skips.
+        $plan = Get-ClipboardGuardPlan (Get-ClipboardState)
+        if ($plan.Action -ne 'Run') { $script:skipNote = $plan.Note; return }
+
+        $problem = $null
+        $restoreProblem = $null
         try {
             $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
             Start-Sleep -Milliseconds 600
-            $copied = Get-Clipboard -Raw
+            $copied = [string](Get-ClipboardState).Text
             foreach ($want in '[Playback]', '[Output]', '[Renderer]', '[Build]') {
-                if ($copied -notlike "*$want*") { return "the clipboard has no $want section" }
+                if ($copied -notlike "*$want*") { $problem = "the clipboard has no $want section"; break }
             }
         }
-        finally {
-            # The clipboard is the user's, not the test's.
-            if ($before) { Set-Clipboard -Value $before } else { Set-Clipboard -Value '' }
+        catch {
+            $problem = "pressing Copy threw: $($_.Exception.Message)"
         }
+        finally {
+            $restoreProblem = Invoke-ClipboardRestore -Plan $plan `
+                -Clear { [System.Windows.Forms.Clipboard]::Clear() } `
+                -SetText {
+                    param($text)
+                    # Not Clipboard.SetText or Set-Clipboard: both refuse an empty string. Copy, and retry while
+                    # another process holds the clipboard open.
+                    $data = New-Object System.Windows.Forms.DataObject
+                    $data.SetData([System.Windows.Forms.DataFormats]::UnicodeText, [string]$text)
+                    [System.Windows.Forms.Clipboard]::SetDataObject($data, $true, 10, 100)
+                } `
+                -Read { Get-ClipboardState }
+        }
+        $all = @($problem, $restoreProblem | Where-Object { $_ })
+        if ($all.Count -gt 0) { $all -join '; ' }
     }
 
     Test-Case 'Ctrl+Shift+D closes it again' {
@@ -314,9 +350,15 @@ try {
     }
 
     Write-Output ''
-    if ($failures.Count -eq 0) {
+    foreach ($skip in $skips) { Write-Output "SKIPPED: $skip" }
+    if ($failures.Count -eq 0 -and $skips.Count -eq 0) {
         Write-Output 'PASS: the shell takes the keys it must take and leaves the ones it must not, and its overlay is whole on screen'
         exit 0
+    }
+    if ($failures.Count -eq 0) {
+        # A skipped check has not passed, so this is not the PASS line and not exit 0.
+        Write-Output "NOT A PASS: no check failed, but $($skips.Count) check(s) were skipped; clear the clipboard or copy plain text and run again"
+        exit 2
     }
 
     foreach ($failure in $failures) { Write-Output "FAIL: $failure" }
