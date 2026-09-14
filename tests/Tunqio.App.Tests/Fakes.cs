@@ -559,11 +559,23 @@ internal sealed class FakeSettings : ISettingsStore
 
     public void SetValue<T>(string key, T value)
     {
-        _values[key] = value;
+        // Null removes the key, as ISettingsStore says and JsonSettingsStore does (T-157's Reset depends on it).
+        if (value is null)
+        {
+            _values.Remove(key);
+        }
+        else
+        {
+            _values[key] = value;
+        }
+
         Changed?.Invoke(this, key);
     }
 
     public bool Contains(string key) => _values.ContainsKey(key);
+
+    public IReadOnlyList<string> KeysStartingWith(string prefix) =>
+        [.. _values.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal))];
 
     public void Flush()
     {

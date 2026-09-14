@@ -430,6 +430,9 @@ public class ReactiveThemeEngineTests(ITestOutputHelper output)
 
         public bool Contains(string key) => _values.ContainsKey(key);
 
+        public IReadOnlyList<string> KeysStartingWith(string prefix) =>
+            [.. _values.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal))];
+
         public void Flush()
         {
         }

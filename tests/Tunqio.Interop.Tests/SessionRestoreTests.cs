@@ -173,6 +173,8 @@ public class SessionRestoreTests
 
         public bool Contains(string key) => false;
 
+        public IReadOnlyList<string> KeysStartingWith(string prefix) => [];
+
         public void Flush()
         {
         }

@@ -41,6 +41,19 @@ public static class SettingsKeys
     public const string VizPreset = "viz.preset";
     public const string VizQuality = "viz.quality"; // "auto" | "low" | "medium" | "high"
 
+    /// <summary>
+    /// T-157: <c>viz.params.&lt;preset&gt;.&lt;name&gt;</c>, one float for each parameter a person has moved on Settings &gt;
+    /// Visualization. An absent key means the manifest's default, which stays in the preset. A parameter the manifest
+    /// marks hidden (Ambient Glow's <c>art_*</c>, set by code from the album art) is never stored.
+    /// </summary>
+    public const string VizParamsPrefix = "viz.params.";
+
+    /// <summary>The prefix every stored parameter of one preset shares, such as <c>viz.params.spectrum-bars.</c>.</summary>
+    public static string VizParams(string presetId) => VizParamsPrefix + presetId + ".";
+
+    /// <summary>The key for one preset parameter, such as <c>viz.params.spectrum-bars.bars</c>.</summary>
+    public static string VizParam(string presetId, string name) => VizParams(presetId) + name;
+
     public const string DiagnosticsCrashReporting = "diagnostics.crashReporting";
 
     /// <summary>

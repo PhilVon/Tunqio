@@ -103,6 +103,11 @@ public partial class App : Application
             return;
         }
 
+        // T-157: the stored preset parameters listen to the visualizer surface for PresetChanged, and the first of those is
+        // raised by the window's own AttachAsync. Resolved here, before the window exists, so the launch's preset gets its
+        // stored values; resolved later (with the settings page, say) it would miss every switch before the page opened.
+        _ = _host.Services.GetRequiredService<PresetParameterMemory>();
+
         // Every argument below is required (T-180): MainWindow's collaborators carry no defaults, so this - the
         // single place the application is assembled - cannot drop one and still compile. That is the whole
         // mechanism behind T-156 and T-179, both of which were one omitted argument on a line like this.

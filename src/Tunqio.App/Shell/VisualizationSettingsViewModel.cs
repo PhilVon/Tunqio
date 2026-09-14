@@ -28,14 +28,23 @@ public sealed record PresetRow(string Id, string Name, bool IsUser)
 public sealed partial class PresetParameterRow : ObservableObject
 {
     private readonly Action<string, float> _apply;
+    private readonly bool _seeding;
 
-    public PresetParameterRow(PresetParameter declared, Action<string, float> apply)
+    /// <param name="declared">The parameter, as the preset's manifest declares it.</param>
+    /// <param name="initial">
+    /// Where the control starts: the stored value when there is one (T-157), otherwise the default. It is not applied:
+    /// the renderer already holds it, because <see cref="PresetParameterMemory"/> set it when the preset started drawing.
+    /// </param>
+    /// <param name="apply">Called with the parameter's name and value each time the control moves.</param>
+    public PresetParameterRow(PresetParameter declared, double initial, Action<string, float> apply)
     {
         ArgumentNullException.ThrowIfNull(declared);
         ArgumentNullException.ThrowIfNull(apply);
         Declared = declared;
         _apply = apply;
-        Value = declared.Default;
+        _seeding = true;
+        Value = initial;
+        _seeding = false;
     }
 
     public PresetParameter Declared { get; }
@@ -93,10 +102,14 @@ public sealed partial class PresetParameterRow : ObservableObject
 
     partial void OnValueChanged(double value)
     {
-        // Whole numbers are snapped here rather than left to the control: a Slider with a StepFrequency still
-        // reports the value the pointer landed on when the range does not divide by the step.
-        float applied = Declared.Step >= 1f ? (float)Math.Round(value) : (float)value;
-        _apply(Declared.Name, applied);
+        if (!_seeding)
+        {
+            // Whole numbers are snapped here rather than left to the control: a Slider with a StepFrequency still
+            // reports the value the pointer landed on when the range does not divide by the step.
+            float applied = Declared.Step >= 1f ? (float)Math.Round(value) : (float)value;
+            _apply(Declared.Name, applied);
+        }
+
         OnPropertyChanged(nameof(Display));
         OnPropertyChanged(nameof(AutomationName));
         OnPropertyChanged(nameof(SelectedChoice));
@@ -122,10 +135,11 @@ public sealed partial class PresetParameterRow : ObservableObject
 /// filesystem notification thread. What is drawing keeps drawing across a rescan, whatever it finds.
 /// </para>
 /// <para>
-/// <b>Parameter values are the preset's, not the settings file's.</b> The ABI returns every parameter to its
-/// default on a preset switch, and this page follows that rather than fighting it: only the chosen preset
-/// (<c>viz.preset</c>) is remembered between launches. Persisting per-preset parameters is a real feature and a
-/// separate one.
+/// <b>Parameter values are remembered per preset (T-157),</b> as <c>viz.params.&lt;preset&gt;.&lt;name&gt;</c>, written
+/// as a control moves. The page only writes them. Putting them back is <see cref="PresetParameterMemory"/>'s job, on
+/// the host's <c>PresetChanged</c>, because the ABI returns every parameter to its default on a preset switch and a
+/// switch can come from somewhere other than this page. By the time this page builds its controls the renderer
+/// already holds the stored values, so the controls start from them and apply nothing.
 /// </para>
 /// </remarks>
 public sealed partial class VisualizationSettingsViewModel : ObservableObject
@@ -133,16 +147,21 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
     private readonly IVisualizationHost _host;
     private readonly ISettingsStore _settings;
     private readonly IAppPaths _paths;
+    private readonly PresetParameterMemory _memory;
+    private string? _parametersPresetId;
     private bool _seeding;
 
-    public VisualizationSettingsViewModel(IVisualizationHost host, ISettingsStore settings, IAppPaths paths)
+    public VisualizationSettingsViewModel(
+        IVisualizationHost host, ISettingsStore settings, IAppPaths paths, PresetParameterMemory memory)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(memory);
         _host = host;
         _settings = settings;
         _paths = paths;
+        _memory = memory;
     }
 
     /// <summary>Where a user's own presets go. Shown on the page, because "drop one in" needs a path.</summary>
@@ -189,6 +208,7 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
             Presets = [];
             Parameters = [];
             HasParameters = false;
+            _parametersPresetId = null;
             return;
         }
 
@@ -220,12 +240,22 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         });
     }
 
-    /// <summary>Every parameter of the chosen preset back to the default its manifest declares.</summary>
+    /// <summary>
+    /// Every parameter of the chosen preset back to the default its manifest declares, and that preset's stored values
+    /// removed (T-157), so the next launch starts on the defaults too.
+    /// </summary>
     public void ResetParameters()
     {
         foreach (PresetParameterRow row in Parameters)
         {
             row.Reset();
+        }
+
+        // After the rows, not before: each row that moves back writes its default as it goes, and this removes those
+        // keys along with the rest, including any name the manifest no longer declares.
+        if (_parametersPresetId is not null)
+        {
+            _memory.Forget(_parametersPresetId);
         }
 
         ShowNotice(Parameters.Count == 0
@@ -284,6 +314,7 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
 
     private void LoadParameters(string? presetId)
     {
+        _parametersPresetId = null;
         if (presetId is null || !_host.IsAttached)
         {
             Parameters = [];
@@ -309,13 +340,14 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         // between -1 and 16777215 to type.
         var rows = declared
             .Where(p => !p.Hidden)
-            .Select(p => new PresetParameterRow(p, ApplyParameter))
+            .Select(p => new PresetParameterRow(p, _memory.ValueFor(presetId, p), (_, value) => ApplyParameter(presetId, p, value)))
             .ToList();
+        _parametersPresetId = presetId;
         Parameters = rows;
         HasParameters = rows.Count > 0;
     }
 
-    private void ApplyParameter(string name, float value)
+    private void ApplyParameter(string presetId, PresetParameter declared, float value)
     {
         if (!_host.IsAttached)
         {
@@ -324,12 +356,17 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
 
         try
         {
-            _host.SetParameter(name, value);
+            _host.SetParameter(declared.Name, value);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            Serilog.Log.Warning(ex, "The parameter {Parameter} could not be set", name);
+            Serilog.Log.Warning(ex, "The parameter {Parameter} could not be set", declared.Name);
+            return;
         }
+
+        // Written as it changes, like every other settings page (T-157): a value the renderer took is a value the next
+        // launch should draw with.
+        _memory.Remember(presetId, declared, value);
     }
 
     private void ShowNotice(string text, bool error = false)
@@ -386,6 +423,7 @@ public sealed partial class VisualizationSettingsViewModel : ObservableObject
         _settings.SetValue(SettingsKeys.VizPreset, value.Id);
         _settings.FlushAsync().Forget("Save the chosen preset");
         ClearNotice();
+        // The switch above raised PresetChanged, so the stored values are already on the renderer; the controls read them.
         LoadParameters(value.Id);
     }
 }

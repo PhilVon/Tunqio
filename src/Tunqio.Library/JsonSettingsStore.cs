@@ -102,6 +102,24 @@ public sealed class JsonSettingsStore : ISettingsStore, IAsyncDisposable, IDispo
         }
     }
 
+    public IReadOnlyList<string> KeysStartingWith(string prefix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        lock (_gate)
+        {
+            var keys = new List<string>();
+            foreach (KeyValuePair<string, JsonNode?> pair in _values)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    keys.Add(pair.Key);
+                }
+            }
+
+            return keys;
+        }
+    }
+
     public void Flush()
     {
         if (!TryTakeSnapshot(out string json))

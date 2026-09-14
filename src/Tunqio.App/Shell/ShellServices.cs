@@ -46,10 +46,16 @@ public static class ShellServices
         // VisualizationSettingsViewModel switches its preset and moves its parameters. Two of these would be two
         // D3D devices, one of them drawing into nothing.
         services.AddSingleton<IVisualizationHost>(_ => new VisualizationHost());
+        // The parameters a person moved, stored per preset and reapplied whenever that preset starts drawing (T-157). One
+        // for the process, and resolved by App before the window attaches the renderer, or the launch's own switch is missed.
+        services.AddSingleton(p => new PresetParameterMemory(
+            p.GetRequiredService<IVisualizationHost>(),
+            p.GetRequiredService<ISettingsStore>()));
         services.AddSingleton(p => new VisualizationSettingsViewModel(
             p.GetRequiredService<IVisualizationHost>(),
             p.GetRequiredService<ISettingsStore>(),
-            p.GetRequiredService<IAppPaths>()));
+            p.GetRequiredService<IAppPaths>(),
+            p.GetRequiredService<PresetParameterMemory>()));
         // Settings > Playback, Output and Appearance (E6-S3). Singletons like the Visualization page's: the overlay caches
         // its pages, and one view model per page is what they bind to.
         services.AddSingleton(p => new PlaybackSettingsViewModel(p.GetRequiredService<ISettingsStore>()));

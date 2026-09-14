@@ -16,6 +16,13 @@ public interface ISettingsStore
     /// <summary>True when <paramref name="key"/> has a stored value.</summary>
     bool Contains(string key);
 
+    /// <summary>
+    /// Every stored key that begins with <paramref name="prefix"/> (ordinal). For a family of keys whose members are not
+    /// known in advance: T-157's <c>viz.params.&lt;preset&gt;.&lt;name&gt;</c>, where a stored name may be one the preset's
+    /// manifest has since dropped, and Reset has to remove it anyway.
+    /// </summary>
+    IReadOnlyList<string> KeysStartingWith(string prefix);
+
     /// <summary>Writes pending changes to storage synchronously (shutdown path). Safe to call when nothing changed.</summary>
     void Flush();
 

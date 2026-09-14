@@ -30,8 +30,11 @@ public sealed class VisualizationSettingsViewModelTests
     private static readonly PresetParameter ArtPrimary =
         new("art_primary", "art_primary", string.Empty, -1f, 16777215f, -1f, 0f, Hidden: true, []);
 
-    private static VisualizationSettingsViewModel Build(FakeVisualizer host, FakeSettings? settings = null) =>
-        new(host, settings ?? new FakeSettings(), new FakePaths());
+    private static VisualizationSettingsViewModel Build(FakeVisualizer host, FakeSettings? settings = null)
+    {
+        settings ??= new FakeSettings();
+        return new(host, settings, new FakePaths(), new PresetParameterMemory(host, settings));
+    }
 
     private static FakeVisualizer Attached() => new()
     {

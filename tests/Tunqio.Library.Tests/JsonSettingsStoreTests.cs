@@ -39,6 +39,32 @@ public sealed class JsonSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Preset_parameters_are_stored_as_flat_viz_params_keys_and_listed_by_prefix_Async()
+    {
+        // T-157: the storage shape as it lands in settings.json, and the prefix listing Reset uses to find a preset's keys.
+        var paths = Paths();
+        await using (var first = new JsonSettingsStore(paths))
+        {
+            first.SetValue(SettingsKeys.VizParam("spectrum-bars", "bars"), 96f);
+            first.SetValue(SettingsKeys.VizParam("spectrum-bars", "gain"), 2.5f);
+            first.SetValue(SettingsKeys.VizParam("waveform", "thickness"), 4f);
+            first.SetValue(SettingsKeys.VizPreset, "spectrum-bars");
+            await first.FlushAsync();
+        }
+
+        File.ReadAllText(paths.SettingsPath).Should().Contain("\"viz.params.spectrum-bars.bars\": 96");
+
+        var second = new JsonSettingsStore(paths);
+        second.KeysStartingWith(SettingsKeys.VizParams("spectrum-bars")).Should().BeEquivalentTo(
+            "viz.params.spectrum-bars.bars", "viz.params.spectrum-bars.gain");
+        second.GetValue(SettingsKeys.VizParam("spectrum-bars", "gain"), 0f).Should().Be(2.5f);
+
+        second.SetValue<float?>(SettingsKeys.VizParam("spectrum-bars", "bars"), null);
+        second.KeysStartingWith(SettingsKeys.VizParamsPrefix).Should().BeEquivalentTo(
+            "viz.params.spectrum-bars.gain", "viz.params.waveform.thickness");
+    }
+
+    [Fact]
     public void Synchronous_flush_and_dispose_persist_pending_changes()
     {
         var paths = Paths();
