@@ -303,6 +303,7 @@ try {
     exit 1
 }
 finally {
-    if (-not $process.HasExited) { $process.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 3 }
-    if (-not $process.HasExited) { $process.Kill() }
+    # An app that does not exit, or exits with a crash code, fails the run (T-188); exit here overrides the try's exit 0.
+    $closeProblem = Close-TunqioShell $process $null 20
+    if ($closeProblem) { Write-Output "FAIL: $closeProblem"; exit 1 }
 }

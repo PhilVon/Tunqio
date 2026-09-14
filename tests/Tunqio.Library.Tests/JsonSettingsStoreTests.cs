@@ -93,6 +93,53 @@ public sealed class JsonSettingsStoreTests : IDisposable
         await store.FlushAsync();
     }
 
+    /// <summary>
+    /// T-157: Reset on Settings > Visualization writes each parameter back at its default and flushes (Remember), then
+    /// removes the preset's keys and flushes again (Forget), both fire-and-forget. The first flush is held after its
+    /// snapshot (which still has the key) until the second has either finished or is waiting its turn; the file must end
+    /// without the key. Before flushes were serialised, the held flush committed last and wrote the key back.
+    /// </summary>
+    [Fact]
+    public async Task Overlapping_flushes_leave_the_file_holding_the_newest_state_Async()
+    {
+        var timeout = TimeSpan.FromSeconds(10);
+        var paths = Paths();
+        string key = SettingsKeys.VizParam("spectrum-bars", "bars");
+        using var store = new JsonSettingsStore(paths);
+        store.SetValue(key, 96f);
+        await store.FlushAsync(); // the file exists, so the commits below replace it
+
+        var firstHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseFirst = new SemaphoreSlim(0, 1);
+        var secondQueued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int snapshots = 0;
+        store.SnapshotTakenForTests = () =>
+        {
+            if (Interlocked.Increment(ref snapshots) != 1)
+            {
+                return Task.CompletedTask;
+            }
+
+            firstHeld.TrySetResult();
+            return releaseFirst.WaitAsync(timeout);
+        };
+        store.FlushQueuedForTests = () => secondQueued.TrySetResult();
+
+        store.SetValue(key, 64f); // Remember: the row moved back to its default
+        Task first = store.FlushAsync();
+        await firstHeld.Task.WaitAsync(timeout);
+
+        store.SetValue<float?>(key, null); // Forget: Reset removes the preset's keys
+        Task second = store.FlushAsync();
+        await Task.WhenAny(second, secondQueued.Task).WaitAsync(timeout);
+
+        releaseFirst.Release();
+        await Task.WhenAll(first, second).WaitAsync(timeout);
+
+        (await File.ReadAllTextAsync(paths.SettingsPath)).Should().NotContain(key, "the removal is the newest state");
+        new JsonSettingsStore(paths).Contains(key).Should().BeFalse();
+    }
+
     [Fact]
     public void Wrong_type_falls_back_to_the_default()
     {

@@ -198,9 +198,10 @@ finally {
             }
         }
         catch { Write-Output "WARNING: cleanup did not finish: $($_.Exception.Message). Check Settings > Appearance > Theme." }
-        try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
     }
-    if ($process -and -not $process.WaitForExit(15000)) { $process.Kill() }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $window 15
+    if ($closeProblem) { $script:failures += $closeProblem }
 }
 
 # ---- the test tone, from the log: read after the app has exited, because the file sink buffers ------------------------

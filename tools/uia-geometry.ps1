@@ -113,3 +113,47 @@ function Get-UiaClippedControls([object[]]$Readings, [string[]]$Stretch = @(), [
     }
     return $problems
 }
+
+# Closes the shell a harness launched and says whether it exited cleanly (T-188). Closes $Window through its
+# WindowPattern when given one, else the process's main window; waits up to $TimeoutSeconds for the process to exit.
+# Returns $null on a clean exit, otherwise a one-line problem the caller adds to its failures (it has also been
+# written as a FAIL line). Two outcomes are problems:
+#   - the process did not exit in time: it is killed, because it is the harness's own, and the run fails. Before
+#     T-188 harnesses killed it silently, and 47 crashes on close went unseen.
+#   - it exited with a non-zero code: 0xC000027B is a stowed exception, the crash T-188 fixed; the app's log
+#     ([FTL] Unhandled exception) says what raised it.
+# Only ever pass the process this harness started.
+#
+# Its own lines go to the host, not the pipeline, so the return value is only the problem: capture it, never pipe it.
+function Close-TunqioShell($Process, $Window = $null, [int]$TimeoutSeconds = 20) {
+    if (-not $Process) { return $null }
+    if (-not $Process.HasExited) {
+        # Windows PowerShell 5.1 reads ExitCode back empty unless the handle was opened while the process was alive.
+        try { $null = $Process.Handle } catch { }
+        try {
+            if ($Window) { $Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() }
+            else { $Process.CloseMainWindow() | Out-Null }
+        }
+        catch {
+            Write-Host "  note  closing the shell through UIA failed ($($_.Exception.Message)); closing its main window instead"
+            try { $Process.CloseMainWindow() | Out-Null } catch { }
+        }
+        if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $Process.Kill(); $Process.WaitForExit(5000) | Out-Null } catch { }
+            $problem = "the shell (pid $($Process.Id)) did not exit within $TimeoutSeconds s of Close and was killed"
+            Write-Host "  FAIL  $problem"
+            return $problem
+        }
+    }
+    $code = $Process.ExitCode
+    if ($null -eq $code) {
+        Write-Host '  note  the shell exited but its exit code could not be read, so a crash on close is not ruled out'
+        return $null
+    }
+    if ($code -ne 0) {
+        $problem = "the shell (pid $($Process.Id)) exited with code 0x{0:X8} after Close; see [FTL] in its log and event 1000" -f $code
+        Write-Host "  FAIL  $problem"
+        return $problem
+    }
+    return $null
+}

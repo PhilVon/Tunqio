@@ -114,8 +114,8 @@ public class ShortcutBindingsTests
     }
 
     /// <summary>
-    /// Two writes saved together, not as two flushes in flight: the second of those fails on the temp file the first
-    /// holds, and the store has already marked its snapshot clean, so the asker's binding would never reach the file.
+    /// Two writes saved together: both the released holder and the asker's binding reach the file. Overlapping flushes
+    /// once lost one of them; the store now serialises its flushes (T-157).
     /// </summary>
     [Fact]
     public async Task Taking_a_key_from_another_action_is_one_save_Async()

@@ -253,9 +253,10 @@ finally {
             if ($mutedAtStart -eq $false) { (Find-Id $window 'MuteButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle() }
         }
         catch { Write-Output "note: could not restore the switch or mute: $($_.Exception.Message)" }
-        try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
     }
-    if ($process -and -not $process.WaitForExit(15000)) { $process.Kill() }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $window 15
+    if ($closeProblem) { $script:failures += $closeProblem }
 
     if ($ResetOffer) {
         try {

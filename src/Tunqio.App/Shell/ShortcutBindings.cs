@@ -143,17 +143,13 @@ public sealed class ShortcutBindings
     }
 
     /// <summary>
-    /// Saves after the previous save, never beside it. Two flushes in flight write the same <c>settings.json.tmp</c>,
-    /// the second fails on the file the first holds, and its snapshot — already marked clean — is never written.
+    /// Saves now. The store serialises its own flushes and a queued flush writes the newest state (T-157), so this no
+    /// longer chains one save behind the last; the latest save is kept only for <see cref="WaitForSavesAsync"/>, which
+    /// completes once it has written everything set before it was asked for.
     /// </summary>
     private void Save()
     {
-        ISettingsStore settings = _settings!;
-        // A continuation whatever the previous save did: one that failed was logged by its own Forget, and this one
-        // still has to run. Unwrap hands this flush's own fault to the Forget below.
-        _saving = _saving
-            .ContinueWith(_ => settings.FlushAsync(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default)
-            .Unwrap();
+        _saving = _settings!.FlushAsync();
         _saving.Forget("Save shortcuts");
     }
 

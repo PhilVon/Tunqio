@@ -346,8 +346,9 @@ try {
     $boot = Start-Process $Exe -PassThru
     Wait-For { Test-Path $dbPath } 60 'the app created its library database' | Out-Null
     Start-Sleep -Seconds 6
-    $boot.CloseMainWindow() | Out-Null
-    if (-not $boot.WaitForExit(20000)) { $boot.Kill() }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $boot $null 20
+    if ($closeProblem) { $script:failures += $closeProblem }
     Start-Sleep -Seconds 1
 
     $bootLines = ''

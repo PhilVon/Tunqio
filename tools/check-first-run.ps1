@@ -118,8 +118,9 @@ function Start-Shell([string]$root) {
 }
 function Stop-Shell($shell) {
     if (-not $shell) { return }
-    try { $shell.Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
-    if (-not $shell.Process.WaitForExit(20000)) { Write-Output '  note  the shell did not exit within 20 s of Close; killing it'; $shell.Process.Kill(); $shell.Process.WaitForExit(5000) | Out-Null }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $shell.Process $shell.Window 20
+    if ($closeProblem) { $script:failures += $closeProblem }
 }
 function Find-Tile($window, [string]$name) {
     $tile = Find-Named $window $name

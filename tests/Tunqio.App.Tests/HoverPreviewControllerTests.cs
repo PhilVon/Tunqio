@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Tunqio.App.Library;
 using Tunqio.App.Shell;
 using Tunqio.Core;
@@ -34,6 +35,31 @@ public sealed class HoverPreviewControllerTests : IDisposable
     }
 
     public void Dispose() => _controller.Dispose();
+
+    // T-188: a grid page's Unloaded stops the preview through HoverPreview.LeaveAll, and it is also raised when the app
+    // closes, after the host has been disposed. Resolving the controller then threw on the XAML thread and ended every
+    // close with a stowed exception (0xc000027b). With no services, leaving does nothing.
+    [Fact]
+    public void A_page_unloading_after_shutdown_when_there_are_no_services_does_nothing()
+    {
+        Action leave = () => HoverPreview.LeaveAll(services: null);
+
+        leave.Should().NotThrow("a page unloads after the host is gone, and a throw there is a crash on close");
+    }
+
+    [Fact]
+    public void A_page_unloading_while_the_app_runs_stops_the_preview()
+    {
+        TurnOn();
+        _controller.Enter(Aurora);
+        Wait(600);
+        using ServiceProvider services = new ServiceCollection().AddSingleton(_controller).BuildServiceProvider();
+
+        HoverPreview.LeaveAll(services);
+
+        _player.Calls.Should().Equal("preview:11", "stop");
+        _controller.Previewing.Should().BeNull();
+    }
 
     private void TurnOn() => _settings.SetValue(SettingsKeys.UiHoverPreview, true);
 

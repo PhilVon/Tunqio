@@ -30,7 +30,7 @@ internal sealed class WatchHarness : IDisposable
 
     public LibraryWatcher Watcher { get; }
 
-    public static async Task<WatchHarness> CreateAsync(bool copyFixtures = true, int maxPendingPaths = 4096, bool initialScan = true)
+    public static async Task<WatchHarness> CreateAsync(bool copyFixtures = true, int maxPendingPaths = 4096, bool initialScan = true, TimeProvider? clock = null)
     {
         ScanHarness scan = await ScanHarness.CreateAsync(copyFixtures);
         if (initialScan)
@@ -40,7 +40,7 @@ internal sealed class WatchHarness : IDisposable
 
         var scanner = new RecordingScanner(scan.Scanner);
         var source = new FakeWatchSource();
-        var watcher = new LibraryWatcher(scanner, scan.Service.Folders, new LibraryWatcherOptions { Debounce = Debounce, MaxPendingPaths = maxPendingPaths }, source, clock: null, logger: null);
+        var watcher = new LibraryWatcher(scanner, scan.Service.Folders, new LibraryWatcherOptions { Debounce = Debounce, MaxPendingPaths = maxPendingPaths }, source, clock, logger: null);
         return new WatchHarness(scan, scanner, source, watcher);
     }
 

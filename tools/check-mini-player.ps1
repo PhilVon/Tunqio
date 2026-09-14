@@ -25,6 +25,7 @@ $resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
 if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms
+. (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188)
 
 if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'Tunqio is already running. This script opens the mini player of the instance it launches, so it will not touch one somebody is using.'
@@ -171,11 +172,12 @@ finally {
                 $m = Find-Id $main 'MuteButton'
                 if ($m) { $m.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle() }
             }
-            if ($main) { $main.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() }
         }
     }
-    catch { Write-Output "note: could not restore play, mute or close cleanly: $($_.Exception.Message)" }
-    if ($process -and -not $process.WaitForExit(15000)) { $process.Kill() }
+    catch { Write-Output "note: could not restore play or mute: $($_.Exception.Message)" }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $main 15
+    if ($closeProblem) { $script:failures += $closeProblem }
 }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).

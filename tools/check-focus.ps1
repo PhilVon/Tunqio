@@ -329,9 +329,10 @@ finally {
             if ($discovery -and -not (Get-Selected $discovery)) { Select-Element $discovery; Start-Sleep -Milliseconds 800 }
         }
         catch { Write-Output "note: could not restore play, mute or mode: $($_.Exception.Message)" }
-        try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch { }
     }
-    if ($process -and -not $process.WaitForExit(15000)) { $process.Kill() }
+    # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
+    $closeProblem = Close-TunqioShell $process $window 15
+    if ($closeProblem) { $script:failures += $closeProblem }
 }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
