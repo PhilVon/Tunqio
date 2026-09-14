@@ -162,7 +162,12 @@ def main():
     order = [at("Signing secrets"), at("Build (Release x64, warnings as errors)"), at("Stage release assets"), at("Sign the release package"), at("Create the GitHub Release")]
     check(all(o is not None for o in order) and order == sorted(order), "order: secrets check, build, stage, sign, create release")
     create = steps[order[-1]] if order[-1] is not None else {}
-    check("gh release create" in create.get("run", "") and (create.get("env") or {}).get("GH_TOKEN") == "${{ github.token }}", "the release is created with gh and the workflow's own token")
+    create_run = create.get("run", "")
+    uses_gh = re.search(r"^\s*gh\s", create_run, re.M) is not None and re.search(r"'release',\s*'create'|\brelease create\b", create_run) is not None
+    check(uses_gh and (create.get("env") or {}).get("GH_TOKEN") == "${{ github.token }}", "the release is created with gh release create and the workflow's own token")
+    check("--verify-tag" in create_run, "gh release create refuses a tag that does not exist on the remote (--verify-tag)")
+    signed_assets = "artifacts/release" in create_run and "Tunqio.cer" in steps[order[3]].get("run", "") if order[3] is not None else False
+    check(signed_assets, "the published assets are the staged folder the sign step signed in place and wrote Tunqio.cer into")
     check(create.get("if") is None, "creating the release is not conditional (every earlier step must have passed)")
     return finish()
 

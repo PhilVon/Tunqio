@@ -34,12 +34,16 @@
 
 .PARAMETER PassThru
   Return the values as an object instead of printing them.
+
+.PARAMETER ExistingTags
+  The v* tags to decide the channel from, instead of the repository's (for checking the rule without creating tags).
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Tag,
     [switch]$Apply,
-    [switch]$PassThru
+    [switch]$PassThru,
+    [string[]]$ExistingTags
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,8 +86,12 @@ if (-not $v) {
 }
 
 # ---- which GitHub release channel ------------------------------------------------------------------------------------------
-$tags = @(& git -C $repo tag --list 'v*')
-if ($LASTEXITCODE -ne 0) { throw "git tag --list failed in $repo" }
+if ($PSBoundParameters.ContainsKey('ExistingTags')) {
+    $tags = @($ExistingTags | Where-Object { $_ })
+} else {
+    $tags = @(& git -C $repo tag --list 'v*')
+    if ($LASTEXITCODE -ne 0) { throw "git tag --list failed in $repo" }
+}
 $others = @($tags | Where-Object { $_ -ne $Tag } | ForEach-Object { ConvertTo-TagVersion $_ } | Where-Object { $_ })
 $releases = @($others | Where-Object { -not $_.Prerelease })
 if ($v.Prerelease -and $releases.Count -gt 0) {

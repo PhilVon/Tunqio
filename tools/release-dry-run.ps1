@@ -144,16 +144,25 @@ try {
     Invoke-Step '5. Signing refuses without the secrets' {
         $saved = @{}
         foreach ($n in 'TUNQIO_SIGNING_PFX_BASE64', 'TUNQIO_SIGNING_PFX_PASSWORD') { $saved[$n] = [Environment]::GetEnvironmentVariable($n); [Environment]::SetEnvironmentVariable($n, $null) }
+        # A separate process with its streams in files: Windows PowerShell 5.1 turns a child's stderr captured with 2>&1 into
+        # error records, which under ErrorActionPreference Stop end this step before the refusal can be read, and the
+        # console wraps the message, so whitespace is collapsed before matching.
+        $stdout = Join-Path $work 'sign-refusal.out.txt'
+        $stderr = Join-Path $work 'sign-refusal.err.txt'
         try {
-            $out = & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'tools\release-sign.ps1') -CheckOnly 2>&1 | Out-String
-            $code = $LASTEXITCODE
+            $proc = Start-Process -FilePath $shell -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
+                -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$(Join-Path $repo 'tools\release-sign.ps1')`"", '-CheckOnly')
+            $code = $proc.ExitCode
         } finally {
             foreach ($n in $saved.Keys) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }
         }
-        $message = ($out -split "`r?`n" | Where-Object { $_ -match 'Signing secret' } | Select-Object -First 1)
+        $out = (([IO.File]::ReadAllText($stdout) + ' ' + [IO.File]::ReadAllText($stderr)) -replace '\s+', ' ')
         if ($code -eq 0) { throw 'release-sign.ps1 -CheckOnly succeeded with no secrets.' }
-        if ($out -notmatch 'TUNQIO_SIGNING_PFX_BASE64' -or $out -notmatch 'TUNQIO_SIGNING_PFX_PASSWORD' -or $out -notmatch 'never published unsigned') { throw "the refusal does not name both secrets: $out" }
-        "exit $code; message: $("$message".Trim())"
+        foreach ($needle in 'TUNQIO_SIGNING_PFX_BASE64', 'TUNQIO_SIGNING_PFX_PASSWORD', 'never published unsigned') {
+            if ($out.IndexOf($needle) -lt 0) { throw "the refusal does not say '$needle': $out" }
+        }
+        $message = [regex]::Match($out, 'Signing secret\(s\) missing or empty: [^.]*\.[^.]*\.').Value
+        "exit $code; message: $message"
     }
 
     Invoke-Step '6. Stage assets: package, dependencies, Tunqio.appinstaller, symbols' {
