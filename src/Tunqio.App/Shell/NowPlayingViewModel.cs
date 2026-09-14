@@ -43,11 +43,15 @@ public sealed partial class NowPlayingViewModel : ObservableObject, IDisposable
     public partial TrackDto? Track { get; set; }
 
     /// <param name="source">Where the session comes from; it may not exist yet, and may never.</param>
+    /// <param name="rater">
+    /// Rates the track (E6-S7). Required and positional, with no default (T-180): a panel whose caller forgot it
+    /// would show stars that silently do nothing. Still nullable, because the Now Playing spike has no library to
+    /// rate into, and it has to say so.
+    /// </param>
     /// <param name="navigator">The sidebar, for the artist and album links. Null leaves them inert.</param>
     /// <param name="ui">The XAML thread's context. Null runs updates inline, which is what the tests want.</param>
-    /// <param name="rater">Rates the track (E6-S7). Null leaves the stars read-only, which is what the spike modes get.</param>
     public NowPlayingViewModel(
-        IPlaybackSessionSource source, ILibraryNavigator? navigator = null, SynchronizationContext? ui = null, ITrackRater? rater = null)
+        IPlaybackSessionSource source, ITrackRater? rater, ILibraryNavigator? navigator = null, SynchronizationContext? ui = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         _source = source;

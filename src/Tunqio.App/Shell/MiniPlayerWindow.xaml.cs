@@ -34,7 +34,8 @@ public sealed partial class MiniPlayerWindow : Window
         ArgumentNullException.ThrowIfNull(audio);
         // Before InitializeComponent: the x:Bind bindings read these as the window is built.
         Transport = new TransportViewModel(audio, SynchronizationContext.Current);
-        NowPlaying = new Shell.NowPlayingViewModel(audio, navigator: null, SynchronizationContext.Current);
+        // No rater: the mini player shows no stars (E6-S7), and the main window's panel is where a track is rated.
+        NowPlaying = new Shell.NowPlayingViewModel(audio, rater: null, navigator: null, SynchronizationContext.Current);
         InitializeComponent();
         Title = "Tunqio mini player";
 

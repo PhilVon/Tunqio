@@ -236,6 +236,11 @@ if (Restore-Database) { Write-Output 'note: a previous run had left the real lib
 Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $parked | Out-Null
 New-Item -ItemType Directory -Force $music | Out-Null
+# The real database's files and their hashes before they move, so the restore at the end is proved byte-identical
+# rather than assumed. A harness once parked the real library.db and the app opened another one anyway (T-183).
+$realHashes = @{}
+foreach ($file in Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue) { $realHashes[$file.Name] = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash }
+Write-Output "real library files to park: $(if ($realHashes.Count) { ($realHashes.Keys | Sort-Object | ForEach-Object { $_ + ' sha256 ' + $realHashes[$_] }) -join ', ' } else { 'none' })"
 foreach ($file in Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue) { Move-Item $file.FullName (Join-Path $parked $file.Name) -Force }
 $stillThere = @(Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue)
 if ($stillThere.Count -gt 0) {
@@ -250,6 +255,9 @@ $reachedEnd = $false
 $startedAt = Get-Date
 $trackPath = Join-Path (Join-Path $music $albumFolder) $trackFile
 
+# Everything from here to the end is inside one try whose finally puts the real database back, the same shape as
+# check-tag-editor.ps1: no exception after parking - in the run or in the checks after it - can skip the restore.
+try {
 try {
     Copy-Item (Join-Path $fixtures $albumFolder) $music -Recurse
     $hashBefore = Get-Sha256 $trackPath
@@ -364,14 +372,32 @@ if ($reachedEnd) {
     Check 'No file write was attempted with the switch off' (@(if ($log) { Get-Content $log.FullName | Where-Object { $_ -match 'written to the file|could not be written to the file' } }).Count -eq 0) 'no tag-write line'
 }
 
-# ---- put the real library back and clean up --------------------------------------------------------------------------
-try {
+}
+catch {
+    $script:failures += "the checks after the run stopped: $($_.Exception.Message)"
+    Write-Output "  FAIL  the checks after the run stopped: $($_.Exception.Message)"
+}
+finally {
+    # ---- put the real library back, then prove it ----------------------------------------------------------------
+    Close-Shell $process
+    # The scratch database goes first: with a real one parked, Restore-Database removes it anyway; with none parked
+    # (a profile that had no library), removing it is what restores the folder to how it was.
     Remove-Item "$dbPath*" -Force -ErrorAction SilentlyContinue
-    if (Restore-Database) { Write-Output 'cleanup: the real library database is back' }
-    Remove-Item $parked -Recurse -Force -ErrorAction SilentlyContinue
+    if (Restore-Database) { Write-Output 'cleanup: the real library database has been moved back' }
+    if ($realHashes.Count -gt 0) {
+        $problems = @()
+        foreach ($name in $realHashes.Keys) {
+            $back = Join-Path $dataRoot $name
+            if (-not (Test-Path -LiteralPath $back)) { $problems += "$name is not back in $dataRoot" }
+            elseif ((Get-FileHash -Algorithm SHA256 -LiteralPath $back).Hash -ne $realHashes[$name]) { $problems += "$name is back but its SHA-256 differs" }
+        }
+        Check 'The real library database is back, byte-identical' ($problems.Count -eq 0) $(if ($problems.Count) { $problems -join '; ' } else { "$($realHashes.Count) file(s), SHA-256 matches" })
+    }
+    # Only an EMPTY park folder is removed: anything still in it is the user's real database.
+    if (@(Get-ChildItem $parked -Force -ErrorAction SilentlyContinue).Count -eq 0) { Remove-Item $parked -Recurse -Force -ErrorAction SilentlyContinue }
+    else { Write-Output "WARNING: files remain in $parked - they are the real library database. Put them back in $dataRoot by hand." }
     if (-not $KeepScratch) { Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue } else { Write-Output "scratch library kept at $music" }
 }
-catch { Write-Output "WARNING: cleanup did not finish: $($_.Exception.Message). The real database may still be parked in $parked." }
 
 # Printed on every outcome, so a waiter has something to match either way (T-174).
 if ($script:failures.Count -eq 0) {

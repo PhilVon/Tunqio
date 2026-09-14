@@ -128,7 +128,7 @@ internal sealed class NowPlayingSpikeRunner
     /// </summary>
     private async Task RunSequentialAsync()
     {
-        var vm = new NowPlayingViewModel(new NoSessionSource());
+        var vm = new NowPlayingViewModel(new NoSessionSource(), rater: null); // no library behind the spike, so nothing to rate into
         _panel.ViewModel = vm;
         foreach (SpikeArt art in _art.Take(4))
         {

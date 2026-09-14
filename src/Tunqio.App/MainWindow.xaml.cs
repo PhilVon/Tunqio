@@ -213,7 +213,7 @@ public sealed partial class MainWindow : Window
             // the spike modes, and the panel simply leaves them inert when it is missing.
             // The rater (E6-S7) is what the stars and the Ctrl+Alt+digit shortcuts write through; the spike modes
             // have none, and the panel then shows the stars read-only.
-            _nowPlaying = new NowPlayingViewModel(audio, navigator, SynchronizationContext.Current, rater);
+            _nowPlaying = new NowPlayingViewModel(audio, rater, navigator, SynchronizationContext.Current);
             NowPlaying.ViewModel = _nowPlaying;
             _nowPlaying.PropertyChanged += OnNowPlayingChanged;
             // The queue panel needs the library to turn track ids into rows; without it the button opens an empty

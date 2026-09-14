@@ -35,7 +35,7 @@ public sealed class NowPlayingViewModelTests : IAsyncLifetime
         ]);
         _session = new PlaybackSession(_engine, _tracks, _history, _queues, _settings, autoPoll: false);
         _source.Session = _session;
-        _vm = new NowPlayingViewModel(_source, _navigator, rater: _rater);
+        _vm = new NowPlayingViewModel(_source, _rater, _navigator);
         return Task.CompletedTask;
     }
 
@@ -87,7 +87,7 @@ public sealed class NowPlayingViewModelTests : IAsyncLifetime
         _vm.Rate(3).Should().BeFalse("the shortcut leaves the key unhandled");
         _rater.Requests.Should().BeEmpty();
 
-        using var plain = new NowPlayingViewModel(_source, _navigator);
+        using var plain = new NowPlayingViewModel(_source, rater: null, _navigator);
         await PlayAsync(11);
         plain.CanRate.Should().BeFalse("the spike modes have no rater and the stars are read-only");
         plain.Rate(3).Should().BeFalse();
@@ -311,7 +311,7 @@ public sealed class NowPlayingViewModelTests : IAsyncLifetime
     [Fact]
     public async Task With_no_sidebar_the_names_are_text_Async()
     {
-        using var plain = new NowPlayingViewModel(_source);
+        using var plain = new NowPlayingViewModel(_source, rater: null);
         await PlayAsync(11);
 
         plain.Title.Should().Be("Wide Awake");
