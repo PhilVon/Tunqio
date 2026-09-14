@@ -165,7 +165,7 @@ public readonly record struct KeyChord(VirtualKey Key, VirtualKeyModifiers Modif
             rest = rest[(plus + 1)..].Trim();
         }
 
-        if (!TryParseKey(rest, out VirtualKey key))
+        if (!TryParseKey(rest, out VirtualKey key) || IsSystemMediaKey(key))
         {
             return false;
         }
@@ -179,7 +179,15 @@ public readonly record struct KeyChord(VirtualKey Key, VirtualKeyModifiers Modif
     /// Ctrl going down on the way to Ctrl+P is not a binding to Ctrl.
     /// </summary>
     public static KeyChord? FromKeyDown(VirtualKey key, VirtualKeyModifiers modifiers) =>
-        ModifierKeys.Contains(key) || key == VirtualKey.None ? null : new KeyChord(key, modifiers);
+        ModifierKeys.Contains(key) || key == VirtualKey.None || IsSystemMediaKey(key) ? null : new KeyChord(key, modifiers);
+
+    /// <summary>
+    /// The volume, media and launch keys (VK 173..183). Windows owns them: the media keys reach the app through the
+    /// system media transport controls whether or not the window has focus (E7-S2, ADR-006), and the volume keys move
+    /// the system volume. A shortcut on one would be a second handling of the same press — Play/Pause toggled by SMTC
+    /// and toggled back by the shell — so none can be captured or read back from the file.
+    /// </summary>
+    public static bool IsSystemMediaKey(VirtualKey key) => (int)key is >= 173 and <= 183;
 
     private static bool TryParseKey(string name, out VirtualKey key)
     {

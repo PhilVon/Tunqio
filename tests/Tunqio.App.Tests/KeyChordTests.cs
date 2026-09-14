@@ -91,4 +91,36 @@ public class KeyChordTests
         KeyChord.KeyName((VirtualKey)255).Should().Be("VK255");
         KeyChord.KeyName(VirtualKey.Application).Should().Be("Application");
     }
+
+    /// <summary>
+    /// E7-S2: the media and volume keys are Windows's, delivered to the app through SMTC even while the window has focus.
+    /// A shortcut on one would handle the press a second time, so none can be captured, read from the file, or be a default.
+    /// </summary>
+    [Theory]
+    [InlineData(173)] // volume mute
+    [InlineData(174)] // volume down
+    [InlineData(175)] // volume up
+    [InlineData(176)] // next track
+    [InlineData(177)] // previous track
+    [InlineData(178)] // stop
+    [InlineData(179)] // play/pause
+    [InlineData(181)] // select media
+    public void A_media_key_is_never_a_shortcut(int code)
+    {
+        var key = (VirtualKey)code;
+        KeyChord.IsSystemMediaKey(key).Should().BeTrue();
+        KeyChord.FromKeyDown(key, VirtualKeyModifiers.None).Should().BeNull("a capture waits past a media key rather than binding it");
+        KeyChord.FromKeyDown(key, VirtualKeyModifiers.Control).Should().BeNull();
+        KeyChord.TryParse(KeyChord.KeyName(key), out _).Should().BeFalse("a hand-edited binding to a media key leaves the action on its default");
+        KeyChord.TryParse("Ctrl+" + KeyChord.KeyName(key), out _).Should().BeFalse();
+        ShellShortcuts.All.Should().NotContain(shortcut => KeyChord.IsSystemMediaKey(shortcut.Key));
+    }
+
+    [Fact]
+    public void The_keys_either_side_of_the_media_keys_still_bind()
+    {
+        KeyChord.FromKeyDown((VirtualKey)172, VirtualKeyModifiers.None).Should().NotBeNull();
+        KeyChord.FromKeyDown((VirtualKey)184, VirtualKeyModifiers.None).Should().NotBeNull();
+        KeyChord.TryParse("VK186", out _).Should().BeTrue();
+    }
 }
