@@ -40,13 +40,24 @@ public sealed class AboutSettingsTests : IAsyncLifetime
         | `bass` | 2.4.18 | https://www.un4seen.com/files/bass24.zip | Free for non-commercial use (Un4seen Developments Ltd.) | `licenses/bass.txt` |
         | `bassmix` | 2.4.13 | https://www.un4seen.com/files/bassmix24.zip | Free to use with BASS | `licenses/bassmix.txt` |
 
-        ## Vendored native sources
+        ## NuGet packages and the runtime
 
-        | Component | Version | Source | Licence | Files | SHA-256 |
-        |-----------|---------|--------|---------|-------|---------|
-        | Catch2 | v3.16.0 | https://github.com/catchorg/Catch2 | Boost Software License 1.0 (`catch2/LICENSE.txt`) | `catch2/catch_amalgamated.hpp` | `abc` |
-        | | | | | `catch2/catch_amalgamated.cpp` | `def` |
-        | pffft | commit `0aec` | https://bitbucket.org/jpommier/pffft | FFTPACK licence (BSD-style) | `pffft/pffft.h` | `123` |
+        | Component | Version | Files in the package | Licence |
+        |-----------|---------|----------------------|---------|
+        | TagLibSharp | 2.3.0 | `TagLibSharp.dll` | LGPL-2.1-only |
+        | Serilog, Serilog.Sinks.File | 4.4.0, 7.0.0 | `Serilog*.dll` | Apache-2.0 |
+
+        ## Vendored native sources (`native/third_party/`)
+
+        | Component | Version | Source | Licence | Ships | Files | SHA-256 |
+        |-----------|---------|--------|---------|-------|-------|---------|
+        | Catch2 | v3.16.0 | https://github.com/catchorg/Catch2 | Boost Software License 1.0 (`catch2/LICENSE.txt`) | No: test-only | `catch2/catch_amalgamated.hpp` | `abc` |
+        | | | | | | `catch2/catch_amalgamated.cpp` | `def` |
+        | pffft | commit `0aec` | https://bitbucket.org/jpommier/pffft | FFTPACK licence (BSD-style) | Yes, compiled into `mpcore.dll` | `pffft/pffft.h` | `123` |
+
+        ## Not shipped
+
+        Build-time and test-only packages are not in the package: BenchmarkDotNet, xUnit.
         """;
 
     public Task InitializeAsync()
@@ -109,7 +120,11 @@ public sealed class AboutSettingsTests : IAsyncLifetime
 
     // ---- licences -----------------------------------------------------------------------------------------------------
 
-    /// <summary>AC-442: every notices row is a licence row, the shipped texts are joined to them, and each is openable.</summary>
+    /// <summary>
+    /// AC-442, T-198: every shipped row of every notices table is a licence row, in file order (native, NuGet and runtime,
+    /// vendored), the shipped texts are joined to them, and each is openable. Catch2 is test-only and is not listed, the
+    /// build-only tools in the Not shipped prose are not rows, and nothing is listed that the notices do not name.
+    /// </summary>
     [Fact]
     public void Licences_are_listed_from_the_shipped_notices_and_the_licenses_folder()
     {
@@ -117,19 +132,41 @@ public sealed class AboutSettingsTests : IAsyncLifetime
 
         vm.LoadLicences();
 
-        vm.Licences.Select(l => l.Name).Should().StartWith(["Third-party notices", "bass", "bassmix", "Catch2", "pffft", "extra"]);
+        vm.Licences.Select(l => l.Name).Should().Equal("Third-party notices", "bass", "bassmix", "TagLibSharp", "Serilog, Serilog.Sinks.File", "pffft", "extra");
         vm.Licences.Single(l => l.Name == "bass").Display.Should().Be("bass 2.4.18 · Free for non-commercial use (Un4seen Developments Ltd.)");
         vm.Licences.Single(l => l.Name == "bass").TextPath.Should().Be(Path.Combine(_scratch, "app", "licenses", "bass.txt"));
         vm.Licences.Single(l => l.Name == "bassmix").TextPath.Should().BeNull("bassmix.txt was not written to the scratch folder");
         vm.Licences.Single(l => l.Name == "bassmix").Note.Should().Contain("licenses/bassmix.txt is missing");
-        vm.Licences.Single(l => l.Name == "Catch2").Licence.Should().Be("Boost Software License 1.0 (catch2/LICENSE.txt)");
         vm.Licences.Single(l => l.Name == "extra").TextPath.Should().EndWith("extra.txt");
-        // The NuGet components the attribution constants credit follow, without a text; the BASS ones are not repeated.
-        vm.Licences.Should().Contain(l => l.Name == "TagLibSharp" && l.Licence == "LGPL 2.1" && l.TextPath == null);
-        vm.Licences.Should().Contain(l => l.Name == "Serilog" && l.Licence == "Apache 2.0");
-        // BASS_APE is credited by the constants but absent from this test's notices, so it is listed once, without a text;
-        // the "BASS, BASSmix, ..." credit is matched to the notices' bass row and not repeated.
-        vm.Licences.Where(l => l.Name.StartsWith("bass", StringComparison.OrdinalIgnoreCase)).Select(l => l.Name).Should().Equal("bass", "bassmix", "BASS_APE");
+        LicenceRow taglib = vm.Licences.Single(l => l.Name == "TagLibSharp");
+        taglib.Display.Should().Be("TagLibSharp 2.3.0 · LGPL-2.1-only");
+        taglib.TextPath.Should().BeNull();
+        taglib.Note.Should().Contain("LGPL-2.1-only").And.Contain("release pipeline");
+        vm.Licences.Single(l => l.Name.StartsWith("Serilog", StringComparison.Ordinal)).Licence.Should().Be("Apache-2.0");
+        vm.Licences.Single(l => l.Name == "pffft").Note.Should().Contain("mpcore.dll").And.Contain("repository");
+        vm.Licences.Should().NotContain(l => l.Name.Contains("Catch2", StringComparison.OrdinalIgnoreCase), "Catch2 is test-only");
+        vm.Licences.Should().NotContain(l => l.Name.Contains("BenchmarkDotNet", StringComparison.OrdinalIgnoreCase), "build-only tools do not ship");
+    }
+
+    /// <summary>T-198: the page lists every shipped row of the repository's own notices file, which is the one the build ships.</summary>
+    [Fact]
+    public void The_real_notices_put_every_shipped_component_on_the_page_with_its_licence()
+    {
+        string real = File.ReadAllText(RepoFile("THIRD-PARTY-NOTICES.md"));
+        File.WriteAllText(Path.Combine(_scratch, "app", "licenses", "THIRD-PARTY-NOTICES.md"), real);
+        AboutSettingsViewModel vm = About();
+
+        vm.LoadLicences();
+
+        IReadOnlyList<ThirdPartyComponent> shipped = [.. ThirdPartyNotices.Parse(real).Where(c => c.Shipped)];
+        shipped.Should().HaveCountGreaterThan(20);
+        vm.Licences.Skip(1).Take(shipped.Count).Select(l => (l.Name, l.Licence)).Should().Equal(shipped.Select(c => (c.Name, c.Licence)));
+        foreach (string name in new[] { "TagLibSharp", "Microsoft.Data.Sqlite", "System.Reactive", "CommunityToolkit.Mvvm" })
+        {
+            vm.Licences.Should().ContainSingle(l => l.Name == name && l.Licence.Length > 0, $"{name} ships in the package");
+        }
+
+        vm.Licences.Should().NotContain(l => l.Name == "Catch2");
     }
 
     [Fact]

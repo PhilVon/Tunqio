@@ -3,6 +3,11 @@
 Every third-party component that ships in the Tunqio MSIX, with its licence. Checked against the contents of a
 packaged Release build (`Tunqio.msix`, 404 entries) on card T-86, 2026-09-14; the check is described at the end.
 
+Settings > About & Diagnostics reads this file (T-198): every row of both tables of shipped components, the native
+rows (the BASS packages and the vendored sources compiled into `mpcore.dll`) and the NuGet packages and the runtime,
+is listed there with the licence its row names. A row whose `Ships` cell starts with "No" is kept here for
+completeness and is not shown as shipped, and the build-only tools under "Not shipped" are not rows at all.
+
 ## BASS audio library (proprietary, free for non-commercial use)
 
 Audio playback uses the BASS audio library and its add-ons (BASSmix, BASSWASAPI, BASSFLAC, BASSOPUS, BASSWV, BASS_APE) by Un4seen Developments, www.un4seen.com, under the free non-commercial licence.
@@ -41,14 +46,13 @@ Foundation codec support on Windows 10 and 11 instead, so no add-on is needed fo
 ## NuGet packages and the runtime
 
 These ship as assemblies in the package, pinned in `Directory.Packages.props` (versions below are the ones in the
-package). They are credited on the About page from `Tunqio.Core.ThirdPartyAttribution.Components`, not from this
-table: the About page reads only the tables with a `Licence` column, and this one's column is `Licence terms` so
-that it stays that way until the page lists these rows too. Their licence texts are not yet shipped beside the
-executable; the release pipeline collects them (E8-S1).
+package). The About page lists every row of this table with its licence. Their licence texts are not yet shipped
+beside the executable; the release pipeline collects them (E8-S1). The `Files in the package` column is what
+`tools/check-package.ps1` matches the package's entries against.
 
-| Component | Version | Files in the package | Licence terms |
+| Component | Version | Files in the package | Licence |
 |-----------|---------|----------------------|---------------|
-| .NET runtime and Windows Desktop runtime (self-contained) | 8.0.28 | `System.*.dll`, `Microsoft.CSharp.dll`, `Microsoft.Win32.*.dll`, `coreclr.dll`, `clrjit.dll`, `clrgc*.dll`, `clretwrc.dll`, `mscor*.dll`, `netstandard.dll`, `hostfxr.dll`, `hostpolicy.dll`, `createdump.exe`, `Microsoft.DiaSymReader.Native.amd64.dll`, `msquic.dll`; WPF and Windows Forms assemblies (`Presentation*.dll`, `PenImc_cor3.dll`, `wpfgfx_cor3.dll`, `D3DCompiler_47_cor3.dll`, `UIAutomation*.dll`, `WindowsFormsIntegration.dll`, `ReachFramework.dll`, `DirectWriteForwarder.dll`, `Accessibility.dll`), which the self-contained Windows Desktop runtime carries whole | MIT (.NET Foundation and Microsoft) |
+| .NET runtime and Windows Desktop runtime (self-contained) | 8.0.28 | `System.*.dll`, `Microsoft.CSharp.dll`, `Microsoft.Win32.*.dll`, `coreclr.dll`, `clrjit.dll`, `clrgc*.dll`, `clretwrc.dll`, `mscor*.dll`, `netstandard.dll`, `hostfxr.dll`, `hostpolicy.dll`, `createdump.exe`, `Microsoft.DiaSymReader.Native.amd64.dll`, `msquic.dll`, `Microsoft.VisualBasic*.dll`; WPF and Windows Forms assemblies (`Presentation*.dll`, `PenImc_cor3.dll`, `wpfgfx_cor3.dll`, `vcruntime140_cor3.dll`, `D3DCompiler_47_cor3.dll`, `UIAutomation*.dll`, `WindowsBase.dll`, `WindowsFormsIntegration.dll`, `ReachFramework.dll`, `DirectWriteForwarder.dll`, `Accessibility.dll`), which the self-contained Windows Desktop runtime carries whole | MIT (.NET Foundation and Microsoft) |
 | Windows App SDK and WinUI 3 | 1.8.260804001 | `Microsoft.WinUI.dll`, `Microsoft.Windows.*.Projection.dll`, `Microsoft.WindowsAppRuntime.Bootstrap*.dll`, `Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.dll`, `Microsoft.InteractiveExperiences.Projection.dll`, `Microsoft.Graphics.Imaging.Projection.dll`, `Microsoft.Security.Authentication.OAuth.Projection.dll`, `Microsoft.ML.OnnxRuntime.dll` (Windows ML projection), `resources.pri` | Microsoft Software License Terms, Microsoft Windows App SDK (and Windows Machine Learning for the ML part); redistributable |
 | Windows App Runtime 1.8 (framework package) | 1.8 | Not inside `Tunqio.msix`: a package dependency installed beside it (`Dependencies\x64\Microsoft.WindowsAppRuntime.1.8.msix`) | Microsoft Software License Terms, Microsoft Windows App SDK |
 | C#/WinRT runtime and Windows SDK projection | 2.2.0 / 10.0.19041.55 | `WinRT.Runtime.dll`, `Microsoft.Windows.SDK.NET.dll` | MIT (C#/WinRT); Microsoft Windows SDK licence (projection) |
@@ -69,13 +73,13 @@ executable; the release pipeline collects them (E8-S1).
 pffft and nlohmann/json are compiled into `mpcore.dll` and so ship in the package. Catch2 is a test-only
 dependency and is not part of the shipped package.
 
-| Component | Version | Source | Licence | Files | SHA-256 |
-|-----------|---------|--------|---------|-------|---------|
-| Catch2 | v3.16.0 | https://github.com/catchorg/Catch2 (`extras/catch_amalgamated.*`) | Boost Software License 1.0 (`catch2/LICENSE.txt`) | `catch2/catch_amalgamated.hpp` | `d4cc143ea76ae212204363922d8adf376d66a1fda5a33ac73f93a7d1c119f4e0` |
-| | | | | `catch2/catch_amalgamated.cpp` | `1fe7f10334e0ae5494419cfa84c270f15235eada0fc02bdb493d1def537601f3` |
-| nlohmann/json | v3.12.0 | https://github.com/nlohmann/json (`single_include/nlohmann/json.hpp`) | MIT (`nlohmann/LICENSE.MIT`) | `nlohmann/json.hpp` | `aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63` |
-| pffft | commit `0aec0327a6912e1a0ec5326eef737c2ce19bc836` (2026-08-14) | https://bitbucket.org/jpommier/pffft | FFTPACK licence (BSD-style; text at the top of `pffft.h`) | `pffft/pffft.h` | `d6ac7f26f7c3f87ed2ad7f0264c09d72285526d937b4dccc5fc1c97645a0d55d` |
-| | | | | `pffft/pffft.c` | `485f2c641b9bc9434720757307e825c2f694b682438da9052959ab1e445e1f16` |
+| Component | Version | Source | Licence | Ships | Files | SHA-256 |
+|-----------|---------|--------|---------|-------|-------|---------|
+| Catch2 | v3.16.0 | https://github.com/catchorg/Catch2 (`extras/catch_amalgamated.*`) | Boost Software License 1.0 (`catch2/LICENSE.txt`) | No: test-only (`mpcore.tests.exe`) | `catch2/catch_amalgamated.hpp` | `d4cc143ea76ae212204363922d8adf376d66a1fda5a33ac73f93a7d1c119f4e0` |
+| | | | | | `catch2/catch_amalgamated.cpp` | `1fe7f10334e0ae5494419cfa84c270f15235eada0fc02bdb493d1def537601f3` |
+| nlohmann/json | v3.12.0 | https://github.com/nlohmann/json (`single_include/nlohmann/json.hpp`) | MIT (`nlohmann/LICENSE.MIT`) | Yes, compiled into `mpcore.dll` | `nlohmann/json.hpp` | `aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63` |
+| pffft | commit `0aec0327a6912e1a0ec5326eef737c2ce19bc836` (2026-08-14) | https://bitbucket.org/jpommier/pffft | FFTPACK licence (BSD-style; text at the top of `pffft.h`) | Yes, compiled into `mpcore.dll` | `pffft/pffft.h` | `d6ac7f26f7c3f87ed2ad7f0264c09d72285526d937b4dccc5fc1c97645a0d55d` |
+| | | | | | `pffft/pffft.c` | `485f2c641b9bc9434720757307e825c2f694b682438da9052959ab1e445e1f16` |
 
 Vendoring was chosen over a vcpkg manifest (E0-S1 "decide and record"): three small, stable dependencies,
 no bootstrap step on CI or a fresh clone, and the exact bytes are hash-pinned here. Update by replacing the
@@ -101,3 +105,8 @@ $zip.Dispose()
 
 Every file that list prints belongs to a row above. When a package is added to `Directory.Packages.props` or the
 package gains a file this page does not account for, add the row in the same change.
+
+Since T-198 `tools/check-package.ps1 -Msix` makes this a gate, and CI runs it on the package it builds: every entry
+of `Tunqio.msix` other than Tunqio's own (`Tunqio*`, `mpcore.dll`, `Assets/`, `presets/`, `licenses/` and the
+package's `Appx*` and `[Content_Types].xml` records) has to match a BASS package row or a pattern in the
+`Files in the package` column above, or the check fails and names the file.

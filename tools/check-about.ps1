@@ -198,9 +198,41 @@ try {
     # 'Licence list', not the 'Licences' section header, which is a text block named by its text and comes first.
     $list = Find-Named $overlay 'Licence list'
     $rows = @()
-    if ($list) { $rows = Find-AllOfType $list ([System.Windows.Automation.ControlType]::ListItem) }
-    $rowNames = @($rows | ForEach-Object { $_.Current.Name })
+    $rowNames = @()
+    if ($list) {
+        # T-198: the list holds 25 rows in a 220 px box and a ListView realises only the rows near its viewport, so the
+        # names are gathered at scroll positions down the list (a bounded 11 steps) and the list is put back at the top.
+        $seenRows = New-Object System.Collections.Generic.List[string]
+        $collect = { foreach ($r in (Find-AllOfType $list ([System.Windows.Automation.ControlType]::ListItem))) { $n = $r.Current.Name; if (-not $seenRows.Contains($n)) { $seenRows.Add($n) } } }
+        & $collect
+        $listScroll = $null
+        try { $listScroll = $list.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern) } catch { }
+        if ($listScroll -and $listScroll.Current.VerticallyScrollable) {
+            foreach ($percent in 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100) {
+                try { $listScroll.SetScrollPercent(-1, $percent) } catch { break }
+                Start-Sleep -Milliseconds 300
+                & $collect
+            }
+            try { $listScroll.SetScrollPercent(-1, 0) } catch { }
+            Start-Sleep -Milliseconds 400
+        }
+        $rowNames = @($seenRows)
+        $rows = Find-AllOfType $list ([System.Windows.Automation.ControlType]::ListItem)
+    }
     Check 'The licence list has the notices, every BASS package and the vendored sources' ($rowNames.Count -ge 10 -and $rowNames[0] -like 'Third-party notices*' -and ($rowNames -match '^bass 2\.4\.\d+ ').Count -eq 1 -and ($rowNames -match '^bass_ape ').Count -eq 1 -and ($rowNames -match '^pffft ').Count -eq 1) "$($rowNames.Count) rows: $($rowNames -join ' | ')"
+
+    # T-198 (AC-541, AC-543): the NuGet components are on the page with the licence their notices row names, and Catch2,
+    # which the notices mark test-only, is not listed as shipped. The expected licence is read from the repository's
+    # THIRD-PARTY-NOTICES.md, the file the build copies beside the executable: the last cell of the component's row.
+    $noticesLines = @(Get-Content (Join-Path $here '..\THIRD-PARTY-NOTICES.md'))
+    foreach ($component in 'TagLibSharp', 'Serilog', 'Microsoft.Data.Sqlite') {
+        $noticesRow = $noticesLines | Where-Object { $_ -match "^\| $([regex]::Escape($component))( \||,)" } | Select-Object -First 1
+        $expectedLicence = if ($noticesRow) { $noticesRow.Trim().Trim('|').Split('|')[-1].Replace('`', '').Trim() } else { '' }
+        $onPage = @($rowNames | Where-Object { $_.StartsWith("$component ") -or $_.StartsWith("$component,") })
+        Check "The licence list names $component with its notices licence '$expectedLicence'" ($expectedLicence -and $onPage.Count -eq 1 -and $onPage[0].EndsWith(" $([char]0x00B7) $expectedLicence"))"$(if ($onPage.Count) { $onPage -join ' | ' } else { 'no row' })"
+    }
+    $catch2 = @($rowNames | Where-Object { $_ -like '*Catch2*' })
+    Check 'Catch2 (test-only) is not listed as shipped' ($rowNames.Count -gt 0 -and $catch2.Count -eq 0) "$(if ($catch2.Count) { $catch2 -join ' | ' } else { "not among $($rowNames.Count) rows" })"
     $textBox = Find-Named $overlay 'Licence text'
     $noticesText = if ($textBox) { Get-Value $textBox } else { '' }
     Check 'The notices file is open in the text box before anything is chosen' ($noticesText -like '# Third-party notices*') "$($noticesText.Length) chars"
