@@ -17,8 +17,11 @@ public static class Identity
     /// <summary>MSIX package identity name. Frozen at 1.0.</summary>
     public const string PackageName = "Tunqio";
 
-    /// <summary>Manifest publisher for development (self-signed) builds. Replaced once at E8-S1, then frozen.</summary>
-    public const string DevelopmentPublisher = "CN=Tunqio";
+    /// <summary>
+    /// Manifest publisher and the subject of the self-signed release certificate. Development and release builds share it:
+    /// releases stay self-signed (D-34), so it is never replaced. Frozen at 1.0.
+    /// </summary>
+    public const string Publisher = "CN=Tunqio";
 
     /// <summary>Manifest Application Id; half of the Application User Model ID. Frozen at 1.0.</summary>
     public const string ApplicationId = "Tunqio";

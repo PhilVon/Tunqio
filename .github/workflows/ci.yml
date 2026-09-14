@@ -163,7 +163,7 @@ jobs:
           TUNQIO_PERF_SLACK: '4'
         run: dotnet run -c Release -p:Platform=x64 --project tests/Tunqio.Benchmarks --no-build -- --gate --filter '*SearchBenchmarks*' '*LibraryOpenBenchmarks*' '*UpsertBenchmarks*' '*CurationBenchmarks*'
 
-      - name: Package MSIX (unsigned; signing lands with E8-S1)
+      - name: Package MSIX (unsigned; release.yml signs its copy)
         run: msbuild src/Tunqio.App/Tunqio.App.csproj -p:Configuration=Release -p:Platform=x64 -p:TunqioPackaged=true -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -m -nologo -v:minimal
 
       # T-128. The package is the artifact this job hands to a human, and until now it was the one thing nothing
