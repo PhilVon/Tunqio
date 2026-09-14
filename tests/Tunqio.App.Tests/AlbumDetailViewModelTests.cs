@@ -42,6 +42,8 @@ public class AlbumDetailViewModelTests
         vm.ListenForRatings(true);
         AlbumTrackRow one = vm.Rows.Single(r => r.Title == "One");
         one.Stars.Should().Be(3, "the row is built with the track's rating as stars");
+        one.AutomationName.Should().Be("One by The Band, Double, 4:00", "a row names the four columns that identify a track (T-122's contract)")
+            .And.NotContain("star", "the rating is detail, and the star control names itself");
         var notified = new List<string>();
         one.PropertyChanged += (_, e) => notified.Add(e.PropertyName ?? string.Empty);
 

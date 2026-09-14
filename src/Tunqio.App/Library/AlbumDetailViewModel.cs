@@ -36,6 +36,13 @@ public sealed class AlbumTrackRow : ObservableObject
 
     public string Duration { get; }
 
+    /// <summary>
+    /// What the row announces (docs/ui-screens-and-flows.md, "Accessibility contract"): the four columns a Tracks row
+    /// names, never the rating. Needed since the row became a class for <see cref="Stars"/>'s sake: without it the
+    /// row falls back to its type name, where the record it replaced at least read out its fields.
+    /// </summary>
+    public string AutomationName => Format.TrackRowName(Title, Track.ArtistNames, Track.AlbumTitle, Track.DurationMs);
+
     /// <summary>The rating as 0..5 stars, for the row's star control.</summary>
     public int Stars
     {

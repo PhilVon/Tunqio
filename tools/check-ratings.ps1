@@ -363,11 +363,20 @@ try {
     # ---- Now Playing, by playing the album from its detail page ---------------------------------------------------
     Open-Section $window 'Albums'
     Invoke-Element (Wait-For { Find-Named $window $tileName } 30 "the Albums grid showed '$tileName'")
-    Invoke-Element (Wait-For { Find-Named $window 'Play album' } 15 'album detail offered Play album')
-    $nowPlaying = Wait-For {
-        $panel = $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -like 'Now playing: First Light*' } | Select-Object -First 1
-        if ($panel) { $panel }
-    } 30 'Now Playing showed First Light'
+    # The library grid's tile plays the album (AlbumsGrid.OnTileClick raises Play); other harnesses have met tiles that
+    # open album detail instead, whose Play album button then starts it. Either way ends with First Light playing.
+    $nowPlaying = $null
+    $playedFromDetail = $false
+    $deadline = (Get-Date).AddSeconds(30)
+    while (-not $nowPlaying -and (Get-Date) -lt $deadline) {
+        $nowPlaying = $window.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -like 'Now playing: First Light*' } | Select-Object -First 1
+        if (-not $nowPlaying -and -not $playedFromDetail) {
+            $play = Find-Named $window 'Play album'
+            if ($play) { Invoke-Element $play; $playedFromDetail = $true }
+        }
+        if (-not $nowPlaying) { Start-Sleep -Milliseconds 400 }
+    }
+    if (-not $nowPlaying) { throw 'waited 30s and Now Playing never showed First Light, whether the tile played the album or opened its detail' }
     $npStars = Wait-Stars { Find-Stars $nowPlaying } 4 15 'Now Playing showed the four stars the row set'
     Check 'Now Playing shows the rating the Tracks row set, without a rescan' ($npStars.Current.Name -eq 'Rating, 4 of 5 stars') "'$($npStars.Current.Name)'"
 
@@ -375,8 +384,15 @@ try {
     Set-Stars $npStars 2
     $npStars = Wait-Stars { Find-Stars $nowPlaying } 2 10 'Now Playing showed two stars'
     Check 'Setting two stars in Now Playing renames its control' ($npStars.Current.Name -eq 'Rating, 2 of 5 stars') "'$($npStars.Current.Name)'"
-    $detailRow = Wait-For { Find-Row $window 'First Light' } 15 'album detail listed First Light'
-    $detailStars = Wait-Stars { Find-Stars (Find-Row $window 'First Light') } 2 10 'the album detail row followed to two stars'
+    # Album detail, reached through Now Playing's own "Go to album" link unless the tile already opened it. Its rows
+    # announce the same four columns as a Tracks row, so the same prefix finds First Light there.
+    if (-not (Find-Named $window 'Play album')) {
+        Invoke-Element (Wait-For { Find-Named $window 'Go to album' } 10 'Now Playing offered Go to album')
+    }
+    Wait-For { Find-Named $window 'Play album' } 15 'album detail opened' | Out-Null
+    $detailRow = Wait-For { Find-Row $window $rowPrefix } 15 'album detail listed First Light by its four-column name'
+    Check 'An album detail row announces its four columns and not the rating' ($detailRow.Current.Name -notmatch 'star|Rating|AlbumTrackRow') "'$($detailRow.Current.Name)'"
+    $detailStars = Wait-Stars { $r = Find-Row $window $rowPrefix; if ($r) { Find-Stars $r } } 2 10 'the album detail row followed to two stars'
     Check 'The album detail row follows a rating set in Now Playing' ($detailStars.Current.Name -eq 'Rating, 2 of 5 stars') "'$($detailStars.Current.Name)'"
 
     # And the Tracks row follows too, then clears from Now Playing.
