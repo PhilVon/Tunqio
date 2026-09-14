@@ -34,6 +34,7 @@ public partial class App : Application
     private Window? _window;
     private SmtcBridge? _mediaControls;
     private TrayController? _tray;
+    private bool _hiddenOnMinimise;
     private static nint _mainWindowHandle;
 
     public App()
@@ -398,7 +399,11 @@ public partial class App : Application
         WinUiTrayIcon? icon = null;
         try
         {
-            icon = new WinUiTrayIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Tray", "tunqio.ico"));
+            // The file is TrayIconFiles' decision, from docs/identity.md's names; the executable's icon until those exist.
+            icon = new WinUiTrayIcon(TrayIconFiles.Load(
+                AppContext.BaseDirectory,
+                Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, Identity.ExecutableName + ".exe"),
+                _host!.Services.GetRequiredService<ILogger<TrayController>>()));
             var tray = new TrayController(
                 _host!.Services.GetRequiredService<IPlaybackSessionSource>(),
                 icon,
@@ -436,13 +441,25 @@ public partial class App : Application
     /// <summary>The main window minimised: hidden while <c>ui.minimizeToTray</c> is on. Showing it restores it (NativeWindowing).</summary>
     private void OnMainWindowChanged(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
     {
-        if (!sender.IsVisible
-            || sender.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Minimized }
-            || _tray?.ShouldHideOnMinimize() != true)
+        bool minimised = sender.Presenter is Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Minimized };
+        if (_hiddenOnMinimise)
+        {
+            // One minimise raises Changed more than once before the hide has settled (check-tray logged two hides for one
+            // minimise). The window stays hidden until it is shown and restored, which is when the next minimise counts.
+            if (sender.IsVisible && !minimised)
+            {
+                _hiddenOnMinimise = false;
+            }
+
+            return;
+        }
+
+        if (!sender.IsVisible || !minimised || _tray?.ShouldHideOnMinimize() != true)
         {
             return;
         }
 
+        _hiddenOnMinimise = true;
         sender.Hide();
         Log.Information("Tray: main window hidden to the tray on minimise");
     }

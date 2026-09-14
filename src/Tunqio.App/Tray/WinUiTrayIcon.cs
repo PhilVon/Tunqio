@@ -29,10 +29,10 @@ internal sealed class WinUiTrayIcon : ITrayIcon
     private readonly MenuFlyoutItem _previous;
     private bool _disposed;
 
-    /// <param name="iconPath">The .ico file shown in the notification area.</param>
-    public WinUiTrayIcon(string iconPath)
+    /// <param name="image">The icon shown in the notification area (<see cref="TrayIconFiles.Load"/>); owned and disposed from here.</param>
+    public WinUiTrayIcon(System.Drawing.Icon image)
     {
-        ArgumentException.ThrowIfNullOrEmpty(iconPath);
+        ArgumentNullException.ThrowIfNull(image);
         _playPause = Item(TrayController.PlayText, TrayCommand.PlayPause);
         _next = Item("Next", TrayCommand.Next);
         _previous = Item("Previous", TrayCommand.Previous);
@@ -56,7 +56,7 @@ internal sealed class WinUiTrayIcon : ITrayIcon
         };
         try
         {
-            _icon.Icon = new System.Drawing.Icon(iconPath);
+            _icon.Icon = image;
             _icon.ForceCreate(enablesEfficiencyMode: false);
         }
         catch

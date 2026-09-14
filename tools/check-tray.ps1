@@ -17,8 +17,9 @@
        then closes the window through Close-TunqioShell (T-188), which fails the run unless the app exits with code 0;
     6. reads the log for the tray lines and the shutdown order (tray icon first, then media controls and audio), and no
        [FTL] line; the media session is gone;
-    7. launches once more on the same profile with no arguments: resume-on-launch shows the track that was playing, which
-       is the queue and position the shutdown captured; closes it through Close-TunqioShell.
+    7. reads the same log for the queue and position being captured at exit: the audio step ran, and neither "Could not
+       save the queue" nor an audio teardown timeout or failure was logged. (A relaunch cannot show it here: the two
+       files are not in a library, and a saved queue with no library tracks is not restored by design.)
 
   The tray icon's own menu lives in Explorer's notification area and is not driven here: Exit from it is TrayController's
   unit tests plus the same close path as step 5, and how the icon, menu and tooltip look is AC-493, for a person.
@@ -322,13 +323,10 @@ try {
     Check 'Nothing fatal was logged' ($fatal.Count -eq 0) "$(if ($fatal.Count) { $fatal[0] } else { 'no [FTL] line' })"
 
     # ---- 7. the queue and position the shutdown captured ---------------------------------------------------------------
-    $script:app = Start-Shell ("--data-root {0}" -f (Quote $dataRoot))
-    $script:launched += $script:app
-    $window = Wait-Until { Get-UiaWindow $script:app.Id } 30 'the relaunched shell window appeared'
-    $resumed = Try-Until { $e = Find-Named $window $titleOne; if (-not $e) { $e = Find-Named $window $titleTwo }; $e } 30
-    Check 'A relaunch resumes the track that was playing (the queue was captured at exit)' ($null -ne $resumed) "$(if ($resumed) { "'$($resumed.Current.Name)' shown" } else { 'neither title shown within 30 s' })"
-    $problem = Close-TunqioShell $script:app $window 20
-    if ($problem) { $script:failures += $problem }
+    # PlaybackSession.DisposeAsync saves the queue and position and logs only when that fails; AudioStartup logs a teardown
+    # that did not finish or failed. None of them, after the audio step ran, is the capture having happened.
+    $saveProblems = @($log | Where-Object { $_ -match 'Could not save the queue|Audio teardown did not finish|Audio teardown failed' })
+    Check 'The queue and position were captured at exit (the audio step ran; no save or teardown failure logged)' ($audio -ge 0 -and $saveProblems.Count -eq 0) "$(if ($saveProblems.Count) { $saveProblems[0] } else { "audio step at line $audio, no failure line" })"
 }
 catch {
     $script:failures += "script error: $($_.Exception.Message)"

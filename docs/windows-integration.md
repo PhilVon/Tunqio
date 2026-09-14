@@ -203,8 +203,14 @@ The WinForms sample below is superseded by ADR-006 and kept only as the original
   (the library turns the `MenuFlyout`'s items into a native popup menu each time it opens, so no second XAML window exists),
   and `ForceCreate(enablesEfficiencyMode: false)`, because the library's default puts the whole process into Windows'
   efficiency mode, which would throttle audio. Menu: Play or Pause, Next, Previous, Show Tunqio, Exit. Left-click shows the
-  window. The icon file is `Assets/Tray/tunqio.ico`, a multi-size placeholder made from the template logo until the artwork
-  task (docs/identity.md names `tunqio-16.ico` and `tunqio-32.ico`; one multi-size file serves both).
+  window.
+- **The icon file.** `Tray/TrayIconFiles.cs` is the one place it is chosen, from docs/identity.md's names beside the
+  executable: `Assets/Tray/tunqio-16.ico` and `Assets/Tray/tunqio-32.ico`, each with a `-light` and `-dark` variant named
+  for the taskbar it is drawn on (`tunqio-32-light.ico` is for a light taskbar). At 100 % scaling (small icons 16 px) it tries
+  `tunqio-16-<theme>.ico`, `tunqio-16.ico`, `tunqio-32-<theme>.ico`, `tunqio-32.ico`; above 100 % the 32 px pair first. The
+  theme is read once at launch from `SystemUsesLightTheme` (read only). `Assets\**\*.ico` is a `Content` item, so files the
+  icon task drops in reach both build shapes. Until one exists the tray shows the executable's own icon and the log says
+  "using the executable's own icon as the fallback".
 - **The rules.** `Tray/TrayController.cs`, behind `ITrayIcon`, unit tested over a fake (`TrayControllerTests`): menu choices
   go to `PlaybackSession.TogglePlayPauseAsync`, `NextAsync` and `PreviousAsync` (nothing before audio is up); the tooltip is
   `Identity.TrayTooltip`, `Tunqio` idle and `Title – Artist` with a track loaded, trimmed to 127 characters title first; the

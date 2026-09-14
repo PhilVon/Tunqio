@@ -80,7 +80,8 @@
     </AppxManifest>
     <None Include="Package.appxmanifest" Condition="'$(TunqioPackaged)' != 'true'" />
     <Content Include="Assets\**\*.png" />
-    <!-- E7-S3: the tray icon, loaded from beside the executable in both shapes (a placeholder until the artwork task). -->
+    <!-- E7-S3: the tray icons (docs/identity.md, Assets/Tray/tunqio-16.ico and tunqio-32.ico with -light/-dark variants),
+         loaded from beside the executable in both shapes by Tray/TrayIconFiles.cs. The icon task adds the files. -->
     <Content Include="Assets\**\*.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
