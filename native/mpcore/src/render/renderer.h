@@ -293,9 +293,9 @@ private:
     // between its old state and its input, so there is nothing a half-applied pair can make flash.
     std::atomic<float> smoothing_attack_ms_{0.0f};
     std::atomic<float> smoothing_decay_ms_{0.0f};
-    temporal_envelope envelope_;                   // render thread only
-    std::unique_ptr<mp_analysis_frame> smoothed_;  // render thread only: what is uploaded while smoothing is on
-    bool gpu_holds_smoothed_ = false;              // render thread only: the spectrum on the GPU is not analysis_'s
+    temporal_envelope envelope_;                  // render thread only
+    std::unique_ptr<mp_analysis_frame> smoothed_; // render thread only: what is uploaded while smoothing is on
+    bool gpu_holds_smoothed_ = false;             // render thread only: the spectrum on the GPU is not analysis_'s
     std::atomic<bool> smoothing_clock_manual_{false};
     std::atomic<int64_t> smoothing_clock_ns_{0};
     int64_t smoothing_clock_seen_ns_ = 0; // render thread only

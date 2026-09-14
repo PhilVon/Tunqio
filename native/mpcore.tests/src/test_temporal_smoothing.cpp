@@ -285,7 +285,8 @@ TEST_CASE("a discontinuity in the analysis restarts the envelope at its input", 
 // rather than of the machine, so it is computed here from the envelope itself rather than timed. The figure is when
 // the drawn value first reaches half the height of a full-scale step - the first frame at or past attack * ln 2 -
 // counted from the frame the step arrived on. These numbers are what T-184's card records.
-TEST_CASE("the delay the envelope adds to a transient, at the settings the page offers", "[render][smoothing][latency]") {
+TEST_CASE("the delay the envelope adds to a transient, at the settings the page offers",
+          "[render][smoothing][latency]") {
     struct setting {
         const char* name;
         envelope_times times;
@@ -317,9 +318,10 @@ TEST_CASE("the delay the envelope adds to a transient, at the settings the page 
             // The step is drawn on its first frame when nothing delays it, so the delay is the frames AFTER that one.
             const double added_ms = static_cast<double>(frames - 1) * dt * 1000.0;
             char note[200];
-            std::snprintf(note, sizeof note,
-                          "%.0f Hz, %s: half height on frame %ld after the step, %.1f ms added (one refresh is %.1f ms)",
-                          hz, s.name, frames, added_ms, dt * 1000.0);
+            std::snprintf(
+                note, sizeof note,
+                "%.0f Hz, %s: half height on frame %ld after the step, %.1f ms added (one refresh is %.1f ms)", hz,
+                s.name, frames, added_ms, dt * 1000.0);
             WARN(note);
             if (s.times.attack_ms == 0.0f) {
                 CHECK(frames == 1); // off and the fastest rise add nothing at all

@@ -701,9 +701,10 @@ mp_result renderer::set_temporal_smoothing(float attack_ms, float decay_ms) {
     }
     if (attack_ms < 0.0f || decay_ms < 0.0f) {
         char text[192];
-        std::snprintf(text, sizeof text,
-                      "mp_renderer_set_temporal_smoothing: attack_ms %g and decay_ms %g must not be negative (0 is off)",
-                      static_cast<double>(attack_ms), static_cast<double>(decay_ms));
+        std::snprintf(
+            text, sizeof text,
+            "mp_renderer_set_temporal_smoothing: attack_ms %g and decay_ms %g must not be negative (0 is off)",
+            static_cast<double>(attack_ms), static_cast<double>(decay_ms));
         return invalid_arg(text);
     }
     smoothing_attack_ms_.store(std::min(attack_ms, k_max_attack_ms), std::memory_order_relaxed);

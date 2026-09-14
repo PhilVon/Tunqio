@@ -72,6 +72,16 @@ internal sealed record Distribution(int Count, double Min, double P50, double P9
 /// deliberate delay, because a frame chosen for its age has been in the renderer's history since it arrived.
 /// Uncompensated it is the draw plus, on a repeated picture, the render tick it waited.
 /// </param>
+/// <param name="FrameIntervalMs">
+/// The phase's mean frame interval: its measured length over the frame indices it spanned. The envelope's cost is
+/// counted in these.
+/// </param>
+/// <param name="SmoothingAddedMs">
+/// T-184: what temporal smoothing adds to a transient on top of <paramref name="ErrorMs"/>, which describes the frame
+/// chosen and not how far the envelope has carried it. The frames a full-scale rise takes to reach half height -
+/// the first at or past attack times ln 2 - less the one it arrives on, times <paramref name="FrameIntervalMs"/>.
+/// Zero with smoothing off and with a zero rise.
+/// </param>
 internal sealed record LatencyPhase(
     string Mode,
     double OffsetMs,
@@ -82,7 +92,9 @@ internal sealed record LatencyPhase(
     Distribution AbsoluteErrorMs,
     Distribution OutputBufferMs,
     Distribution AnalysisToSeenMs,
-    Distribution FrameAgeAtPresentMs);
+    Distribution FrameAgeAtPresentMs,
+    double FrameIntervalMs = 0,
+    double SmoothingAddedMs = 0);
 
 /// <summary>What the run did, what it measured, and - as loudly as prose can - what it could not see.</summary>
 internal sealed record LatencyReport(
@@ -102,6 +114,8 @@ internal sealed record LatencyReport(
     double RenderFps,
     string Track,
     double BudgetMs,
+    double SmoothingAttackMs,
+    double SmoothingDecayMs,
     LatencyPhase Uncompensated,
     LatencyPhase Compensated,
     IReadOnlyList<string> NotMeasured,
@@ -128,5 +142,6 @@ internal sealed record LatencyReport(
             $"{Compensated.ErrorMs.P50:F2}/{Compensated.ErrorMs.P95:F2}/{Compensated.ErrorMs.P99:F2} ms compensated. " +
             $"|error| p95 {Compensated.AbsoluteErrorMs.P95:F2} ms against a {BudgetMs:F2} ms refresh interval " +
             $"({(Compensated.AbsoluteErrorMs.P95 <= BudgetMs ? "inside" : "outside")}), " +
-            $"and the present-to-photon edge is not in it.");
+            $"and the present-to-photon edge is not in it. Temporal smoothing rise {SmoothingAttackMs:F0} ms / fall {SmoothingDecayMs:F0} ms " +
+            $"adds {Compensated.SmoothingAddedMs:F2} ms to a transient at {Compensated.FrameIntervalMs:F2} ms a frame.");
 }

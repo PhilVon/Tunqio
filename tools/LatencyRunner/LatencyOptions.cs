@@ -19,7 +19,9 @@ internal sealed record LatencyOptions(
     bool ForceWarp,
     float OffsetMs,
     double BudgetMs,
-    string? ReportPath)
+    string? ReportPath,
+    float SmoothingAttackMs = 0f,
+    float SmoothingDecayMs = 0f)
 {
     public static readonly string[] AudioExtensions =
         [".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".aiff", ".aif", ".wv", ".ape"];
@@ -43,6 +45,8 @@ internal sealed record LatencyOptions(
         // machine. The exit code says whether the run produced a usable measurement, not whether it was fast.
         double budgetMs = 1000.0 / 60.0;
         string? report = null;
+        float attackMs = 0f;
+        float decayMs = 0f;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -79,6 +83,8 @@ internal sealed record LatencyOptions(
                 case "-offset": offsetMs = (float)Number(name, value); break;
                 case "-budget": budgetMs = Number(name, value); break;
                 case "-out": report = Path.GetFullPath(value); break;
+                case "-rise": attackMs = (float)Number(name, value); break;
+                case "-fall": decayMs = (float)Number(name, value); break;
                 default: throw new LatencyUsageException($"Unknown argument {name}.\n\n{Usage}");
             }
         }
@@ -93,8 +99,13 @@ internal sealed record LatencyOptions(
             throw new LatencyUsageException("-width and -height need to be positive.");
         }
 
+        if (!float.IsFinite(attackMs) || !float.IsFinite(decayMs) || attackMs < 0f || decayMs < 0f)
+        {
+            throw new LatencyUsageException("-rise and -fall need a number of milliseconds, 0 or more.");
+        }
+
         return new LatencyOptions(source, phase, device, mode, bufferMs, volume, presetId, presetRoot, width, height,
-            warp, offsetMs, budgetMs, report);
+            warp, offsetMs, budgetMs, report, attackMs, decayMs);
     }
 
     public const string Usage = """
@@ -124,6 +135,12 @@ internal sealed record LatencyOptions(
                                 how a caller pays for the present-to-photon edge this cannot measure
           -budget <ms>          the line the report compares p95 against (default 16.67, one 60 Hz refresh)
           -out <file.json>      write the report here as well as to the console
+          -rise / -fall <ms>    temporal smoothing (T-184) for both phases: the attack and decay time constants
+                                of mp_renderer_set_temporal_smoothing (default 0 and 0, off). The av error above
+                                describes the analysis frame CHOSEN and does not move with this; what the envelope
+                                adds is reported beside it as SmoothingAddedMs, from each phase's measured frame
+                                interval: the frames a full-scale rise takes to reach half height, less the one
+                                it arrives on.
 
         Exit code is 0 when the run produced a usable measurement in both phases. It is deliberately NOT the
         budget: see the spike doc.
