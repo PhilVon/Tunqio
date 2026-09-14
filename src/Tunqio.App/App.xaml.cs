@@ -37,7 +37,12 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        // T-188: all three, so an exception that ends the process says why in the app's own log - including one raised
+        // during shutdown, which is where 47 crashes went unrecorded.
         UnhandledException += OnUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => Log.CloseAndFlush();
     }
 
     /// <summary>The main window's HWND for pickers and dialogs that need an owner; zero before the window exists.</summary>
@@ -362,19 +367,27 @@ public partial class App : Application
             // library database and the settings file close under them. Container disposal would reach AudioStartup
             // first anyway, but only because it was created last; saying it here does not leave that to luck.
             // The media session goes first of all (E7-S2): a flyout press must not reach a session being torn down.
+            // Each step is logged before it runs (T-188), so the last line of a session that dies here names the step.
+            Log.Information("Shutdown: media controls");
             _mediaControls?.Dispose();
             _mediaControls = null;
+            Log.Information("Shutdown: audio");
             _host.Services.GetRequiredService<AudioStartup>().Dispose();
+            Log.Information("Shutdown: playlist exports");
             FlushPlaylistExports();
+            Log.Information("Shutdown: settings");
             _host.Services.GetRequiredService<ISettingsStore>().Flush();
             _host.Services.GetRequiredService<ILogger<App>>().LogInformation("Session {SessionId} ending", SessionId);
         }
         finally
         {
             // No hosted services yet; Dispose is the whole shutdown. E7 adds StopAsync for the integration services.
+            Log.Information("Shutdown: host");
             _host.Dispose();
             _host = null;
-            Log.CloseAndFlush();
+            // The logger stays open (T-188): XAML keeps running after this, and an exception it raises on the way out has
+            // to reach the file. ProcessExit closes it; the file sink writes each event through, so a crash loses nothing.
+            Log.Information("Shutdown: host disposed");
         }
     }
 
@@ -402,9 +415,26 @@ public partial class App : Application
         }
     }
 
-    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e) =>
+        LogFatal("XAML", e.Exception, e.Message);
+
+    private static void OnDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e) =>
+        LogFatal("AppDomain", e.ExceptionObject as Exception, $"{e.ExceptionObject} (terminating {e.IsTerminating})");
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e) =>
+        LogFatal("Unobserved task", e.Exception, e.Exception.Message);
+
+    /// <summary>
+    /// One unhandled exception, with its HRESULT, written and flushed before the handler returns (T-188): the process is
+    /// usually about to end, and a stowed exception ends it without running anything else of ours.
+    /// </summary>
+    private static void LogFatal(string source, Exception? exception, string? message)
     {
-        Log.Fatal(e.Exception, "Unhandled exception in session {SessionId}", SessionId);
-        Log.CloseAndFlush();
+        Log.Fatal(
+            exception,
+            "Unhandled exception ({Source}) in session {SessionId}: {Type} HRESULT 0x{HResult:X8} {Message}",
+            source, SessionId, exception?.GetType().FullName ?? "(none)", exception?.HResult ?? 0, message);
+        // Not closed: after an unobserved task exception, or when XAML survives, the app carries on logging. The file sink is
+        // shared, which writes each event through to the file before Emit returns, so the line is on disk already.
     }
 }

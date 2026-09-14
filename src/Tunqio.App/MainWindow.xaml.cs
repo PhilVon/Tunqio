@@ -271,7 +271,9 @@ public sealed partial class MainWindow : Window
         {
             // The mini player goes with the app; its own close must not try to show a window that is closing.
             _closing = true;
+            Serilog.Log.Information("Shutdown: main window closed (mini player open {MiniPlayer})", _miniPlayer is not null);
             _miniPlayer?.Close();
+            Serilog.Log.Information("Shutdown: window view models");
             _transport?.Dispose();
             _nowPlaying?.Dispose();
             _queue?.Dispose();
@@ -293,10 +295,13 @@ public sealed partial class MainWindow : Window
 
             _artLink?.Dispose();
             _welcome?.Dispose();
+            Serilog.Log.Information("Shutdown: reactive theming");
             _reactiveTheme?.Dispose();
             _accessibility?.Dispose();
             _reactiveLayer?.Dispose();
+            Serilog.Log.Information("Shutdown: renderer");
             TearDownRenderer();
+            Serilog.Log.Information("Shutdown: main window torn down");
         };
     }
 
