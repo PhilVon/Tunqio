@@ -54,6 +54,12 @@ public enum ShellCommand
 
     /// <summary>Rate the playing track the shortcut's amount of stars, 1..5; 0 clears the rating (E6-S7).</summary>
     Rate,
+
+    /// <summary>
+    /// Switch the visualizer to the next preset in the catalogue, wrapping at the end (T-185); nothing while no
+    /// renderer is attached.
+    /// </summary>
+    NextPreset,
 }
 
 /// <summary>
@@ -131,7 +137,7 @@ public readonly record struct ShellShortcut(
 /// </para>
 /// <para>
 /// Media keys are not here: they are <c>SystemMediaTransportControls</c> (ADR-006) and belong to E7. Neither are
-/// the shortcuts whose features do not exist yet — playlists, tag editing and visualization presets — because a key
+/// the shortcuts whose features do not exist yet — playlists and tag editing — because a key
 /// that is registered and does nothing is worse than one that is not registered at all. Ctrl+M (E5-S6) is taken on
 /// the way down like the mode keys: it is a chord no control wants, and M on its own is still Mute.
 /// </para>
@@ -184,6 +190,10 @@ public static class ShellShortcuts
         // Curation's undo and redo (E5-S4). Accelerators, like Esc: a text box has an undo of its own and keeps it.
         new(VirtualKey.Z, VirtualKeyModifiers.Control, ShellCommand.Undo, 0, ShortcutDelivery.Accelerator),
         new(VirtualKey.Y, VirtualKeyModifiers.Control, ShellCommand.Redo, 0, ShortcutDelivery.Accelerator),
+
+        // Next preset (T-185). Ctrl+V is paste, so it is an accelerator like undo and redo: a text box takes the key
+        // before an accelerator sees it, and the typing rule keeps it out of anything that does not.
+        new(VirtualKey.V, VirtualKeyModifiers.Control, ShellCommand.NextPreset, 0, ShortcutDelivery.Accelerator),
 
         // Rate the playing track (E6-S7): Ctrl+Alt+1..5 for the stars, Ctrl+Alt+0 to clear. One command with the
         // stars as the amount, the way the seeks carry their seconds. Taken on the way down like the mode keys: no
@@ -305,6 +315,7 @@ public static class ShellShortcuts
         ShellCommand.OpenSettings => "Settings",
         ShellCommand.Undo => "Undo (Curation)",
         ShellCommand.Redo => "Redo (Curation)",
+        ShellCommand.NextPreset => "Next preset",
         _ => Humanise(shortcut.Command.ToString()),
     };
 

@@ -22,12 +22,15 @@ public class ShellShortcutsTests
 
     /// <summary>
     /// The table against docs/ui-screens-and-flows.md, "Keyboard shortcuts" — the rows E2 and E5-S1 own. The rest of
-    /// that table is deliberately absent: the media keys are SMTC (E7), and the mini player, playlists, tag editing
-    /// and presets have nothing yet to do.
+    /// that table is deliberately absent: the media keys are SMTC (E7), and playlists and tag editing have nothing yet
+    /// to do.
     /// </summary>
     [Fact]
     public void The_table_is_the_documented_one()
     {
+        // T-185: "Next preset | Ctrl+V".
+        Find(VirtualKey.V, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.NextPreset);
+
         Find(VirtualKey.Space)!.Value.Command.Should().Be(ShellCommand.PlayPause);
         Find(VirtualKey.Right, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Next);
         Find(VirtualKey.Left, VirtualKeyModifiers.Control)!.Value.Command.Should().Be(ShellCommand.Previous);
@@ -91,6 +94,41 @@ public class ShellShortcutsTests
     {
         Find(VirtualKey.Z, VirtualKeyModifiers.Control)!.Value.Delivery.Should().Be(ShortcutDelivery.Accelerator);
         Find(VirtualKey.Y, VirtualKeyModifiers.Control)!.Value.Delivery.Should().Be(ShortcutDelivery.Accelerator);
+    }
+
+    // ---- T-185: next preset -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Ctrl+V is paste. So the row is an accelerator, which a text box's own paste handles first, and it is not one of
+    /// the chords that still work while typing. Its setting and its Shortcuts row come from its id and name.
+    /// </summary>
+    [Fact]
+    public void Next_preset_is_ctrl_v_and_leaves_paste_to_a_text_box()
+    {
+        ShellShortcut row = ShellShortcuts.All.Single(s => s.Command == ShellCommand.NextPreset);
+        row.Key.Should().Be(VirtualKey.V);
+        row.Modifiers.Should().Be(VirtualKeyModifiers.Control);
+        row.Delivery.Should().Be(ShortcutDelivery.Accelerator);
+        row.WhileTyping.Should().BeFalse();
+        ShellShortcuts.Find(VirtualKey.V, VirtualKeyModifiers.Control, typing: true).Should().BeNull("Ctrl+V in a text box is paste");
+        Find(VirtualKey.V).Should().BeNull("a bare V is type-ahead");
+
+        ShellShortcuts.ActionId(row).Should().Be("nextPreset");
+        ShellShortcuts.ActionName(row).Should().Be("Next preset");
+    }
+
+    /// <summary>AC-470: the row can be rebound like any other, and the rebound chord keeps its delivery and typing rule.</summary>
+    [Fact]
+    public void Next_preset_can_be_rebound()
+    {
+        IReadOnlyList<ShellShortcut> resolved = ShellShortcuts.Resolve(
+            ShellShortcuts.All, id => id == "nextPreset" ? "Ctrl+Shift+V" : null);
+
+        ShellShortcuts.Find(resolved, VirtualKey.V, VirtualKeyModifiers.Control, typing: false).Should().BeNull();
+        ShellShortcut rebound = ShellShortcuts.Find(resolved, VirtualKey.V, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, typing: false)!.Value;
+        rebound.Command.Should().Be(ShellCommand.NextPreset);
+        rebound.Delivery.Should().Be(ShortcutDelivery.Accelerator);
+        ShellShortcuts.Find(resolved, VirtualKey.V, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, typing: true).Should().BeNull();
     }
 
     // ---- E5-S1: the mode keys ---------------------------------------------------------------------------------------

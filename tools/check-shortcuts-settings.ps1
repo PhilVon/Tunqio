@@ -53,6 +53,7 @@ $expectedRows = @(
     @('Mute', 'mute', 'M'),
     @('Mini player', 'miniPlayer', 'Ctrl+M'),
     @('Settings', 'openSettings', 'Ctrl+,'),
+    @('Next preset', 'nextPreset', 'Ctrl+V'),
     @('Diagnostics overlay', 'diagnostics', 'Ctrl+Shift+D')
 )
 

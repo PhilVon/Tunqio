@@ -874,6 +874,13 @@ public sealed partial class MainWindow : Window
             // Rate the playing track (E6-S7). Nothing playing, or a dropped file with no library row, leaves the key alone.
             case ShellCommand.Rate:
                 return _nowPlaying?.Rate((int)shortcut.Amount) ?? false;
+            // Next preset (T-185), through the Visualization page's own switch so the stored choice, the compile-failure
+            // notice and the page's selection are the page's. Ctrl+V is paste, so never while typing; with no renderer
+            // the view model logs once and the key stays unhandled.
+            case ShellCommand.NextPreset:
+                return !IsTypingSomewhere()
+                    && App.Services.GetService(typeof(VisualizationSettingsViewModel)) is VisualizationSettingsViewModel visualization
+                    && visualization.NextPreset();
             default:
                 break;
         }
