@@ -32,7 +32,9 @@
   starts its own Tunqio process and only ever acts on that process id: an app already running is never
   activated, never read and never closed.
 .PARAMETER Exe
-  The built shell. Defaults to the Debug x64 output.
+  The built shell. Defaults to the Release x64 output (T-196).
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 .PARAMETER Seconds
   How long to give the window before reading. The renderer is created when the SwapChainPanel loads, and the
   theming is started after the audio engine comes up, which is deliberately after the first frame.
@@ -45,20 +47,31 @@ param(
     [switch]$SkipFreshnessCheck,
     [string]$Exe,
     [int]$Seconds = 12,
-    [int]$SampleSeconds = 4
+    [int]$SampleSeconds = 4,
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, Microsoft.VisualBasic
 
-if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
+# Resolved in the body rather than in the param default: $PSScriptRoot is empty there under powershell.exe -File (T-158).
+# Release, the build main's merge gate rebuilds: a Debug default drove a build a merge had left stale (T-196).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\release_win-x64\Tunqio.exe' }
 $Exe = (Resolve-Path $Exe -ErrorAction SilentlyContinue).Path
-if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
+if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
 
 # T-161: a harness driving a build that predates its own source reports the OLD binary's behaviour, and every
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.
 . (Join-Path $PSScriptRoot 'assert-fresh-build.ps1')
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
+
+# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. This script launches the
+# shell on the default profile, where a second launch hands its arguments to the running instance and exits (single
+# instance), and it writes settings.json and types into the window, so it must not run beside one somebody is using.
+. (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    throw "Tunqio is still running after $WaitMinutes minute(s). This script changes settings.json and sends keystrokes through the instance it launches, and will not run beside one somebody is using."
+}
 
 $script:window = $null
 $script:processId = 0

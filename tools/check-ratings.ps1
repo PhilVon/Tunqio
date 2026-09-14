@@ -23,13 +23,16 @@
   How long to give the window before reading the tree.
 .PARAMETER KeepScratch
   Leave the scratch copy of the fixtures behind.
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 #>
 [CmdletBinding()]
 param(
     [switch]$SkipFreshnessCheck,
     [string]$Exe,
     [int]$Seconds = 12,
-    [switch]$KeepScratch
+    [switch]$KeepScratch,
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -263,9 +266,10 @@ Write-Output "shell:    $Exe"
 Write-Output "scratch:  $runRoot"
 
 # Refuse rather than kill: an app already running is somebody using it, and this script moves their database aside.
-$running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
-if ($running.Count -gt 0) {
-    throw ("Tunqio is already running (pid $($running.Id -join ', ')). This script moves $dbPath aside for the run, " +
+# T-196: it waits within -WaitMinutes for that app to exit before refusing.
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    $running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
+    throw ("Tunqio is still running after $WaitMinutes minute(s) (pid $($running.Id -join ', ')). This script moves $dbPath aside for the run, " +
            'so it will not touch a session somebody is using. Close the app and run again.')
 }
 

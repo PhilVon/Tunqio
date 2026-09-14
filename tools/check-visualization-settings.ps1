@@ -19,7 +19,7 @@
   finally. Nothing else in the data root is touched; the launch count and the log grow, as they would for any
   launch. If the script is killed between those points, delete the named folder by hand.
 .PARAMETER Exe
-  The built shell. Defaults to the Debug x64 output.
+  The built shell. Defaults to the Release x64 output (T-196).
 .PARAMETER Seconds
   How long to give the window before reading the tree. The renderer is created when the SwapChainPanel loads.
   T-157 adds a first phase that needs neither the keyboard nor the real profile: on a scratch data root
@@ -53,9 +53,10 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.For
 
 # Resolved in the body rather than in the param default: $PSScriptRoot is not reliably bound there under
 # powershell.exe -File with a relative script path.
-if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
+# Release, the build main's merge gate rebuilds: a Debug default drove a build a merge had left stale (T-196).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\release_win-x64\Tunqio.exe' }
 $Exe = (Resolve-Path $Exe -ErrorAction SilentlyContinue).Path
-if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
+if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
 
 # T-161: a harness driving a build that predates its own source reports the OLD binary's behaviour, and every
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.

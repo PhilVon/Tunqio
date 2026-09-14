@@ -23,7 +23,9 @@
 param(
     [string]$Exe,
     [int]$Seconds = 10,
-    [switch]$Keys
+    [switch]$Keys,
+    # T-196: how long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing.
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,8 +50,8 @@ public static class TunqioMouse {
 '@
 }
 
-if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
-    throw 'Tunqio is already running. This script drives the instance it launches with the mouse, so it will not touch one somebody is using.'
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    throw "Tunqio is still running after $WaitMinutes minute(s). This script drives the instance it launches with the mouse, so it will not touch one somebody is using."
 }
 
 $A = [System.Windows.Automation.AutomationElement]

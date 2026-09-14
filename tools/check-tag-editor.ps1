@@ -18,21 +18,24 @@
   Album artist, Year and Genre in a way this script knows about in advance, so "the fields the selection disagrees
   on" is a statement with a list behind it rather than a hope.
 
-  The app's data root is not redirectable - AppPaths asks Windows for %LocalAppData% and gets the real one, whatever
-  the environment says - so the library database is moved aside for the run and moved back in the finally. Nothing
-  else in the data root is touched; the launch count and the log grow, as they would for any launch. If this script
-  is killed between those two points, the database is in the run folder named at the top of the output and can be
-  moved back by hand; a later run finds it there and puts it back before doing anything else.
+  The app runs on a scratch profile passed as --data-root (artifacts\check-tag-editor\<stamp>\data, beside the music
+  copy in artifacts\check-tag-editor\<stamp>\music), so the real %LocalAppData%\Tunqio is never read or written: its
+  library.db, settings, logs and art are not opened, and the script refuses a data root inside it or inside a
+  package's redirected LocalCache copy of it (T-194). The whole stamp folder is deleted at the end unless -KeepScratch.
+  This replaces T-183's parking of the real library.db for the run, which had failed once and which the data root
+  makes unnecessary.
 
   Seeding is a single INSERT into library_folder through the app's own e_sqlite3.dll, because the only route to it
   in the UI is a system folder picker, and driving a system folder picker by keystroke is exactly the sleep-and-hope
   this kind of script exists to avoid.
 .PARAMETER Exe
-  The built shell. Defaults to the Debug x64 output.
+  The built shell. Defaults to the Release x64 output (T-196).
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 .PARAMETER Seconds
   How long to give the window before reading the tree.
 .PARAMETER KeepScratch
-  Leave the scratch copy of the fixtures behind, for looking at the files the run wrote.
+  Leave the scratch folder (the fixture copy and the scratch profile) behind, for looking at what the run wrote.
 #>
 [CmdletBinding()]
 param(
@@ -43,16 +46,18 @@ param(
     [switch]$KeepScratch,
     # Window widths the open dialog is measured at, comma-separated. A string because under powershell.exe -File an
     # [int[]] of "1600,640" becomes one integer.
-    [string]$Widths = '1600,1000,640'
+    [string]$Widths = '1600,1000,640',
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, Microsoft.VisualBasic
 
 # Resolved in the body rather than in the param default: $PSScriptRoot is empty there under powershell.exe -File (T-158).
-if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
+# Release, the build main's merge gate rebuilds: a Debug default drove a build a merge had left stale (T-196).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\release_win-x64\Tunqio.exe' }
 $Exe = (Resolve-Path $Exe -ErrorAction SilentlyContinue).Path
-if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
+if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
 
 # T-161: a harness driving a build that predates its own source reports the OLD binary's behaviour, and every
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.
@@ -78,11 +83,16 @@ $newAlbumArtist = 'Tunqio Check T116'
 $multiple = '(multiple values)'
 $batchSize = 12
 
-$dataRoot = Join-Path $env:LOCALAPPDATA 'Tunqio'
+# T-194: everything the run writes is under one stamped folder in the repo's artifacts, not under %TEMP% (which is
+# inside %LocalAppData% and so redirected under a packaged app) and never in the real profile.
+$realRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Tunqio'))
+$runRoot = [System.IO.Path]::GetFullPath((Join-Path $repo ('artifacts\check-tag-editor\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))))
+$dataRoot = Join-Path $runRoot 'data'
 $dbPath = Join-Path $dataRoot 'library.db'
-$runRoot = Join-Path $env:TEMP 'tunqio-check-tag-editor'
-$parked = Join-Path $runRoot 'parked-library-database'
 $music = Join-Path $runRoot 'music'
+if ($dataRoot.StartsWith($realRoot, [System.StringComparison]::OrdinalIgnoreCase) -or $dataRoot -like '*\Packages\*\LocalCache\*') {
+    throw "refusing data root ${dataRoot}: it is (or is a redirected copy of) the real profile $realRoot"
+}
 
 # ---- sqlite, through the app's own native library ------------------------------------------------------------
 # Only one statement is ever run against the database (the folder row the launch scan needs), so this is exec and
@@ -277,66 +287,27 @@ function Stop-LaunchedShells {
     return $problems
 }
 
-# Puts the real library database back. Called before the run as well as after it: if a previous run was killed
-# between parking and restoring, its database is still in the run folder and is owed to the user before anything
-# here creates a new one on top of it.
-function Restore-Database {
-    $parkedFiles = @(Get-ChildItem $parked -ErrorAction SilentlyContinue)
-    if ($parkedFiles.Count -eq 0) { return $false }
-    Remove-Item "$dbPath*" -Force -ErrorAction SilentlyContinue
-    foreach ($file in $parkedFiles) { Move-Item $file.FullName (Join-Path $dataRoot $file.Name) -Force }
-    return $true
-}
-
 Write-Output "shell:    $Exe"
 Write-Output "scratch:  $runRoot"
+Write-Output "data:     $dataRoot"
 Write-Output ''
 
-# Refuse rather than kill. This script moves the real library database aside and writes tags, and it used to do
-# that to whatever instance happened to be running - including the one its author had open, with their own music in
-# it (2026-09-12). An app already running is somebody using it. There is no override: -Force used to close every
-# running Tunqio first, and this script never closes a shell it did not launch (T-189).
-$running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
-if ($running.Count -gt 0) {
-    throw ("Tunqio is already running (pid $($running.Id -join ', ')). This script moves $dbPath aside and " +
-           'writes tags to files, so it will not run beside a session somebody is using, and it never closes a ' +
+# Refuse rather than kill. This script writes tags, and it used to do that through whatever instance happened to be
+# running - including the one its author had open, with their own music in it (2026-09-12). An app already running is
+# somebody using it. There is no override, and this script never closes a shell it did not launch (T-189). It waits
+# within -WaitMinutes for that app to exit before refusing (T-196).
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    $running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
+    throw ("Tunqio is still running after $WaitMinutes minute(s) (pid $($running.Id -join ', ')). This script writes tags to files through the " +
+           'shell it launches, so it will not run beside a session somebody is using, and it never closes a ' +
            'shell it did not launch. Close the app and run again.')
 }
 
-# T-183. %LOCALAPPDATA% is not one folder when this runs under a packaged app (the Claude desktop app, for one):
-# Windows redirects writes into the package's LocalCache and shows a merged view, so library.db can exist here and
-# not in the real folder, and a launched app may see a different layer from this script. Parking a file out of one
-# layer while the app opens the other is the likeliest cause of the boot that opened a populated library after the
-# real one had been parked. Refuse rather than guess which layer is the user's. Phil chose to leave the database where
-# it is (Q-65), so this is checked, not fixed.
-$redirected = @(Get-ChildItem $dataRoot -Force -ErrorAction SilentlyContinue |
-    Where-Object { ($_.Target -join ';') -match '\\Packages\\' })
-if ($redirected.Count -gt 0) {
-    throw ("$dataRoot is redirected: $(($redirected | ForEach-Object { $_.Name + ' -> ' + ($_.Target -join ';') }) -join ' | '). " +
-           'This shell sees a package-virtualized copy of the data root, so parking library.db here may not be what the ' +
-           'launched app sees. Nothing has been stopped, moved or launched. Run this from a shell that is not started by ' +
-           'a packaged app (T-183).')
-}
-
-if (Restore-Database) { Write-Output 'note: a previous run had left the real library database parked; it has been put back.' }
-Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $parked | Out-Null
+New-Item -ItemType Directory -Force $dataRoot | Out-Null
 New-Item -ItemType Directory -Force $music | Out-Null
-
-foreach ($file in Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue) {
-    Move-Item $file.FullName (Join-Path $parked $file.Name) -Force
-}
-
-# T-183. Parking is the only thing standing between this script and the user's real library, and on 2026-09-12 and
-# 2026-09-13 the app's first launch opened a populated database at the real path anyway. So it is checked rather than
-# assumed. Nothing is deleted or moved back here: this runs before the try, so the finally's restore does not run, and
-# which of the two databases is the user's is exactly what cannot be known from inside the script. Both are named.
-$stillThere = @(Get-ChildItem "$dbPath*" -ErrorAction SilentlyContinue)
-if ($stillThere.Count -gt 0) {
-    throw ("parking did not take: $(($stillThere | ForEach-Object { $_.Name }) -join ', ') still in $dataRoot after " +
-           "moving the database to $parked. Nothing has been launched, deleted or moved back. Look at both folders " +
-           'and put the real library database back by hand before running this again (T-183).')
-}
+# ui.welcomeShown present (either value) keeps the first-run welcome away (FirstRunWelcomeViewModel.ShouldShow), so
+# the tag editor is the only dialog the run ever sees.
+[System.IO.File]::WriteAllText((Join-Path $dataRoot 'settings.json'), '{ "ui.welcomeShown": false }')
 
 $logBefore = 0
 try {
@@ -347,13 +318,13 @@ try {
     # Two launches: the schema is the app's to create, and the folder row can only go into a database that exists.
     # The first window is closed rather than killed, so the write-ahead log is checkpointed and the schema is really
     # in the file the second launch opens.
-    # T-183: the boot launch must CREATE the database. If it opened one, something other than this script put a
-    # database at the real path, and seeding a folder row into it would be writing to a library nobody chose.
+    # T-183, kept on the scratch profile (T-194): the boot launch must CREATE the database. If it opened one, the app
+    # did not honour --data-root, and seeding a folder row into it would be writing to a library nobody chose.
     $bootLog = Join-Path $dataRoot ('logs\tunqio-' + (Get-Date -Format 'yyyyMMdd') + '.log')
     $bootLogStart = (Get-Item $bootLog -ErrorAction SilentlyContinue).Length
     if (-not $bootLogStart) { $bootLogStart = 0 }
 
-    $boot = Start-Process $Exe -PassThru
+    $boot = Start-Process $Exe -ArgumentList @('--data-root', "`"$dataRoot`"") -PassThru
     Wait-For { Test-Path $dbPath } 60 'the app created its library database' | Out-Null
     Start-Sleep -Seconds 6
     # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
@@ -373,7 +344,7 @@ try {
         throw "the boot launch logged no 'library.db created' or 'opened' line in $bootLog, so whether it made a fresh database cannot be told; nothing has been seeded (T-183)"
     }
     if ($opening.Groups[1].Value -ne 'created') {
-        throw "the boot launch OPENED an existing library database instead of creating one, after the real one was parked in $parked. Nothing has been seeded, selected or written (T-183)."
+        throw "the boot launch OPENED an existing library database instead of creating one in the empty scratch profile $dataRoot. Nothing has been seeded, selected or written (T-183, T-194)."
     }
 
     Invoke-Sql $dbPath ("INSERT INTO library_folder(path, enabled) VALUES ('" + $music.Replace("'", "''") + "', 1);")
@@ -383,7 +354,7 @@ try {
     $logBefore = (Get-Item $log -ErrorAction SilentlyContinue).Length
     if (-not $logBefore) { $logBefore = 0 }
 
-    $process = Start-Process $Exe -PassThru
+    $process = Start-Process $Exe -ArgumentList @('--data-root', "`"$dataRoot`"") -PassThru
     $script:processId = $process.Id
     Start-Sleep -Seconds $Seconds
 
@@ -447,8 +418,8 @@ try {
         Start-Sleep -Milliseconds 500
     }
 
-    # The isolation, proved rather than assumed. Parking the database is supposed to leave the app with nothing but
-    # the fixture copy; on 2026-09-12 it did not, and the Tracks table came up full of the author's own music while
+    # The isolation, proved rather than assumed. The scratch profile is supposed to leave the app with nothing but the
+    # fixture copy; on 2026-09-12, when this script parked the real database instead, the Tracks table came up full of the author's own music while
     # this script was one step away from selecting twelve rows of it and writing tags to them. It threw first, by
     # luck rather than design, because those titles did not match the fixtures. So that coincidence becomes the
     # rule: if what is on screen is not the fixture library, stop before touching anything.
@@ -457,9 +428,9 @@ try {
         $strangers = @($unmatched | Where-Object { $_ -and $_ -notin $fixtureTitles })
         if ($strangers.Count -gt 0) {
             throw ("the Tracks table is not showing the fixture library - it holds titles this script did not put " +
-                   "there: $($strangers -join ' | '). The real library database was supposed to be parked at " +
-                   "$parked for the run. Nothing has been selected and nothing has been written. Check that " +
-                   "$dbPath was moved aside before letting this run again.")
+                   "there: $($strangers -join ' | '). The shell was launched on the scratch profile $dataRoot, " +
+                   'which held only the fixture copy. Nothing has been selected and nothing has been written. Check ' +
+                   'that the shell honours --data-root before letting this run again.')
         }
     }
 
@@ -985,9 +956,10 @@ finally {
     $leftOpen = @(Stop-LaunchedShells)
     foreach ($problem in $leftOpen) { Write-Output "FAIL: $problem" }
     Start-Sleep -Seconds 1
-    if (-not (Restore-Database)) {
-        Write-Output "WARNING: the real library database was not put back; look in $parked"
+    # T-194: the scratch profile and the fixture copy go together; nothing outside $runRoot was written.
+    if (-not $KeepScratch) {
+        Remove-Item $runRoot -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $runRoot) { Write-Output "note: the scratch folder could not be deleted completely: $runRoot" }
     }
-    if (-not $KeepScratch) { Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue }
-    else { Write-Output "scratch library kept at $music" }
+    else { Write-Output "scratch folder kept at $runRoot" }
 }

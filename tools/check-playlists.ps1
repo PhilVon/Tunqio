@@ -14,11 +14,14 @@
   "Tunqio check renamed") before it starts, and touches no other playlist. Nothing is played unless the restored queue is empty, and then the app is muted.
 .PARAMETER Exe
   The built shell. Defaults to the Release x64 output.
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 #>
 [CmdletBinding()]
 param(
     [string]$Exe,
-    [int]$Seconds = 10
+    [int]$Seconds = 10,
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,10 +31,10 @@ $resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
 if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-. (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188)
+. (Join-Path $here 'uia-geometry.ps1') # Close-TunqioShell (T-188), Wait-TunqioExited (T-196)
 
-if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
-    throw 'Tunqio is already running. This script makes and deletes a playlist through the instance it launches, so it will not touch one somebody is using.'
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    throw "Tunqio is still running after $WaitMinutes minute(s). This script makes and deletes a playlist through the instance it launches, so it will not touch one somebody is using."
 }
 
 $A = [System.Windows.Automation.AutomationElement]

@@ -36,7 +36,9 @@ param(
     [string]$DataRoot,
     [switch]$Keep,
     [int]$Seconds = 10,
-    [string]$Widths = '1616,716,560'
+    [string]$Widths = '1616,716,560',
+    # T-196: how long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing.
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,8 +52,8 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.IO.Compress
 $widthList = @($Widths -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [int]$_.Trim() })
 if ($widthList.Count -eq 0) { throw "-Widths '$Widths' names no width" }
 
-if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) {
-    throw 'Tunqio is already running. This script changes and restores a setting through the instance it launches, so it will not touch one somebody is using.'
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    throw "Tunqio is still running after $WaitMinutes minute(s). This script changes and restores a setting through the instance it launches, so it will not touch one somebody is using."
 }
 
 $A = [System.Windows.Automation.AutomationElement]

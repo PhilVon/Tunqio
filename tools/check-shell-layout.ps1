@@ -24,12 +24,14 @@
 .PARAMETER Keep
   Keep the generated scratch folder for inspection.
 .PARAMETER Exe
-  The built shell. Defaults to the Debug x64 output.
+  The built shell. Defaults to the Release x64 output (T-196).
 .PARAMETER Widths
   Window widths, comma-separated. A string because an [int[]] of "1616,716" arrives as one integer under
   powershell.exe -File (T-168). The defaults are a Full, a Medium and a Compact client plus the 16 px of frame.
 .PARAMETER Seconds
   How long to give the window before reading the tree.
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 #>
 [CmdletBinding()]
 param(
@@ -38,12 +40,15 @@ param(
     [string]$Widths = '1616,1216,1016,716',
     [int]$Seconds = 10,
     [string]$DataRoot,
-    [switch]$Keep
+    [switch]$Keep,
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
-if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
-if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 (T-161)." }
+# Resolved in the body rather than in the param default: $PSScriptRoot is empty there under powershell.exe -File (T-158).
+# Release, the build main's merge gate rebuilds: a Debug default drove a build a merge had left a day stale (T-196).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\release_win-x64\Tunqio.exe' }
+if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 (T-161)." }
 
 . (Join-Path $PSScriptRoot 'assert-fresh-build.ps1')
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
@@ -51,7 +56,8 @@ if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 
 $widthList = @($Widths -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [int]$_.Trim() })
 if ($widthList.Count -eq 0) { throw "-Widths '$Widths' names no width" }
-if (@(Get-Process Tunqio -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Tunqio is already running; close it first rather than have this drive a second instance.' }
+# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse.
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) { throw "Tunqio is still running after $WaitMinutes minute(s); close it first rather than have this drive a second instance." }
 
 # The titles the library's pages show. Text elements only: a navigation item of the same name is a ListItem.
 $script:titleNames = 'Albums', 'Artists', 'Tracks', 'All tracks', 'Genres', 'Folders', 'Recently added', 'Recently played', 'Most played'

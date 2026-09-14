@@ -14,8 +14,10 @@
 
   WHAT IT TOUCHES. It resizes and moves its own window and invokes the Queue button. It sends no keystrokes and
   changes no focus outside that window.
+.PARAMETER WaitMinutes
+  How long to wait for a Tunqio somebody else started to go away, checking every 30 s, before refusing (T-196).
 .PARAMETER Exe
-  The built shell. Defaults to the Debug x64 output.
+  The built shell. Defaults to the Release x64 output (T-196).
 .PARAMETER Seconds
   How long to give the window before reading the tree.
 .PARAMETER Widths
@@ -31,7 +33,8 @@ param(
     [switch]$SkipFreshnessCheck,
     [string]$Exe,
     [int]$Seconds = 9,
-    [string]$Widths = '1600,1200,1000,800,640'
+    [string]$Widths = '1600,1200,1000,800,640',
+    [int]$WaitMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,8 +42,9 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 
 # Resolved in the body rather than in the param default: $PSScriptRoot is empty there under powershell.exe -File,
 # which made the default resolve to \..\artifacts and the script refuse a build that existed (T-168).
-if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
-if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 (T-161)." }
+# Release, the build main's merge gate rebuilds: a Debug default drove a build a merge had left stale (T-196).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\release_win-x64\Tunqio.exe' }
+if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64 (T-161)." }
 
 # T-161: a harness driving a build that predates its own source reports the OLD binary's behaviour, and every
 # symptom of that reads as a product bug. Refuse up front and say which binary is behind.
@@ -48,6 +52,13 @@ if (-not (Test-Path $Exe)) { throw "$Exe not found; build the solution: msbuild 
 if (-not $SkipFreshnessCheck) { Assert-FreshBuild -AppDir (Split-Path $Exe) }
 
 . (Join-Path $PSScriptRoot 'uia-geometry.ps1')
+
+# T-196: wait within -WaitMinutes for a Tunqio somebody else is running to exit, then refuse. This script launches
+# the shell on the default profile, and a second launch there hands its arguments to the running instance and exits
+# (single instance), so it would otherwise read and resize somebody else's window.
+if (-not (Wait-TunqioExited -WaitMinutes $WaitMinutes)) {
+    throw "Tunqio is still running after $WaitMinutes minute(s). This script launches its own and will not drive one somebody is using."
+}
 
 # Prefix, control type. One row per control the transport panel owes the keyboard and Narrator.
 $expected = @(
