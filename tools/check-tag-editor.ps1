@@ -38,10 +38,9 @@
 param(
     # T-161: drive a build that is older than the source on purpose (comparing against an old shell).
     [switch]$SkipFreshnessCheck,
-    [string]$Exe = "$PSScriptRoot\..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe",
+    [string]$Exe,
     [int]$Seconds = 14,
     [switch]$KeepScratch,
-    [switch]$Force,
     # Window widths the open dialog is measured at, comma-separated. A string because under powershell.exe -File an
     # [int[]] of "1600,640" becomes one integer.
     [string]$Widths = '1600,1000,640'
@@ -50,6 +49,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, Microsoft.VisualBasic
 
+# Resolved in the body rather than in the param default: $PSScriptRoot is empty there under powershell.exe -File (T-158).
+if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\artifacts\bin\Tunqio.App\debug_win-x64\Tunqio.exe' }
 $Exe = (Resolve-Path $Exe -ErrorAction SilentlyContinue).Path
 if (-not $Exe) { throw 'The shell is not built; run msbuild Tunqio.sln -restore -p:Configuration=Debug -p:Platform=x64 first (a project-scoped build leaves a stale native core beside the app -- T-161).' }
 
@@ -259,11 +260,21 @@ function Get-PathsByTitle([string]$root) {
 
 # ---- setting up and tearing down ------------------------------------------------------------------------------
 
-function Stop-Shell {
-    Get-Process Tunqio -ErrorAction SilentlyContinue | ForEach-Object {
-        try { $_.CloseMainWindow() | Out-Null; if (-not $_.WaitForExit(8000)) { $_.Kill() } } catch { }
+$boot = $null
+$process = $null
+
+# T-189: closes only the shells this run launched ($boot and $process), each through Close-TunqioShell, and only the
+# ones still running. It used to close every Tunqio on the machine, so a run could close Phil's own window or another
+# agent's instance that opened during it. Returns the helper's problems for the caller to fail the run with.
+function Stop-LaunchedShells {
+    $problems = @()
+    foreach ($launched in @($boot, $process)) {
+        if (-not $launched -or $launched.HasExited) { continue }
+        $window = if ($script:processId -eq $launched.Id) { $script:window } else { $null }
+        $problem = Close-TunqioShell $launched $window 20
+        if ($problem) { $problems += $problem }
     }
-    Start-Sleep -Milliseconds 500
+    return $problems
 }
 
 # Puts the real library database back. Called before the run as well as after it: if a previous run was killed
@@ -281,14 +292,15 @@ Write-Output "shell:    $Exe"
 Write-Output "scratch:  $runRoot"
 Write-Output ''
 
-# Refuse rather than kill. This script stops the shell, moves the real library database aside and writes tags, and
-# it used to do all of that to whatever instance happened to be running - including the one its author had open,
-# with their own music in it (2026-09-12). An app already running is somebody using it.
+# Refuse rather than kill. This script moves the real library database aside and writes tags, and it used to do
+# that to whatever instance happened to be running - including the one its author had open, with their own music in
+# it (2026-09-12). An app already running is somebody using it. There is no override: -Force used to close every
+# running Tunqio first, and this script never closes a shell it did not launch (T-189).
 $running = @(Get-Process Tunqio -ErrorAction SilentlyContinue)
-if ($running.Count -gt 0 -and -not $Force) {
-    throw ("Tunqio is already running (pid $($running.Id -join ', ')). This script stops the shell, moves " +
-           "$dbPath aside and writes tags to files, so it will not touch a session somebody is using. " +
-           'Close the app and run again, or pass -Force if that instance is yours to discard.')
+if ($running.Count -gt 0) {
+    throw ("Tunqio is already running (pid $($running.Id -join ', ')). This script moves $dbPath aside and " +
+           'writes tags to files, so it will not run beside a session somebody is using, and it never closes a ' +
+           'shell it did not launch. Close the app and run again.')
 }
 
 # T-183. %LOCALAPPDATA% is not one folder when this runs under a packaged app (the Claude desktop app, for one):
@@ -306,7 +318,6 @@ if ($redirected.Count -gt 0) {
            'a packaged app (T-183).')
 }
 
-Stop-Shell
 if (Restore-Database) { Write-Output 'note: a previous run had left the real library database parked; it has been put back.' }
 Remove-Item $music -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $parked | Out-Null
@@ -327,7 +338,6 @@ if ($stillThere.Count -gt 0) {
            'and put the real library database back by hand before running this again (T-183).')
 }
 
-$process = $null
 $logBefore = 0
 try {
     foreach ($album in $albums) { Copy-Item (Join-Path $fixtures $album.Folder) $music -Recurse }
@@ -951,6 +961,12 @@ try {
         return $null
     }
 
+    # T-189: the shell is closed before the verdict, so an app that does not exit, or exits with a crash code, fails
+    # this run with Close-TunqioShell's message instead of being closed silently in the finally.
+    Write-Output ''
+    Write-Output 'closing the shell this run launched'
+    $script:failures += @(Stop-LaunchedShells)
+
     Write-Output ''
     foreach ($note in $script:notes) { Write-Output "note: $note" }
     if ($script:notes.Count -gt 0) { Write-Output '' }
@@ -964,7 +980,10 @@ try {
     exit 1
 }
 finally {
-    Stop-Shell
+    # Reached with a shell still up only when the run threw before its verdict, which has already failed it; the
+    # helper still writes a FAIL line if that shell hangs or crashes on close. Only this run's own shells (T-189).
+    $leftOpen = @(Stop-LaunchedShells)
+    foreach ($problem in $leftOpen) { Write-Output "FAIL: $problem" }
     Start-Sleep -Seconds 1
     if (-not (Restore-Database)) {
         Write-Output "WARNING: the real library database was not put back; look in $parked"
