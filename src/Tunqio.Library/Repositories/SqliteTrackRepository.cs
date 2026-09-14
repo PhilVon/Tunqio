@@ -335,94 +335,6 @@ public sealed class SqliteTrackRepository : ITrackRepository
     /// <summary>The rows Purge missing takes: flagged, and flagged since before <c>$before</c> (a row flagged before v2 carries the upgrade's stamp).</summary>
     private const string PurgeWhere = "missing = 1 AND missing_since IS NOT NULL AND missing_since < $before";
 
-    public async Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(edit);
-        if (edit.Rating is < 0 or > 100)
-        {
-            throw new ArgumentOutOfRangeException(nameof(edit), edit.Rating, "rating is 0..100");
-        }
-
-        if (edit.IsEmpty)
-        {
-            return;
-        }
-
-        using IDisposable lease = await _db.AcquireWriterAsync(ct).ConfigureAwait(false);
-        await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using DbTransaction dbTransaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
-        var transaction = (SqliteTransaction)dbTransaction;
-
-        TrackDto current;
-        await using (SqliteCommand load = Sql.Command(connection, TrackQueryBuilder.Select + TrackQueryBuilder.From + " WHERE t.id = $id", transaction))
-        {
-            load.Add("$id", id);
-            await using SqliteDataReader reader = await load.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                throw new KeyNotFoundException($"Track {id} does not exist.");
-            }
-
-            current = TrackRowMapper.Read(reader, _pool);
-        }
-
-        using var resolver = new EntityResolver(connection, transaction);
-        await using var fts = new FtsMaintainer(connection, transaction);
-        await using var links = new LinkWriter(connection, transaction);
-        if (await fts.CaptureAsync(id, ct).ConfigureAwait(false) is { } indexed)
-        {
-            await fts.RemoveAsync(indexed, ct).ConfigureAwait(false);
-        }
-
-        IReadOnlyList<string> artists = edit.Artists ?? current.Artists.Select(a => a.Name).ToArray();
-        long? albumId = current.AlbumId;
-        if (edit.AlbumTitle is not null || edit.AlbumArtist is not null || edit.Year is not null)
-        {
-            string? albumTitle = edit.AlbumTitle ?? current.AlbumTitle;
-            if (string.IsNullOrWhiteSpace(albumTitle))
-            {
-                albumId = null;
-            }
-            else
-            {
-                string? albumArtist = edit.AlbumArtist ?? current.AlbumArtist ?? (artists.Count > 0 ? artists[0] : null);
-                long? albumArtistId = string.IsNullOrWhiteSpace(albumArtist) ? null : await resolver.ArtistAsync(albumArtist, ct).ConfigureAwait(false);
-                albumId = await resolver.AlbumAsync(albumTitle, albumArtistId, edit.Year ?? current.Year, null, null, null, ct).ConfigureAwait(false);
-            }
-        }
-
-        await using (SqliteCommand update = Sql.Command(connection, """
-            UPDATE track SET title = $title, album_id = $album, track_no = $track_no, disc_no = $disc_no, year = $year,
-                             composer = $composer, comment = $comment, rating = $rating
-            WHERE id = $id
-            """, transaction))
-        {
-            update.Add("$title", edit.Title ?? current.Title);
-            update.Add("$album", albumId);
-            update.Add("$track_no", edit.TrackNo ?? current.TrackNo);
-            update.Add("$disc_no", edit.DiscNo ?? current.DiscNo);
-            update.Add("$year", edit.Year ?? current.Year);
-            update.Add("$composer", edit.Composer ?? current.Composer);
-            update.Add("$comment", edit.Comment ?? current.Comment);
-            update.Add("$rating", edit.Rating ?? current.Rating);
-            update.Add("$id", id);
-            await update.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        }
-
-        if (edit.Artists is not null)
-        {
-            await links.ReplaceArtistsAsync(id, edit.Artists, resolver, ct).ConfigureAwait(false);
-        }
-
-        if (edit.Genres is not null)
-        {
-            await links.ReplaceGenresAsync(id, edit.Genres, resolver, ct).ConfigureAwait(false);
-        }
-
-        await fts.AddAsync(id, ct).ConfigureAwait(false);
-        await transaction.CommitAsync(ct).ConfigureAwait(false);
-    }
-
     public async Task<bool> SetRatingAsync(long id, int? rating, CancellationToken ct = default)
     {
         if (rating is < 0 or > 100)
@@ -431,7 +343,7 @@ public sealed class SqliteTrackRepository : ITrackRepository
         }
 
         // One column of one row, and nothing the search index reads, so no FTS work and no resolver: the whole
-        // point of this beside UpdateTagsAsync is that a star click is a single small write (docs/library-and-data.md).
+        // point of this beside the upsert is that a star click is a single small write (docs/library-and-data.md).
         using IDisposable lease = await _db.AcquireWriterAsync(ct).ConfigureAwait(false);
         await using SqliteConnection connection = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
         await using SqliteCommand update = Sql.Command(connection, "UPDATE track SET rating = $rating WHERE id = $id");

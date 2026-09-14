@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <catch2/catch_amalgamated.hpp>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <stdexcept>
@@ -278,4 +279,59 @@ TEST_CASE("the exports serve an older caller and refuse a newer one", "[abi][str
     caller_buffer<mp_output_config> new_config{sizeof(mp_output_config) + 4};
     CHECK(mp_engine_set_output(fx.engine, new_config.as_struct()) == MP_E_INVALID_ARG);
     CHECK(mp::tests::last_error().find("mp_engine_set_output") != std::string::npos);
+}
+
+// ---- reserved bytes (T-145, Q-136) ------------------------------------------------------------------------
+//
+// The reserved bytes are a store for future single-byte flags, and that store works only while a core that has
+// not given a byte a meaning writes zero into it. Every out struct starts as sentinel, so a byte the core skipped
+// reads 0xCD rather than a zero the test put there itself. mp_latency_sample's is in test_latency.cpp, beside the
+// renderer that fills it. The layout itself is not asserted here: struct_size.h's static_asserts and the ABI 0.12
+// fixture own that, and T-145 moved nothing.
+
+TEST_CASE("every reserved byte the core writes out is zero", "[abi][reserved]") {
+    mp::tests::offline_engine fx;
+
+    caller_buffer<mp_engine_stats> stats{sizeof(mp_engine_stats)};
+    REQUIRE(mp_engine_get_stats(fx.engine, stats.as_struct()) == MP_OK);
+    CHECK(stats.as_struct()->reserved[0] == 0);
+    CHECK(stats.as_struct()->reserved[1] == 0);
+
+    uint32_t count = 0;
+    REQUIRE(mp_engine_enum_devices(fx.engine, nullptr, &count) == MP_OK);
+    if (count > 0) { // a CI runner may have no output device; the stats and the frame still prove the rule
+        std::vector<mp_device_info> devices(count);
+        std::memset(devices.data(), 0xCD, devices.size() * sizeof(mp_device_info));
+        devices[0].struct_size = sizeof(mp_device_info); // the stride
+        uint32_t written = count;
+        REQUIRE(mp_engine_enum_devices(fx.engine, devices.data(), &written) == MP_OK);
+        for (uint32_t i = 0; i < written; ++i) {
+            INFO("device " << i << " of " << written);
+            CHECK(devices[i].reserved[0] == 0);
+            CHECK(devices[i].reserved[1] == 0);
+        }
+    }
+
+    // One hop is 512 frames, so 200 ms of the offline mixer publishes a frame (silence is still a frame).
+    std::vector<float> buffer(static_cast<size_t>(mp::tests::k_buffer_frames) * mp::tests::k_channels);
+    for (int i = 0; i < 20; ++i) {
+        REQUIRE(mp_engine_render(fx.engine, buffer.data(), mp::tests::k_buffer_frames) == MP_OK);
+    }
+    caller_buffer<mp_analysis_frame> frame{sizeof(mp_analysis_frame)};
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (mp_analysis_try_get_latest(fx.engine, frame.as_struct()) != MP_OK) {
+        REQUIRE(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    CHECK(frame.as_struct()->sequence > 0);
+    CHECK(frame.as_struct()->reserved[0] == 0);
+    CHECK(frame.as_struct()->reserved[1] == 0);
+
+    // The other half of the rule, for an in struct: a reader ignores a value it does not know. A caller's nonzero
+    // reserved bytes are not a reason to refuse the call.
+    mp_output_config config{};
+    config.struct_size = sizeof config;
+    config.device_index = MP_DEVICE_NONE;
+    std::memset(config.reserved, 0xFF, sizeof config.reserved);
+    CHECK(mp_engine_set_output(fx.engine, &config) == MP_OK);
 }

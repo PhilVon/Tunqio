@@ -8,9 +8,9 @@ namespace Tunqio.Core.Library;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why the library is updated by a scan and not by a row write.</b> The obvious thing would be
-/// <see cref="ITrackRepository.UpdateTagsAsync"/>, but a tag edit changes more of the row than the fields the
-/// user typed: the file's size and modification time, and the album the track now belongs to. It also must not
+/// <b>Why the library is updated by a scan and not by a row write.</b> The obvious thing would be a repository
+/// method that writes the edited fields into the row (there was one, unused, until T-115 removed it), but a tag
+/// edit changes more of the row than the fields the user typed: the file's size and modification time, and the album the track now belongs to. It also must not
 /// change things that are not tags — <c>art_hash</c> is the sharp one, since it is written by the scanner's
 /// art stage and an upsert built from the tag reader alone would clear it. A targeted rescan is the path that
 /// already gets every one of those right, and it is the same path the file-system watcher would have taken

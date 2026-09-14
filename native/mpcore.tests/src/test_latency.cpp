@@ -307,6 +307,34 @@ TEST_CASE("a sample says where every edge of the pipeline was", "[latency][av-sy
     REQUIRE(distinct_sequences > 10);
 }
 
+TEST_CASE("a latency sample's reserved bytes go out as zero", "[latency][av-sync][abi][reserved]") {
+    // T-145: reserved bytes are a store for future flags, which works only while the core writes zero into them.
+    // The caller's elements start as sentinel, so a byte the core skipped reads 0xCD, not a zero the test put there.
+    latency_fixture fx;
+    fx.set_sync(MP_AV_SYNC_AUDIBLE, 0.0f, 64);
+    mp_track* track = fx.engine.open(mp::tests::write_sine_wav({}, "latency-reserved"));
+    REQUIRE(mp_engine_play(fx.engine.engine, track, 0) == MP_OK);
+    fx.play_for(150);
+    mp_engine_stop(fx.engine.engine, MP_FADE_NONE);
+    mp_track_close(track);
+
+    uint32_t waiting = 0;
+    REQUIRE(mp_renderer_drain_latency(fx.renderer, nullptr, &waiting) == MP_OK);
+    REQUIRE(waiting > 0);
+    std::vector<mp_latency_sample> out(waiting);
+    std::memset(out.data(), 0xCD, out.size() * sizeof(mp_latency_sample));
+    out[0].struct_size = sizeof(mp_latency_sample); // the stride
+    uint32_t taken = waiting;
+    REQUIRE(mp_renderer_drain_latency(fx.renderer, out.data(), &taken) == MP_OK);
+    REQUIRE(taken > 0);
+    for (uint32_t i = 0; i < taken; ++i) {
+        INFO("sample " << i << " of " << taken);
+        CHECK(out[i].reserved[0] == 0);
+        CHECK(out[i].reserved[1] == 0);
+        CHECK(out[i].reserved[2] == 0);
+    }
+}
+
 TEST_CASE("the drain is a ring and a caller that is behind loses the oldest samples", "[latency][av-sync]") {
     latency_fixture fx;
     fx.set_sync(MP_AV_SYNC_AUDIBLE, 0.0f, 8); // deliberately tiny

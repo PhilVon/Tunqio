@@ -221,13 +221,24 @@ typedef struct mp_engine_config {
 #define MP_DEVICE_DEFAULT (-1)
 #define MP_DEVICE_NONE (-2) /* no device: audio is produced only when the caller pulls it with mp_engine_render */
 
+/* Reserved bytes (T-145, Q-136). The `reserved` fields of mp_output_config, mp_device_info, mp_engine_stats,
+ * mp_analysis_frame, mp_renderer_config and mp_latency_sample are a store for future single-byte flags: they are
+ * what lets a yes/no flag arrive without changing a struct's size or any offset. One rule covers every one of them:
+ * - the core writes zero into every reserved byte of a struct it fills;
+ * - a caller that passes a struct in must zero its reserved bytes (value-initialise the struct);
+ * - a reader ignores any value it does not know, so a newer peer that has given a byte a meaning never confuses
+ *   an older one;
+ * - giving a reserved byte a meaning is a minor ABI bump, as 0.11 did with mp_analysis_frame.discontinuities:
+ *   nothing moves and every existing caller reads the bytes it always read.
+ * They are not padding waiting to be dropped. A new field wider than a byte is appended instead (0.12). */
+
 typedef struct mp_output_config {
     uint32_t struct_size;
     int32_t device_index; /* index from mp_engine_enum_devices, MP_DEVICE_DEFAULT or MP_DEVICE_NONE */
     mp_output_mode mode;  /* MP_OUTPUT_EXCLUSIVE falls back to shared when the device refuses it */
     uint32_t buffer_ms;   /* 0 = device default */
     uint8_t event_driven; /* 1 = WASAPI event-driven buffering (lower latency; buffer becomes one period) */
-    uint8_t reserved[3];
+    uint8_t reserved[3];  /* future flags; zero (see "Reserved bytes" above) */
 } mp_output_config;
 
 typedef struct mp_device_info {
@@ -241,7 +252,7 @@ typedef struct mp_device_info {
     uint32_t default_period_us;
     uint8_t is_default;
     uint8_t is_enabled;
-    uint8_t reserved[2];
+    uint8_t reserved[2]; /* future flags; zero (see "Reserved bytes" above mp_output_config) */
 } mp_device_info;
 
 typedef struct mp_track_info {
@@ -277,7 +288,7 @@ typedef struct mp_engine_stats {
     uint32_t output_buffer_ms;
     uint8_t exclusive;
     uint8_t output_started;
-    uint8_t reserved[2];
+    uint8_t reserved[2];    /* future flags; zero (see "Reserved bytes" above mp_output_config) */
     char output_format[16]; /* "float", "16bit", "24bit", "32bit", "8bit" */
 } mp_engine_stats;
 
@@ -445,7 +456,7 @@ typedef struct mp_analysis_frame {
     float harmonic_ratio;
     uint8_t onset;
     uint8_t discontinuities;
-    uint8_t reserved[2];
+    uint8_t reserved[2]; /* future flags; zero (see "Reserved bytes" above mp_output_config) */
 } mp_analysis_frame;
 
 /* Copies the newest complete frame. MP_E_STATE when none is available yet (nothing has played since the engine,
@@ -465,7 +476,7 @@ typedef struct mp_renderer_config {
     uint8_t force_warp; /* 1 = software rasteriser (also the automatic fallback when no hardware device) */
     uint8_t vsync;      /* 1 = Present(1); 0 = present as fast as the compositor allows */
     uint8_t headless;   /* 1 = render into an offscreen texture; swap_chain_panel_native may be NULL (tests) */
-    uint8_t reserved;
+    uint8_t reserved;   /* future flag; zero (see "Reserved bytes" above mp_output_config) */
 } mp_renderer_config;
 
 #define MP_RENDER_HISTOGRAM_BUCKETS 6u
@@ -757,9 +768,9 @@ typedef struct mp_latency_sample {
      * half hop of MP_ANALYSIS_WAVEFORM_SAMPLES frames into a number of bytes. Both are on the record because
      * a consumer that had only their product would have to guess the channel count to get one from the other. */
     uint32_t mixer_sample_rate;
-    uint32_t mode;   /* mp_av_sync_mode in force for this frame */
-    uint8_t redrawn; /* 1 = the same analysis frame as the previous picture; no new hop was chosen */
-    uint8_t reserved[3];
+    uint32_t mode;       /* mp_av_sync_mode in force for this frame */
+    uint8_t redrawn;     /* 1 = the same analysis frame as the previous picture; no new hop was chosen */
+    uint8_t reserved[3]; /* future flags; zero (see "Reserved bytes" above mp_output_config) */
 } mp_latency_sample;
 
 /* Sets how the renderer picks which analysis frame to draw, and whether it keeps a record of what it picked.

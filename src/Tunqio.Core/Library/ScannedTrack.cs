@@ -38,9 +38,9 @@ public sealed record ScannedTrack(
     string? AlbumMbid = null);
 
 /// <summary>
-/// A partial tag edit: every property left <c>null</c> is unchanged. Applied to the database by
-/// <see cref="ITrackRepository.UpdateTagsAsync"/> (the file itself is written by the tag writer, E3-S10,
-/// which re-reads and upserts afterwards). <see cref="Rating"/> is user data that lives in the database only.
+/// A partial tag edit: every property left <c>null</c> is unchanged. Written to the file by
+/// <see cref="ITagWriter"/>; the database follows by a targeted rescan of the written paths (<see cref="ITagEditor"/>,
+/// E3-S10), which is the one write path for tags. <see cref="Rating"/> is user data that lives in the database only.
 /// </summary>
 public sealed record TagEdit(
     string? Title = null,

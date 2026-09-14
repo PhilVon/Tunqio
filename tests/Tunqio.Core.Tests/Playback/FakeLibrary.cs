@@ -80,8 +80,6 @@ internal sealed class FakeTrackRepository : ITrackRepository
 
     public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) => throw new NotSupportedException();
 
-    public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) => throw new NotSupportedException();
-
     public Task<bool> SetRatingAsync(long id, int? rating, CancellationToken ct = default) => throw new NotSupportedException();
 }
 

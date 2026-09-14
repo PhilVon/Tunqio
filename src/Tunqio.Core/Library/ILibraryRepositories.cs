@@ -56,9 +56,6 @@ public interface ITrackRepository
     /// <summary>Scanner only: the stamp of every track under a folder, loaded once at scan start for the Diff stage.</summary>
     Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default);
 
-    /// <summary>Applies a partial edit to the row (not the file), re-resolving album, artists and genres as needed.</summary>
-    Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default);
-
     /// <summary>
     /// Sets the track's rating (0..100; see <see cref="Ratings"/>) or clears it with <c>null</c> (E6-S7). The row
     /// only: the file's tag is <see cref="ITrackRater"/>'s. Returns false, having written nothing, when the library

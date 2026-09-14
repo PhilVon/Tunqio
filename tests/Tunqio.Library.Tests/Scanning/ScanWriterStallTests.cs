@@ -191,8 +191,6 @@ public sealed class ScanWriterStallTests(ITestOutputHelper output) : IDisposable
 
         public Task<IReadOnlyList<TrackFileStamp>> SnapshotAsync(long folderId, CancellationToken ct = default) => inner.SnapshotAsync(folderId, ct);
 
-        public Task UpdateTagsAsync(long id, TagEdit edit, CancellationToken ct = default) => inner.UpdateTagsAsync(id, edit, ct);
-
         public Task<bool> SetRatingAsync(long id, int? rating, CancellationToken ct = default) => inner.SetRatingAsync(id, rating, ct);
     }
 }
