@@ -26,6 +26,7 @@ public static class ThirdPartyAttribution
         "nlohmann/json (MIT)",
         "Windows App SDK and WinUI 3 (Microsoft)",
         "CommunityToolkit.Mvvm (MIT)",
+        "H.NotifyIcon.WinUI (MIT)",
         "Microsoft.Data.Sqlite and SQLite (MIT / public domain)",
         "TagLibSharp (LGPL 2.1)",
         "System.Reactive (MIT)",

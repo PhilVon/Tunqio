@@ -40,6 +40,19 @@
               IsEnabled="{x:Bind ViewModel.ReactiveTheming, Mode=OneWay}"
               AutomationProperties.Name="Reactive theming smoothing" />
       <TextBlock Text="{x:Bind ViewModel.SmoothingDescription, Mode=OneWay}" Style="{StaticResource Hint}" />
+
+      <!-- E7-S3: ui.closeToTray and ui.minimizeToTray. Names used by tools/check-tray.ps1. -->
+      <TextBlock Text="Window" Style="{StaticResource SectionHeader}" />
+      <ToggleSwitch x:Name="CloseToTraySwitch" Header="Close to the tray"
+                    IsOn="{x:Bind ViewModel.CloseToTray, Mode=TwoWay}"
+                    AutomationProperties.Name="Close to the tray" />
+      <TextBlock Text="Closing the window hides it to the notification area and the music keeps playing. Click the Tunqio icon there to bring the window back, or choose Exit from its menu to quit."
+                 Style="{StaticResource Hint}" />
+      <ToggleSwitch x:Name="MinimizeToTraySwitch" Header="Minimise to the tray" Margin="0,12,0,0"
+                    IsOn="{x:Bind ViewModel.MinimizeToTray, Mode=TwoWay}"
+                    AutomationProperties.Name="Minimise to the tray" />
+      <TextBlock Text="Minimising the window hides it to the notification area instead of the taskbar. Click the Tunqio icon there to bring it back."
+                 Style="{StaticResource Hint}" />
     </StackPanel>
   </ScrollViewer>
 </Page>

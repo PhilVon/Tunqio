@@ -8,6 +8,7 @@ using Tunqio.App.Activation;
 using Tunqio.App.Library;
 using Tunqio.App.Playback;
 using Tunqio.App.Shell;
+using Tunqio.App.Tray;
 using Tunqio.Core;
 using Tunqio.Core.Library;
 using Tunqio.Core.Playback;
@@ -32,6 +33,7 @@ public partial class App : Application
     private IHost? _host;
     private Window? _window;
     private SmtcBridge? _mediaControls;
+    private TrayController? _tray;
     private static nint _mainWindowHandle;
 
     public App()
@@ -151,6 +153,7 @@ public partial class App : Application
         _window = window;
         _mainWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         _mediaControls = StartMediaControls(logger);
+        _tray = StartTray(window, settings, logger);
         logger.LogInformation("Shell backdrop: {Backdrop}", window.ApplyBackdrop());
         _window.Closed += OnWindowClosed;
         if (databaseNotice is not null)
@@ -216,7 +219,11 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Restores and raises the main window, on the XAML thread whichever thread asks.</summary>
+    /// <summary>
+    /// Restores and raises the main window, on the XAML thread whichever thread asks: a redirected activation (E7-S1) or Show
+    /// from the tray (E7-S3). A window hidden to the tray is shown again first, and one hidden behind the mini player gets the
+    /// mini player closed, which is the mini player's own way back to it.
+    /// </summary>
     private void BringMainWindowToForeground()
     {
         if (_window is not { } window)
@@ -229,6 +236,11 @@ public partial class App : Application
             if (_host is null)
             {
                 return;
+            }
+
+            if (window is MainWindow main)
+            {
+                main.ReturnFromHidden();
             }
 
             window.Activate();
@@ -376,6 +388,86 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// The notification-area icon (E7-S3, ADR-006) and the two window rules it decides: with <c>ui.closeToTray</c> on, closing
+    /// the main window cancels the close and hides it; with <c>ui.minimizeToTray</c> on, minimising hides it. Playback is the
+    /// session's and carries on either way. A machine that will not give an icon costs the tray, not the launch, and with no
+    /// icon neither rule hides the window (<see cref="TrayController.ShouldHideOnClose"/>).
+    /// </summary>
+    private TrayController? StartTray(MainWindow window, ISettingsStore settings, ILogger<App> logger)
+    {
+        WinUiTrayIcon? icon = null;
+        try
+        {
+            icon = new WinUiTrayIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Tray", "tunqio.ico"));
+            var tray = new TrayController(
+                _host!.Services.GetRequiredService<IPlaybackSessionSource>(),
+                icon,
+                settings,
+                BringMainWindowToForeground,
+                ExitFromTray,
+                SynchronizationContext.Current,
+                _host.Services.GetRequiredService<ILogger<TrayController>>());
+            window.AppWindow.Closing += OnMainWindowClosing;
+            window.AppWindow.Changed += OnMainWindowChanged;
+            logger.LogInformation("Tray icon: shown in the notification area ({Visible})", icon.IsVisible);
+            return tray;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            icon?.Dispose();
+            logger.LogError(e, "Tray icon unavailable; closing and minimising the window behave as they do without the tray");
+            return null;
+        }
+    }
+
+    /// <summary>A close of the main window by any means: hidden instead while <c>ui.closeToTray</c> is on and Exit was not chosen.</summary>
+    private void OnMainWindowClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (_tray?.ShouldHideOnClose() != true)
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        sender.Hide();
+        Log.Information("Tray: main window hidden to the tray on close; playback carries on");
+    }
+
+    /// <summary>The main window minimised: hidden while <c>ui.minimizeToTray</c> is on. Showing it restores it (NativeWindowing).</summary>
+    private void OnMainWindowChanged(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+    {
+        if (!sender.IsVisible
+            || sender.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Minimized }
+            || _tray?.ShouldHideOnMinimize() != true)
+        {
+            return;
+        }
+
+        sender.Hide();
+        Log.Information("Tray: main window hidden to the tray on minimise");
+    }
+
+    /// <summary>
+    /// Exit from the tray menu: closes the main window, which runs the same shutdown as the close button with close-to-tray
+    /// off (<see cref="OnWindowClosed"/>). The controller has already marked the close as a real one.
+    /// </summary>
+    private void ExitFromTray()
+    {
+        if (_window is not { } window)
+        {
+            return;
+        }
+
+        window.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_host is not null)
+            {
+                window.Close();
+            }
+        });
+    }
+
+    /// <summary>
     /// Live library updates (E3-S6) start once the window is up, and the launch scan (E3-S12) follows after the
     /// coordinator's delay so the UI is interactive first (docs/library-and-data.md, "Scheduling"). Stopping is
     /// part of host disposal.
@@ -418,6 +510,17 @@ public partial class App : Application
             // first anyway, but only because it was created last; saying it here does not leave that to luck.
             // The media session goes first of all (E7-S2): a flyout press must not reach a session being torn down.
             // Each step is logged before it runs (T-188), so the last line of a session that dies here names the step.
+            // The tray icon before that (E7-S3): its menu must not reach a session being torn down either, and disposing it
+            // removes the icon, so none is left in the notification area after the process has gone.
+            Log.Information("Shutdown: tray icon");
+            if (_window is not null && _tray is not null)
+            {
+                _window.AppWindow.Closing -= OnMainWindowClosing;
+                _window.AppWindow.Changed -= OnMainWindowChanged;
+            }
+
+            _tray?.Dispose();
+            _tray = null;
             Log.Information("Shutdown: media controls");
             _mediaControls?.Dispose();
             _mediaControls = null;

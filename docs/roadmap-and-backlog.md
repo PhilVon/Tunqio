@@ -603,6 +603,7 @@ the window in the background. See windows-integration.md, "As built (E7-S2)".
 
 ### E7-S3 · Tray icon · **S** · `windows`
 - [ ] Tray menu offers play/pause, next, previous, show, exit; minimise/close-to-tray settings work; tooltip shows the current track
+- As built (T-76): H.NotifyIcon.WinUI 2.3.2 (the newest release with a .NET 8 build) behind `ITrayIcon`; `TrayController` owns the menu, tooltip and hide rules and is unit tested over a fake icon; the two switches are on Settings › Appearance under Window; `tools/check-tray.ps1` proves close-to-tray, minimise-to-tray, `tunqio://show` and a clean exit on a scratch profile. How the icon, menu and tooltip look in the notification area is AC-493, for a person. See windows-integration.md, "System Tray Integration".
 
 ### E7-S4 · Toast notifications · **S** · `windows`
 - [ ] Opt-in toast on track change with working Previous/Play-Pause/Next buttons; suppressed in Focus mode and when the window is in the foreground
