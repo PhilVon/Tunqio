@@ -38,6 +38,9 @@ matched an agent's. An agent's worktree build is not main's build.
 - After any merge that changes what the app ships, rebuild main's Release output before moving a card to Review
   or asking Phil to look, even when the tree is identical to one already gated.
 - In the sign-off request, name the exact `Tunqio.exe` to run and the time it was built.
+- An agent working in a worktree does not move its own card to Review. It leaves the card In Progress with a
+  checkpoint saying it is ready to merge; whoever merges it into main moves it to Review after rebuilding main.
+  T-79's agent moved its card to Review before the merge, which would have had Phil test a build without it.
 
 **Account for every background task before you report** (T-174). Before your final report, list what you
 started in the background that is still running, and stop it or say why it should keep running. Look where the
