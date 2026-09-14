@@ -19,10 +19,10 @@ public class IdentityTests
     private static XDocument AppProject() =>
         XDocument.Load(RepoPaths.File("src", "Tunqio.App", "Tunqio.App.csproj"));
 
-    private static string RepoVersion()
+    private static string RepoMsixVersion()
     {
         XDocument props = XDocument.Load(RepoPaths.File("Directory.Build.props"));
-        return props.Descendants("TunqioVersion").Single().Value;
+        return props.Descendants("TunqioVersion").Single().Value + "." + props.Descendants("TunqioVersionRevision").Single().Value;
     }
 
     [Fact]
@@ -31,8 +31,9 @@ public class IdentityTests
         XElement identity = Manifest().Root!.Element(Foundation + "Identity")!;
 
         identity.Attribute("Name")!.Value.Should().Be(Identity.PackageName);
-        identity.Attribute("Publisher")!.Value.Should().Be(Identity.DevelopmentPublisher);
-        identity.Attribute("Version")!.Value.Should().Be(RepoVersion() + ".0", "MSIX version is major.minor.patch.0 of TunqioVersion");
+        identity.Attribute("Publisher")!.Value.Should().Be(Identity.Publisher);
+        identity.Attribute("Version")!.Value.Should().Be(RepoMsixVersion(),
+            "the MSIX version is major.minor.patch of TunqioVersion plus TunqioVersionRevision (0, or N for -rc.N; T-80)");
     }
 
     [Fact]
@@ -105,7 +106,7 @@ public class IdentityTests
         string doc = File.ReadAllText(RepoPaths.File("docs", "identity.md"));
 
         doc.Should().Contain($"| Package identity name | `{Identity.PackageName}` |");
-        doc.Should().Contain($"| Publisher (dev / self-signed) | `{Identity.DevelopmentPublisher}` |");
+        doc.Should().Contain($"| Publisher (self-signed) | `{Identity.Publisher}` |");
         doc.Should().Contain($"| Application Id | `{Identity.ApplicationId}` |");
         doc.Should().Contain($"| Execution alias | `{Identity.ExecutionAlias}` |");
         doc.Should().Contain($"| URI scheme | `{Identity.UriScheme}` |");

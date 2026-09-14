@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Identity values come from docs/identity.md and are checked against Tunqio.Core.Identity by Tunqio.Core.Tests.
-  Identity Name, Publisher (once replaced at E8-S1) and Application Id are frozen at 1.0.
+  Identity Name, Publisher (CN=Tunqio, the self-signed release certificate's subject; D-34) and Application Id are frozen at 1.0.
+  Identity Version is stamped from the release tag by tools/release-version.ps1 (T-80); in the repository it stays 0.1.0.0.
   E7-S1: the file type association (one extension per entry in Tunqio.Core.Library.AudioFormats, the list the library
   scanner accepts), the tunqio:// protocol and the tunqio.exe execution alias. Names from docs/identity.md; asserted over
   this file by Tunqio.Core.Tests (IdentityTests) and over the built MSIX by tools/check-package.ps1. There are no registry

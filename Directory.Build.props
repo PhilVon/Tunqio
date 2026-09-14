@@ -13,6 +13,10 @@
     <TunqioVersionMajor>$(TunqioVersion.Split('.')[0])</TunqioVersionMajor>
     <TunqioVersionMinor>$(TunqioVersion.Split('.')[1])</TunqioVersionMinor>
     <TunqioVersionPatch>$(TunqioVersion.Split('.')[2])</TunqioVersionPatch>
+    <!-- T-80: the fourth MSIX version field. 0 for a release (and for every development build); N for the release candidate
+         vMAJOR.MINOR.PATCH-rc.N. Stamped with TunqioVersion by tools/release-version.ps1 from the tag, never edited by hand
+         (docs/build-test-release.md, "Release versions"). The manifest Identity Version is TunqioVersion.TunqioVersionRevision. -->
+    <TunqioVersionRevision>0</TunqioVersionRevision>
 
     <!-- Toolchain pins (see docs/build-test-release.md). -->
     <TunqioPlatformToolset>v145</TunqioPlatformToolset>
@@ -54,7 +58,7 @@
 
     <Version>$(TunqioVersion)</Version>
     <AssemblyVersion>$(TunqioVersion).0</AssemblyVersion>
-    <FileVersion>$(TunqioVersion).0</FileVersion>
+    <FileVersion>$(TunqioVersion).$(TunqioVersionRevision)</FileVersion>
     <InformationalVersion>$(TunqioVersion)</InformationalVersion>
     <Product>Tunqio</Product>
     <Company>Tunqio</Company>
