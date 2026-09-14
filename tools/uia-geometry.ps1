@@ -28,11 +28,23 @@ public static class TunqioUiaGeometry {
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
     public static int ForegroundProcess() {
         int pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid); return pid;
     }
 }
 "@
+}
+
+# Screen pixels per effective pixel for a process's main window (1 at 96 DPI, 1.5 at 144). UIA rectangles are screen
+# pixels and XAML sizes are effective pixels, so a check that compares a measurement with a number from the markup (a
+# MaxWidth, a Padding) multiplies by this first (T-203).
+function Get-UiaWindowScale([int]$ProcessId) {
+    $handle = (Get-Process -Id $ProcessId).MainWindowHandle
+    if ($handle -eq [IntPtr]::Zero) { throw "process $ProcessId has no main window handle" }
+    $dpi = [TunqioUiaGeometry]::GetDpiForWindow($handle)
+    if ($dpi -le 0) { return 1.0 }
+    return $dpi / 96.0
 }
 
 # An element's screen rectangle, rounded, with Offscreen meaning "nothing of it is on screen": IsOffscreen, or a
