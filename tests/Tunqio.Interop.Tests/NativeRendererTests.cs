@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Tunqio.Core.Visualization;
 
 namespace Tunqio.Interop.Tests;
@@ -29,12 +30,70 @@ internal sealed class PresetRootScope : IDisposable
 [Collection("native renderer")]
 public class NativeRendererTests
 {
+    // Not budgets: headless WARP renders on the CPU, so how many frames a span buys is the machine's business
+    // (T-206). Missing the deadline means nothing is being drawn, not that the machine was busy.
+    private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
+    private const int PollMs = 20;
+    private const int MaxPolls = 500;
+
+    private static RenderStats WaitForStats(NativeRenderer renderer, Func<RenderStats, bool> condition, string what)
+    {
+        var waited = Stopwatch.StartNew();
+        RenderStats stats = renderer.GetStats();
+        for (int polls = 0; !condition(stats) && polls < MaxPolls && waited.Elapsed < Deadline; polls++)
+        {
+            Thread.Sleep(PollMs);
+            stats = renderer.GetStats();
+        }
+
+        if (!condition(stats))
+        {
+            Assert.Fail($"The renderer had not {what} after waiting {waited.ElapsedMilliseconds} ms: it reported {stats.Frames} frame(s).");
+        }
+
+        return stats;
+    }
+
+    // SetVisible is asynchronous: the render thread checks visibility once per iteration, so the frame it had already
+    // begun can still be counted after SetVisible(false) returns. The quiet window is four of the renderer's own
+    // recent frame intervals rather than a fixed span, so a frame slowed by a busy machine is given its time.
+    private static RenderStats SettledStats(NativeRenderer renderer)
+    {
+        var waited = Stopwatch.StartNew();
+        RenderStats stats = renderer.GetStats();
+        TimeSpan quiet = TimeSpan.FromMilliseconds(Math.Clamp(stats.FrameLast.TotalMilliseconds * 4, 150, 2000));
+        var quietFor = Stopwatch.StartNew();
+        for (int polls = 0; polls < MaxPolls && waited.Elapsed < Deadline; polls++)
+        {
+            Thread.Sleep(PollMs);
+            RenderStats next = renderer.GetStats();
+            if (next.Frames != stats.Frames)
+            {
+                quietFor.Restart();
+            }
+
+            stats = next;
+            if (quietFor.Elapsed >= quiet)
+            {
+                return stats;
+            }
+        }
+
+        Assert.Fail($"The hidden renderer's frame count had not held still for {quiet.TotalMilliseconds} ms after waiting {waited.ElapsedMilliseconds} ms: it reported {stats.Frames} frame(s).");
+        return stats;
+    }
+
     [Fact]
     public void Headless_warp_renderer_reports_frames_and_adapter()
     {
         using NativeRenderer renderer = NativeRenderer.CreateHeadless(new RendererConfig(320, 180, ForceWarp: true, VSync: false), nint.Zero);
-        Thread.Sleep(300);
-        RenderStats stats = renderer.GetStats();
+        WaitForStats(renderer, s => s.Frames > 5, "drawn more than 5 frames");
+
+        // Paused before the one read, because the histogram assertion compares two counters get_stats samples
+        // separately, and the render thread buckets a frame's interval before counting the frame: one landing
+        // between the two samples leaves the histogram a frame ahead (T-119, in the native suite).
+        renderer.SetVisible(false);
+        RenderStats stats = SettledStats(renderer);
         stats.Frames.Should().BeGreaterThan(5);
         stats.Warp.Should().BeTrue();
         stats.Headless.Should().BeTrue();
@@ -54,16 +113,18 @@ public class NativeRendererTests
             renderer.Resize(320 + (i * 37) % 1600, 180 + (i * 53) % 900, i % 2 == 0 ? 1f : 1.25f, i % 2 == 0 ? 1f : 1.25f);
         }
 
-        Thread.Sleep(150);
+        long afterStorm = renderer.GetStats().Frames;
+        WaitForStats(renderer, s => s.Frames >= afterStorm + 2, "drawn a frame begun after the resize storm");
+
         renderer.SetVisible(false);
-        Thread.Sleep(100);
-        long paused = renderer.GetStats().Frames;
-        Thread.Sleep(150);
-        renderer.GetStats().Frames.Should().Be(paused);
+        long hiddenAt = renderer.GetStats().Frames;
+        RenderStats paused = SettledStats(renderer);
+        paused.Visible.Should().BeFalse();
+        paused.Frames.Should().BeLessThanOrEqualTo(hiddenAt + 1, "only the frame already begun may land once SetVisible(false) returns");
+
+        // Past hiddenAt + 1, not past paused: the in-flight frame could otherwise pass for a resumed one.
         renderer.SetVisible(true);
-        Thread.Sleep(150);
-        RenderStats stats = renderer.GetStats();
-        stats.Frames.Should().BeGreaterThan(paused);
+        RenderStats stats = WaitForStats(renderer, s => s.Frames > hiddenAt + 1, "resumed after SetVisible(true)");
         stats.DeviceLost.Should().BeFalse();
         stats.Resizes.Should().BeGreaterThanOrEqualTo(1);
     }
