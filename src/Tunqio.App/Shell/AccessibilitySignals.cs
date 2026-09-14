@@ -46,8 +46,16 @@ public sealed class SystemAccessibilitySignals : IAccessibilitySignals, IDisposa
 
     private readonly UISettings _settings = new();
 
-    /// <summary>Subscribes to the system's own change notification.</summary>
-    public SystemAccessibilitySignals() => _settings.AnimationsEnabledChanged += OnAnimationsEnabledChanged;
+    /// <summary>
+    /// Subscribes to the system's own change notifications: <c>AnimationsEnabledChanged</c> for reduced motion, and
+    /// <c>ColorValuesChanged</c>, which is what Windows raises when a high-contrast theme is turned on or off (E7-S6).
+    /// It is also raised for a theme or accent change, which costs a consumer one extra re-read and nothing else.
+    /// </summary>
+    public SystemAccessibilitySignals()
+    {
+        _settings.AnimationsEnabledChanged += OnAnimationsEnabledChanged;
+        _settings.ColorValuesChanged += OnColorValuesChanged;
+    }
 
     /// <inheritdoc />
     public event EventHandler? Changed;
@@ -67,9 +75,15 @@ public sealed class SystemAccessibilitySignals : IAccessibilitySignals, IDisposa
     }
 
     /// <summary>Unsubscribes; the settings object itself has nothing to release.</summary>
-    public void Dispose() => _settings.AnimationsEnabledChanged -= OnAnimationsEnabledChanged;
+    public void Dispose()
+    {
+        _settings.AnimationsEnabledChanged -= OnAnimationsEnabledChanged;
+        _settings.ColorValuesChanged -= OnColorValuesChanged;
+    }
 
     private void OnAnimationsEnabledChanged(UISettings sender, object args) => Changed?.Invoke(this, EventArgs.Empty);
+
+    private void OnColorValuesChanged(UISettings sender, object args) => Changed?.Invoke(this, EventArgs.Empty);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct HighContrastInfo

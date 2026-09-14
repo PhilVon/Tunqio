@@ -49,7 +49,9 @@ public sealed partial class MainWindow : Window
     private readonly DiagnosticsViewModel _diagnostics;
     private readonly OpenCoordinator? _open;
     private ReactiveThemeLayer? _reactiveLayer;
-    private SystemAccessibilitySignals? _accessibility;
+    private readonly SystemAccessibilitySignals _accessibility = new();
+    private ShellBackdropController? _backdrop;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _backdropPoll;
     private ReactiveThemeController? _reactiveTheme;
     private volatile bool _isDark;
     private readonly IVisualizationHost? _visualization;
@@ -298,7 +300,9 @@ public sealed partial class MainWindow : Window
             _welcome?.Dispose();
             Serilog.Log.Information("Shutdown: reactive theming");
             _reactiveTheme?.Dispose();
-            _accessibility?.Dispose();
+            _backdropPoll?.Stop();
+            _backdrop?.Dispose();
+            _accessibility.Dispose();
             _reactiveLayer?.Dispose();
             Serilog.Log.Information("Shutdown: renderer");
             TearDownRenderer();
@@ -321,7 +325,7 @@ public sealed partial class MainWindow : Window
         }
 
         _reactiveLayer = new ReactiveThemeLayer(ReactiveLayer);
-        _accessibility = new SystemAccessibilitySignals();
+        // The window's own signals, which the backdrop already follows (E7-S6): one reading of Windows for both.
         // The visualizer is passed (T-156): without it mp_renderer_set_theme has no caller in the app, and the
         // sixteen floats E4-S6 added to every preset's b0 carry nothing. The controller tolerates a host that is
         // detached or absent; see PushToRenderer for why the guard is there and not on the host.
@@ -729,19 +733,62 @@ public sealed partial class MainWindow : Window
     /// is already painted (AC-69: the white flash to avoid is the one before anything has drawn).
     /// </summary>
     /// <remarks>
-    /// The root's background is decided here rather than in XAML because it depends on the answer: an opaque root
-    /// would hide the very material this method just installed, and the layered Fluent the design asks for (Mica
-    /// base, acrylic sidebar, solid cards) needs the base to show through. With no backdrop there is nothing to
-    /// show through to, and the root has to paint something itself.
+    /// <para>
+    /// The solid surface is shown or hidden here rather than fixed in XAML because it depends on the answer: an opaque
+    /// base would hide the very material this method just installed, and the layered Fluent the design asks for (Mica
+    /// base, acrylic sidebar, solid cards) needs the base to show through. With no backdrop there is nothing to show
+    /// through to, and the shell has to paint something itself.
+    /// </para>
+    /// <para>
+    /// E7-S6: the probes are fail-soft (<see cref="ShellBackdrop.Probe"/>), and the choice is kept up to date with high
+    /// contrast for the life of the window by <see cref="ShellBackdropController"/>, on the signals' change event and
+    /// on a one-second poll for a notification that never came.
+    /// </para>
     /// </remarks>
     public ShellBackdrop.Kind ApplyBackdrop()
     {
-        (Microsoft.UI.Xaml.Media.SystemBackdrop? backdrop, ShellBackdrop.Kind which) = ShellBackdrop.Choose();
-        SystemBackdrop = backdrop;
-        Root.Background = which == ShellBackdrop.Kind.None
-            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"]
-            : null;
-        return which;
+        if (_backdrop is not null)
+        {
+            return _backdrop.Current ?? ShellBackdrop.Kind.None;
+        }
+
+        static void Warn(string problem) => Serilog.Log.Warning("{Problem}", problem);
+        ShellBackdrop.Kind supported = ShellBackdrop.Probe(new SystemBackdropSupport(), Warn);
+        _backdrop = new ShellBackdropController(
+            _accessibility,
+            supported,
+            new WindowSurface(this),
+            action => DispatcherQueue.TryEnqueue(() => action()),
+            info => Serilog.Log.Information("{Change}", info),
+            Warn);
+        ShellBackdrop.Kind? shown = _backdrop.Evaluate();
+
+        _backdropPoll = DispatcherQueue.CreateTimer();
+        _backdropPoll.Interval = TimeSpan.FromSeconds(1);
+        _backdropPoll.IsRepeating = true;
+        _backdropPoll.Tick += (_, _) => _backdrop?.Evaluate();
+        _backdropPoll.Start();
+        return shown ?? ShellBackdrop.Kind.None;
+    }
+
+    /// <summary>The window's base as <see cref="ShellBackdropController"/> drives it: a system material or the solid surface.</summary>
+    private sealed class WindowSurface(MainWindow window) : IShellSurface
+    {
+        public void Show(ShellBackdrop.Kind which)
+        {
+            if (which == ShellBackdrop.Kind.None)
+            {
+                // Solid first, so there is never a frame with neither.
+                window.SolidSurface.Visibility = Visibility.Visible;
+                window.SystemBackdrop = null;
+                return;
+            }
+
+            // Created before anything is changed: a material that cannot be built leaves the window as it was.
+            Microsoft.UI.Xaml.Media.SystemBackdrop? material = ShellBackdrop.Create(which);
+            window.SystemBackdrop = material;
+            window.SolidSurface.Visibility = Visibility.Collapsed;
+        }
     }
 
     /// <summary>
