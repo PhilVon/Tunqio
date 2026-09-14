@@ -120,28 +120,91 @@ public sealed class JsonSettingsStore : ISettingsStore, IAsyncDisposable, IDispo
         }
     }
 
+    // Flushes are serialised (T-157). Callers fire FlushAsync and forget it after every change, so two can overlap, and an
+    // unserialised pair is last-writer-wins: each snapshots under _gate, then writes settings.json.tmp and commits after
+    // an await. Reset on Settings > Visualization writes a default (flush 1, snapshot holds the key) then removes the key
+    // (flush 2, snapshot without it); when flush 1 committed last, the removal was undone on disk. The two also shared
+    // the one temp path, so an overlap could fail outright after its snapshot had been marked clean.
+    //
+    // _flushGate is held across snapshot, write and commit, and the snapshot is taken only once the gate is held, so a
+    // flush queued behind another writes the newest state rather than the state when it was called, and one that finds
+    // nothing dirty by then returns without writing. The file therefore always ends holding the newest in-memory state.
+    // Flush (used by Dispose) takes the same gate, synchronously. A write that fails marks the store dirty again so the
+    // next flush retries it. The gate is never disposed: it has no wait handle to release, and a flush forgotten by a
+    // caller may still arrive after Dispose.
+    private readonly SemaphoreSlim _flushGate = new(1, 1);
+
     public void Flush()
     {
-        if (!TryTakeSnapshot(out string json))
+        _flushGate.Wait();
+        try
         {
-            return;
-        }
+            if (!TryTakeSnapshot(out string json))
+            {
+                return;
+            }
 
-        string temp = PrepareTemp();
-        File.WriteAllText(temp, json);
-        Commit(temp);
+            try
+            {
+                string temp = PrepareTemp();
+                File.WriteAllText(temp, json);
+                Commit(temp);
+            }
+            catch
+            {
+                MarkDirty();
+                throw;
+            }
+        }
+        finally
+        {
+            _flushGate.Release();
+        }
     }
+
+    /// <summary>Test seam: awaited by <see cref="FlushAsync"/> after it takes its snapshot and before it writes it.</summary>
+    internal Func<Task>? SnapshotTakenForTests { get; set; }
+
+    /// <summary>Test seam: invoked when a <see cref="FlushAsync"/> has to wait because another flush holds the file.</summary>
+    internal Action? FlushQueuedForTests { get; set; }
 
     public async Task FlushAsync(CancellationToken cancellationToken = default)
     {
-        if (!TryTakeSnapshot(out string json))
+        if (_flushGate.CurrentCount == 0)
         {
-            return;
+            FlushQueuedForTests?.Invoke();
         }
 
-        string temp = PrepareTemp();
-        await File.WriteAllTextAsync(temp, json, cancellationToken).ConfigureAwait(false);
-        Commit(temp);
+        await _flushGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            if (!TryTakeSnapshot(out string json))
+            {
+                return;
+            }
+
+            try
+            {
+                if (SnapshotTakenForTests is { } snapshotTaken)
+                {
+                    await snapshotTaken().ConfigureAwait(false);
+                }
+
+                string temp = PrepareTemp();
+                await File.WriteAllTextAsync(temp, json, cancellationToken).ConfigureAwait(false);
+                Commit(temp);
+            }
+            catch
+            {
+                MarkDirty();
+                throw;
+            }
+        }
+        finally
+        {
+            _flushGate.Release();
+        }
     }
 
     public void Dispose() => Flush();
@@ -161,6 +224,14 @@ public sealed class JsonSettingsStore : ISettingsStore, IAsyncDisposable, IDispo
             json = _values.ToJsonString(SerializerOptions);
             _dirty = false;
             return true;
+        }
+    }
+
+    private void MarkDirty()
+    {
+        lock (_gate)
+        {
+            _dirty = true;
         }
     }
 
