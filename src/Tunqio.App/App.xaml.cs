@@ -136,7 +136,7 @@ public partial class App : Application
 
         _window.Activate();
         logger.LogInformation("Main window shown after {ElapsedMs} ms", startup.ElapsedMilliseconds);
-        _ = StartAudioAsync(window, logger);
+        _ = StartAudioAsync(window, logger, commandLine);
         _ = StartLibraryWatcherAsync(logger);
 
         if (RenderSpikeRunner.IsRequested(commandLine))
@@ -197,7 +197,45 @@ public partial class App : Application
     /// frame because loading mpcore and opening a WASAPI device are not worth delaying the window for. Nothing here
     /// can fail the launch — <see cref="AudioStartup"/> returns a notice instead, and the app runs without audio.
     /// </summary>
-    private async Task StartAudioAsync(MainWindow window, ILogger<App> logger)
+    private async Task StartAudioAsync(MainWindow window, ILogger<App> logger, string[] commandLine)
+    {
+        try
+        {
+            await StartAudioCoreAsync(window, logger).ConfigureAwait(true);
+        }
+        finally
+        {
+            // --export-diagnostics FILE (E6-S5): after audio, so system-info.txt names the output the engine opened,
+            // and whether or not audio came up, so a machine with no sound still exports.
+            await ExportDiagnosticsIfRequestedAsync(logger, commandLine).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// The picker-free export tools/check-about.ps1 relies on: the same view model and exporter as the About page's
+    /// button, written to the path on the command line. A failure is logged and the app carries on; the harness
+    /// reads the log.
+    /// </summary>
+    private async Task ExportDiagnosticsIfRequestedAsync(ILogger<App> logger, string[] commandLine)
+    {
+        if (DiagnosticsExportSwitch.Path(commandLine) is not { } zipPath || _host is null)
+        {
+            return;
+        }
+
+        try
+        {
+            AboutSettingsViewModel about = _host.Services.GetRequiredService<AboutSettingsViewModel>();
+            about.RedactPaths = DiagnosticsExportSwitch.Redact(commandLine);
+            await about.ExportAsync(Path.GetFullPath(zipPath)).ConfigureAwait(true);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            logger.LogError(e, "Diagnostics could not be exported to {Path} from the command line", zipPath);
+        }
+    }
+
+    private async Task StartAudioCoreAsync(MainWindow window, ILogger<App> logger)
     {
         AudioStartup? audio = null;
         try

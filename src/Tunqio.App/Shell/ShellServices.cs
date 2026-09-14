@@ -51,6 +51,16 @@ public static class ShellServices
             p.GetRequiredService<ISettingsStore>(),
             p.GetRequiredService<IAppPaths>().DataRoot));
         services.AddSingleton(p => new AppearanceSettingsViewModel(p.GetRequiredService<ISettingsStore>()));
+        // Settings > About & Diagnostics (E6-S5). The renderer is read through the container's visualizer surface, which
+        // answers null until the window attaches it; the readout says "no renderer" until then.
+        services.AddSingleton(p => new AboutSettingsViewModel(
+            AboutEnvironment.Current(),
+            p.GetRequiredService<IPlaybackSessionSource>(),
+            p.GetRequiredService<ISettingsStore>(),
+            p.GetRequiredService<IAppPaths>(),
+            p.GetRequiredService<Tunqio.Core.Library.ILibraryFolderRepository>(),
+            () => p.GetRequiredService<IVisualizationHost>().TryGetStats(),
+            uiContext));
         return services;
     }
 }

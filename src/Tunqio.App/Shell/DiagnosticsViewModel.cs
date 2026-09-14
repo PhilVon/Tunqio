@@ -80,7 +80,14 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     {
         PlaybackSession? session = _source?.Session;
         IReadOnlyList<DiagnosticsSection> sections = Diagnostics.Describe(
-            session?.Current, ReadEngineStats(session), Read(), _build, RendererProblem, ReadTheming(), ReadAudioSource(), ReadClock(session));
+            session?.Current,
+            DiagnosticsReaders.EngineStats(session, Surface),
+            DiagnosticsReaders.Renderer(_renderer, Surface),
+            _build,
+            RendererProblem,
+            ReadTheming(),
+            ReadAudioSource(),
+            DiagnosticsReaders.Clock(session, Surface));
 
         Sections.Clear();
         foreach (DiagnosticsSection section in sections)
@@ -93,21 +100,11 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// The renderer's statistics, or null. The renderer is native and can be mid-teardown when the window closes,
-    /// so a throw here must not take the overlay — or the window's own stats timer — with it.
+    /// Names this surface in the log line a failed read leaves. The engine, clock and renderer reads themselves
+    /// are <see cref="DiagnosticsReaders"/>', shared with the About page's readout (E6-S5): the renderer is native
+    /// and can be mid-teardown when the window closes, and an unguarded read from this timer ended the process (T-159).
     /// </summary>
-    private RenderStats? Read()
-    {
-        try
-        {
-            return _renderer();
-        }
-        catch (Exception e) when (e is not OutOfMemoryException)
-        {
-            Serilog.Log.Debug(e, "The renderer could not be read for the diagnostics overlay");
-            return null;
-        }
-    }
+    private const string Surface = "diagnostics overlay";
 
     /// <summary>
     /// The theming's state, or null. Read behind the same net as the renderer: the controller ticks on a timer
@@ -122,38 +119,6 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             Serilog.Log.Debug(e, "The reactive theming could not be read for the diagnostics overlay");
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// The engine's output statistics, or null. <c>mp_engine_get_stats</c> is a native call that throws on a refusal
-    /// or a closed handle, and <see cref="Refresh"/> runs from a timer: an exception out of it reaches the XAML
-    /// unhandled-exception handler, which logs and does not recover, so an unguarded read here ended the process (T-159).
-    /// </summary>
-    /// <summary>The engine's clock, for the live buffer depth; guarded for the same reason as <see cref="ReadEngineStats"/>.</summary>
-    private static PlaybackClock? ReadClock(PlaybackSession? session)
-    {
-        try
-        {
-            return session?.EngineClock;
-        }
-        catch (Exception e) when (e is not OutOfMemoryException)
-        {
-            Serilog.Log.Debug(e, "Diagnostics could not read the engine clock");
-            return null;
-        }
-    }
-
-    private static EngineStats? ReadEngineStats(PlaybackSession? session)
-    {
-        try
-        {
-            return session?.EngineStats;
-        }
-        catch (Exception e) when (e is not OutOfMemoryException)
-        {
-            Serilog.Log.Debug(e, "The engine statistics could not be read for the diagnostics overlay");
             return null;
         }
     }

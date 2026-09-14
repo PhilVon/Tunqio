@@ -48,6 +48,10 @@
         <NavigationViewItem Content="Visualization" Tag="visualization" AutomationProperties.Name="Visualization settings">
           <NavigationViewItem.Icon><FontIcon Glyph="&#xE9D9;" /></NavigationViewItem.Icon>
         </NavigationViewItem>
+        <!-- Last in the list (E6-S5): a section that joins after it goes above this item. -->
+        <NavigationViewItem Content="About &amp; Diagnostics" Tag="about" AutomationProperties.Name="About and diagnostics settings">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE946;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
       </NavigationView.MenuItems>
       <Frame x:Name="SectionFrame" />
     </NavigationView>

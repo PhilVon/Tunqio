@@ -14,6 +14,12 @@ public sealed record DiagnosticsRow(string Label, string Value);
 public sealed record DiagnosticsSection(string Title, IReadOnlyList<DiagnosticsRow> Rows);
 
 /// <summary>
+/// The three numbers Settings › About &amp; Diagnostics shows (E6-S5): output dropouts, render frame time and the
+/// process's memory, each as one line of text, from the same sources as the overlay's Output and Renderer sections.
+/// </summary>
+public sealed record PerformanceReadout(string Dropouts, string FrameTime, string Memory);
+
+/// <summary>
 /// Audio-reactive theming as the overlay reports it (T-155): whether it is running, why it is not, what colours
 /// are on screen, whether the visualizer is being told them, and which album the art colours came from.
 /// </summary>
@@ -81,6 +87,27 @@ public static class Diagnostics
         new("Reactive theming", Theming(theming)),
         new("Build", [new DiagnosticsRow("Version", build ?? "unknown")]),
     ];
+
+    /// <summary>
+    /// The About page's readout (E6-S5) from the overlay's own inputs: underruns against callbacks from the engine,
+    /// average and worst frame time from the renderer, and the process's working set. Each says what is missing
+    /// rather than showing a zero, for the same reason the overlay does: "0 underruns" from an engine that never
+    /// started is not a healthy output, it is no output.
+    /// </summary>
+    /// <param name="workingSetBytes">The process's working set, <see cref="Environment.WorkingSet"/>.</param>
+    public static PerformanceReadout Performance(EngineStats? engine, RenderStats? renderer, long workingSetBytes)
+    {
+        string dropouts = engine is null
+            ? "no audio engine"
+            : !engine.OutputStarted
+                ? "output not started"
+                : Inv($"{engine.Underruns} underrun{(engine.Underruns == 1 ? string.Empty : "s")} in {engine.Callbacks} callbacks · worst callback {engine.CallbackMax.TotalMilliseconds:F2} ms");
+        string frameTime = renderer is null
+            ? "no renderer"
+            : Inv($"avg {renderer.FrameAverage.TotalMilliseconds:F2} ms · max {renderer.FrameMax.TotalMilliseconds:F1} ms · {renderer.Fps:F1} fps · {renderer.DxgiMissedRefreshes} missed refreshes");
+        string memory = Inv($"{workingSetBytes / (1024.0 * 1024.0):F0} MB working set");
+        return new PerformanceReadout(dropouts, frameTime, memory);
+    }
 
     /// <summary>
     /// The whole overlay as text for the clipboard: what someone pastes into a bug report. Tab-separated, so it

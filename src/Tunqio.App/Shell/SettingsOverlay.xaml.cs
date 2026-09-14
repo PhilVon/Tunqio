@@ -16,15 +16,22 @@ public sealed partial class SettingsOverlay : UserControl
         ["library"] = typeof(LibrarySettingsPage),
         ["appearance"] = typeof(AppearanceSettingsPage),
         ["visualization"] = typeof(VisualizationSettingsPage),
+        ["about"] = typeof(AboutSettingsPage),
     };
 
     public SettingsOverlay()
     {
         InitializeComponent();
+        // The window shows and hides the overlay by collapsing it, which unloads nothing: a page that polls while it
+        // is on screen (About's readout, E6-S5) has to be told when the screen it is on has gone.
+        RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => VisibleChanged?.Invoke(this, Visibility == Visibility.Visible));
     }
 
     /// <summary>Close or Esc: the window hides the overlay and gives the shell back.</summary>
     public event EventHandler? CloseRequested;
+
+    /// <summary>The overlay was shown (true) or hidden (false), for a cached page that only works while it can be seen.</summary>
+    public event EventHandler<bool>? VisibleChanged;
 
     /// <summary>
     /// Shows <paramref name="section"/>, or the section last shown, or Playback the first time. Called by the window as it

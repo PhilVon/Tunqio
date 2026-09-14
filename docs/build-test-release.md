@@ -176,6 +176,8 @@ GitHub Actions, `windows-2025-vs2026` runners (Visual Studio 2026 with MSVC v145
 
 The About page lists these; a CI step regenerates `THIRD-PARTY-NOTICES.md` from the NuGet graph plus the native list and fails on an unknown or GPL licence.
 
+As built (E6-S5): Settings › About & Diagnostics reads the **shipped** copy, `licenses/THIRD-PARTY-NOTICES.md` beside the executable (a `Content` item since T-128, asserted in the unpackaged output and the MSIX by `tools/check-package.ps1`), and parses its tables with `Tunqio.Core.ThirdPartyNotices`; each row's `Licence text` column names the file under `licenses/` the page opens. So a package added to `tools/native-deps.json` needs a row in the notices table to be on the page, and `Tunqio.Core.Tests` asserts the parse of the real file. The NuGet components have no text beside the executable until E8-S1 collects them; the page says so on their rows.
+
 ## Definition of Done (per card)
 
 1. Acceptance criteria on the card are checked, with promise-type criteria demonstrated in the app.

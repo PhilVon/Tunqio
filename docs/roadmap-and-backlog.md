@@ -559,7 +559,8 @@ As built: `IPlaylistRepository` / `SqlitePlaylistRepository` over the existing `
 - [ ] Rebinding detects conflicts; reset restores defaults; bindings persist
 
 ### E6-S5 · About and Diagnostics page · **S** · `ui`
-- [ ] Licences listed from `THIRD-PARTY-NOTICES.md`; export diagnostics zip contains logs, settings (redacted paths optional) and system info
+As built: `AboutSettingsPage` over `AboutSettingsViewModel`, last in the settings overlay: the product and app version (from Directory.Build.props through the assembly) and the core's `mp_version`/ABI; the BASS attribution and a licence list `ThirdPartyNotices` parses from the shipped `licenses/THIRD-PARTY-NOTICES.md`, each text openable; Open logs folder; Export diagnostics (`DiagnosticsExport`: logs, `settings.json`, `system-info.txt`, paths redacted by a switch that is on by default; `--export-diagnostics FILE` for the harness); the crash-reporting switch, which says nothing is sent yet; and a performance readout over the overlay's `DiagnosticsReaders`, ticking only while the page is visible. Details in [ui-screens-and-flows.md](ui-screens-and-flows.md), "About & Diagnostics".
+- [x] Licences listed from `THIRD-PARTY-NOTICES.md`; export diagnostics zip contains logs, settings (redacted paths optional) and system info
 
 ### E6-S6 · First-run welcome · **S** · `ui`
 - [ ] Flow 1 completes from a fresh profile to first sound with no dead ends

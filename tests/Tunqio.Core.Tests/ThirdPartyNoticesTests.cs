@@ -23,6 +23,48 @@ public class ThirdPartyNoticesTests
         notices.Should().Contain("BASS_AAC", "the decision to leave the GPL add-on out must be recorded");
     }
 
+    /// <summary>E6-S5: the About page lists licences by parsing this file, so the parse of the real file is asserted here.</summary>
+    [Fact]
+    public void The_notices_parse_into_every_BASS_package_with_its_shipped_text_and_the_vendored_sources()
+    {
+        IReadOnlyList<ThirdPartyComponent> components = ThirdPartyNotices.Parse(Notices());
+
+        components.Select(c => c.Name).Should().Equal(
+            "bass", "bassmix", "basswasapi", "bassflac", "bassopus", "basswv", "bass_ape", "Catch2", "nlohmann/json", "pffft");
+        foreach (ThirdPartyComponent bass in components.Take(7))
+        {
+            bass.LicenceFile.Should().Be("licenses/" + bass.Name + ".txt", "every BASS package ships its text under licenses/ (T-128)");
+            bass.Version.Should().MatchRegex(@"^\d+\.\d+\.\d+$");
+            bass.Licence.Should().NotBeEmpty();
+        }
+
+        components.Single(c => c.Name == "bass").Licence.Should().StartWith("Free for non-commercial use");
+        components.Single(c => c.Name == "Catch2").LicenceFile.Should().BeNull("the vendored texts live in the repository, not beside the executable");
+        components.Single(c => c.Name == "Catch2").Licence.Should().Be("Boost Software License 1.0 (catch2/LICENSE.txt)");
+        components.Single(c => c.Name == "nlohmann/json").Licence.Should().Be("MIT (nlohmann/LICENSE.MIT)");
+    }
+
+    [Fact]
+    public void The_parser_skips_continuation_rows_and_tables_without_a_licence_column()
+    {
+        const string markdown = """
+            | Key | Type |
+            |-----|------|
+            | a | int |
+
+            | Component | Licence |
+            |---|---|
+            | one | MIT |
+            | | continued |
+            | two | BSD |
+            """;
+
+        ThirdPartyNotices.Parse(markdown).Should().Equal(
+            new ThirdPartyComponent("one", string.Empty, "MIT", null),
+            new ThirdPartyComponent("two", string.Empty, "BSD", null));
+        ThirdPartyNotices.Parse(string.Empty).Should().BeEmpty();
+    }
+
     [Fact]
     public void Fetch_manifest_pins_a_hash_for_every_package()
     {
