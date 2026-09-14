@@ -1,8 +1,9 @@
 <#
 .SYNOPSIS
   E5-S1: the three modes in a running shell. The switcher changes the mode and shows it, Focus gives Now Playing the
-  whole width and hides the sidebar, Curation gives the library side the larger share (Q-67), leaving Focus shows the
-  sidebar page that was there, playback keeps going across every switch, and ui.mode is written and read back by a
+  whole width and hides the sidebar, Curation gives the library side the larger share (Q-67), leaving Focus shows what
+  the mode it returns to lays out (the sidebar page that was there in Discovery, the Curation pane in the sidebar's
+  place in Curation, T-200), playback keeps going across every switch, and ui.mode is written and read back by a
   relaunch.
 
   Keystroke-free by default: every action is a UIA pattern (SelectionItem, Invoke, Toggle, Window), so nothing typed
@@ -147,10 +148,13 @@ try {
         # The play button is enabled whenever there is a session, loaded track or not (IsReady, not HasTrack), so
         # the scrubber is what says a track is loaded. The first run pressed Play on an empty queue and waited.
         if (-not $scrubber.Current.IsEnabled) {
+            # Only an element that answers Invoke: more than one element carries the tile's name, and the first run on
+            # a scratch profile picked one that does not ("Unsupported Pattern").
             $tile = Wait-Until {
                 $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
-                    Where-Object { $_.Current.Name -like 'Album * by *' } | Select-Object -First 1
-            } 20 'an album tile appeared'
+                    Where-Object { $_.Current.Name -like 'Album * by *' -and [bool]$_.GetCurrentPropertyValue($A::IsInvokePatternAvailableProperty) } |
+                    Select-Object -First 1
+            } 20 'an invokable album tile appeared'
             Write-Output "loading a track from: $($tile.Current.Name)"
             $tile.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
             Start-Sleep -Milliseconds 1500
@@ -187,29 +191,52 @@ try {
     Start-Sleep -Milliseconds 800
     Check 'the sidebar is on Artists before any switch' (Get-Selected (Find-Named $window 'Artists')) 'selected'
 
+    # T-200: Focus is left twice, once for each mode the other side of it, because what comes back differs. Discovery
+    # brings the sidebar back on the page it was on. Curation does not show the sidebar at all: since E5-S4 (T-64) its
+    # dual pane takes the sidebar's cell (ShellLayoutState.CurationEditor; ShellChrome collapses the sidebar under it),
+    # so leaving Focus for Curation shows the Curation pane. The last step, back to Discovery from Curation, is where
+    # the sidebar page has to have survived the pane that covered it.
     foreach ($step in @(
-            @{ Mode = 'Focus'; SidebarShown = $false },
-            @{ Mode = 'Curation'; SidebarShown = $true },
-            @{ Mode = 'Discovery'; SidebarShown = $true })) {
+            @{ Mode = 'Focus'; From = 'Discovery' },
+            @{ Mode = 'Discovery'; From = 'Focus' },
+            @{ Mode = 'Focus'; From = 'Discovery' },
+            @{ Mode = 'Curation'; From = 'Focus' },
+            @{ Mode = 'Discovery'; From = 'Curation' })) {
         $position = if ($playing) { Get-Position $scrubber } else { 0 }
         Select-Mode $window $step.Mode
-        Check "$($step.Mode) is the selected mode" (Get-Selected (Find-Named $window "$($step.Mode) mode")) 'switcher'
-        Check "ui.mode says $($step.Mode.ToLowerInvariant())" ((Get-StoredMode) -eq $step.Mode.ToLowerInvariant()) "stored '$(Get-StoredMode)'"
+        $label = "$($step.Mode) from $($step.From)"
+        Check "$label is the selected mode" (Get-Selected (Find-Named $window "$($step.Mode) mode")) 'switcher'
+        Check "$label writes ui.mode $($step.Mode.ToLowerInvariant())" ((Get-StoredMode) -eq $step.Mode.ToLowerInvariant()) "stored '$(Get-StoredMode)'"
 
         $width = (Find-Named $window 'Playback controls panel').Current.BoundingRectangle.Width
         $artistsNow = Find-Named $window 'Artists'
         switch ($step.Mode) {
             'Focus' {
-                Check 'Focus gives Now Playing the whole width' ($width -ge $client * 0.9) "controls bar $([math]::Round($width)) of $([math]::Round($client)) px"
-                Check 'Focus hides the sidebar' ($null -eq $artistsNow -or $artistsNow.Current.BoundingRectangle.Width -eq 0) 'the Artists view is not on screen'
+                Check "$label gives Now Playing the whole width" ($width -ge $client * 0.9) "controls bar $([math]::Round($width)) of $([math]::Round($client)) px"
+                Check "$label hides the sidebar" ($null -eq $artistsNow -or $artistsNow.Current.BoundingRectangle.Width -eq 0) 'the Artists view is not on screen'
             }
             'Curation' {
                 Check 'Curation gives the library side the larger share' ($width -lt $discoveryWidth - 20) "controls bar $([math]::Round($width)) px against Discovery's $([math]::Round($discoveryWidth))"
-                Check 'leaving Focus shows the sidebar page that was there' ($artistsNow -and (Get-Selected $artistsNow)) 'Artists still selected'
+                # The pane's own lists, polled briefly: the mode transition fades it in.
+                $source = $null
+                $target = $null
+                for ($i = 0; $i -lt 20 -and -not ($source -and $target); $i++) {
+                    $source = Find-Named $window 'Source tracks'
+                    $target = Find-Named $window 'Target playlist'
+                    if (-not ($source -and $target)) { Start-Sleep -Milliseconds 250 }
+                }
+                $artistsNow = Find-Named $window 'Artists'
+                Check 'leaving Focus for Curation shows the Curation pane' ($null -ne $source -and $null -ne $target -and $source.Current.BoundingRectangle.Width -gt 0) "Source tracks $(if ($source) { 'present' } else { 'absent' }), Target playlist $(if ($target) { 'present' } else { 'absent' })"
+                Check 'the Curation pane takes the sidebar''s place rather than sitting beside it' ($null -eq $artistsNow -or $artistsNow.Current.BoundingRectangle.Width -eq 0) 'the Artists view is not on screen'
             }
             'Discovery' {
-                Check 'Discovery is back to its shares' ([math]::Abs($width - $discoveryWidth) -le 4) "controls bar $([math]::Round($width)) px, $([math]::Round($discoveryWidth)) before"
-                Check 'the sidebar page survived every switch' ($artistsNow -and (Get-Selected $artistsNow)) 'Artists still selected'
+                Check "$label is back to its shares" ([math]::Abs($width - $discoveryWidth) -le 4) "controls bar $([math]::Round($width)) px, $([math]::Round($discoveryWidth)) before"
+                if ($step.From -eq 'Focus') {
+                    Check 'leaving Focus for Discovery shows the sidebar page that was there' ($artistsNow -and (Get-Selected $artistsNow)) 'Artists still selected'
+                }
+                else {
+                    Check 'the sidebar page survived every switch, Curation''s pane included' ($artistsNow -and (Get-Selected $artistsNow)) 'Artists still selected'
+                }
             }
         }
 
