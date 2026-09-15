@@ -889,6 +889,21 @@ try {
             $help = (Get-ElementNamed $single $field 'Edit').Current.HelpText
             if ($help) { $problems += "'$field' has HelpText '$help' for a single track" }
         }
+        # T-210: the Files affected list must show the one file, on screen. The art column (T-113) first went above
+        # the fields and pushed the list out of the dialog's 520 px cap in this shape only; the batch cases could
+        # not see it because they collapse the column, and this case had never looked at the list.
+        $list = $null
+        foreach ($element in Get-Descendants $single) { if ((Get-TypeName $element) -eq 'List') { $list = $element; break } }
+        if (-not $list) { $problems += 'the single-track dialog has no Files affected list' }
+        else {
+            $items = $list.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+            $listRect = Get-UiaRect $list
+            $dialogRect = Get-UiaRect $single
+            if ($items.Count -ne 1) { $problems += "the Files affected list shows $($items.Count) rows for one track" }
+            elseif ($listRect.Offscreen -or $listRect.Height -lt 24) { $problems += "the Files affected list has $($listRect.Height) px on screen ($($listRect.Describe))" }
+            elseif ($listRect.Bottom -gt $dialogRect.Bottom + 1) { $problems += "the Files affected list runs past the dialog ($($listRect.Describe) against $($dialogRect.Describe))" }
+            else { $script:detail += "Files affected: 1 row, list $($listRect.Height) px tall inside the dialog" }
+        }
         (Get-ElementNamed $single 'Cancel' 'Button').GetCurrentPattern(
             [System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         $problems -join '; '

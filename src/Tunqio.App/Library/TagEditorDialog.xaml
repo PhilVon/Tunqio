@@ -41,41 +41,21 @@
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Spacing="12">
-      <!--
-        The art preview (T-113), single-track shape only: the cover the file will carry after Confirm, what it is,
-        and Replace / Remove. The Image is fed from the view model's bytes in code-behind, because a BitmapImage
-        is built from a stream asynchronously and x:Bind has no async function shape.
-      -->
-      <Grid ColumnSpacing="12" Visibility="{x:Bind ViewModel.CanEditArt, Mode=OneWay}" AutomationProperties.Name="Cover art">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
-        <Grid Width="96" Height="96" CornerRadius="6"
-              Background="{ThemeResource LayerFillColorDefaultBrush}"
-              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1">
-          <FontIcon Glyph="&#xEB9F;" FontSize="28" Opacity="0.5" HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Visibility="{x:Bind library:TagEditorDialog.When(ViewModel.HasArt, x:False), Mode=OneWay}" />
-          <Image x:Name="ArtImage" Stretch="UniformToFill" AutomationProperties.Name="Cover art preview" />
-        </Grid>
-        <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center">
-          <TextBlock Text="{x:Bind ViewModel.ArtSummary, Mode=OneWay}" TextWrapping="Wrap"
-                     Style="{ThemeResource CaptionTextBlockStyle}" AutomationProperties.AutomationId="ArtSummary" />
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="Replace art…" Click="OnReplaceArt" IsEnabled="{x:Bind ViewModel.CanEditArt, Mode=OneWay}" />
-            <Button Content="Remove art" Click="OnRemoveArt" IsEnabled="{x:Bind ViewModel.HasArt, Mode=OneWay}" />
-          </StackPanel>
-        </StackPanel>
-      </Grid>
-
       <Grid ColumnSpacing="12" RowSpacing="8">
         <Grid.ColumnDefinitions>
           <!--
+            The art column (T-113) sits beside the first four boxes rather than above them, because the dialog is
+            capped at 520 px and a block above the fields pushed the Files affected list out of the cap in the
+            single-track shape: the dialog opened with no files in it (T-210, Phil). Four boxes are about 250 px
+            tall; the image and its two buttons are about 170, so the column adds no height. It collapses for a
+            batch, which never edits art.
+
             Genre takes what is left rather than half. The number boxes on the same row need a definite amount of
             room and Genre does not: it is a text box that scrolls, so being narrower costs it nothing that being
             clipped costs the boxes beside it. Star here and Auto there means the numbers are sized for what they
             hold and Genre absorbs the remainder, so there is no total for anybody to keep true (T-139).
           -->
+          <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
@@ -87,31 +67,52 @@
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBox Grid.Row="0" Grid.ColumnSpan="2" Header="Title"
+        <!--
+          The cover the file will carry after Confirm, and Replace / Remove. The Image is fed from the view model's
+          bytes in code-behind, because a BitmapImage is built from a stream asynchronously and x:Bind has no async
+          function shape. The buttons carry their full names for a screen reader and the harness; the labels are
+          short because the column is 96 px wide.
+        -->
+        <StackPanel Grid.Row="0" Grid.RowSpan="4" Grid.Column="0" Width="96" Spacing="8" VerticalAlignment="Top"
+                    Visibility="{x:Bind ViewModel.CanEditArt, Mode=OneWay}" AutomationProperties.Name="Cover art">
+          <Grid Width="96" Height="96" CornerRadius="6"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1">
+            <FontIcon Glyph="&#xEB9F;" FontSize="28" Opacity="0.5" HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Visibility="{x:Bind library:TagEditorDialog.When(ViewModel.HasArt, x:False), Mode=OneWay}" />
+            <Image x:Name="ArtImage" Stretch="UniformToFill" AutomationProperties.Name="Cover art preview" />
+          </Grid>
+          <Button Content="Replace…" HorizontalAlignment="Stretch" Click="OnReplaceArt"
+                  IsEnabled="{x:Bind ViewModel.CanEditArt, Mode=OneWay}" AutomationProperties.Name="Replace art…" />
+          <Button Content="Remove" HorizontalAlignment="Stretch" Click="OnRemoveArt"
+                  IsEnabled="{x:Bind ViewModel.HasArt, Mode=OneWay}" AutomationProperties.Name="Remove art" />
+        </StackPanel>
+
+        <TextBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Header="Title"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsTitleMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsTitleMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
-        <TextBox Grid.Row="1" Grid.ColumnSpan="2" Header="Artist"
+        <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Header="Artist"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsArtistsMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsArtistsMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.Artists, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
-        <TextBox Grid.Row="2" Grid.ColumnSpan="2" Header="Album"
+        <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Header="Album"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsAlbumTitleMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsAlbumTitleMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.AlbumTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
-        <TextBox Grid.Row="3" Grid.ColumnSpan="2" Header="Album artist"
+        <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Header="Album artist"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsAlbumArtistMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsAlbumArtistMixed), Mode=OneWay}"
                  Text="{x:Bind ViewModel.AlbumArtist, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
-        <TextBox Grid.Row="4" Grid.Column="0" Header="Genre"
+        <TextBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Header="Genre"
                  PlaceholderText="{x:Bind library:TagEditorDialog.Placeholder(ViewModel.IsGenresMixed), Mode=OneWay}"
                  IsReadOnly="{x:Bind ViewModel.IsWriting, Mode=OneWay}"
                  AutomationProperties.HelpText="{x:Bind library:TagEditorDialog.MixedHelp(ViewModel.IsGenresMixed), Mode=OneWay}"
@@ -134,7 +135,7 @@
           420, Genre keeps 142, and because its column is the star one it is the thing that shrinks if the dialog
           ever narrows. The boxes are the last to give rather than the first.
         -->
-        <Grid Grid.Row="4" Grid.Column="1" ColumnSpacing="8" VerticalAlignment="Bottom">
+        <Grid Grid.Row="4" Grid.Column="2" ColumnSpacing="8" VerticalAlignment="Bottom">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="90" />
             <ColumnDefinition Width="80" />
@@ -157,6 +158,10 @@
                    Text="{x:Bind ViewModel.DiscNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
         </Grid>
       </Grid>
+
+      <TextBlock Text="{x:Bind ViewModel.ArtSummary, Mode=OneWay}" TextWrapping="Wrap"
+                 Style="{ThemeResource CaptionTextBlockStyle}" AutomationProperties.AutomationId="ArtSummary"
+                 Visibility="{x:Bind ViewModel.CanEditArt, Mode=OneWay}" />
 
       <TextBlock Text="Separate several artists or genres with a semicolon."
                  Style="{ThemeResource CaptionTextBlockStyle}"
