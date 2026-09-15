@@ -39,9 +39,9 @@ public class ThirdPartyNoticesTests
 
         components.Select(c => c.Name).Should().Equal(
             "bass", "bassmix", "basswasapi", "bassflac", "bassopus", "basswv", "bass_ape",
-            ".NET runtime and Windows Desktop runtime (self-contained)",
+            ".NET runtime (self-contained)",
             "Windows App SDK and WinUI 3",
-            "Windows App Runtime 1.8 (framework package)",
+            "Windows App Runtime 2 (framework package)",
             "C#/WinRT runtime and Windows SDK projection",
             "Microsoft Edge WebView2 SDK",
             "CommunityToolkit.Mvvm",

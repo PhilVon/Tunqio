@@ -654,7 +654,7 @@ User-facing README, install and trust-cert instructions, `THIRD-PARTY-NOTICES.md
 
 ### E8-S8 · Windows App SDK / .NET upgrade card · **S** · `infra`
 Dedicated card per milestone to bump pinned versions and re-run the gate.
-- [ ] Versions current at release; changelog reviewed for breaking changes
+- [x] Versions current at release; changelog reviewed for breaking changes (T-87, 2026-09-15: .NET 10 LTS and Windows App SDK 2.4.0 with every other pin current; the ML, AI, Search and Widgets components excluded from the package; the unpackaged build ships the two framework resource files that App SDK 2.x's self-contained targets omit, without which toasts never register; the Windows Desktop runtime is no longer in the package)
 
 ---
 

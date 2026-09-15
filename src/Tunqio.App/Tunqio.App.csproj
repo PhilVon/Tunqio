@@ -58,6 +58,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <!-- Direct as well as transitive, for its path: TunqioAddAppRuntimeResourceFiles reads the framework package it carries. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" GeneratePathProperty="true" />
+    <!-- Components Tunqio does not use, kept out of the self-contained output (see Directory.Packages.props, T-87). -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.ML" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.Windows.AI.MachineLearning" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.AI" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Search" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Widgets" ExcludeAssets="all" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="H.NotifyIcon.WinUI" />
@@ -199,6 +207,22 @@
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
+  </Target>
+
+  <!-- T-87: Windows App SDK 2.x's self-contained targets copy each component's runtimes-framework files into the output, and
+       none of the components carries Microsoft.WindowsAppRuntime.Insights.Resource.dll or WindowsAppRuntime.png. Unpackaged,
+       AppNotificationManager.Register loads the first of them and fails without it (0x8007007E, "The specified module could
+       not be found"; microsoft/WindowsAppSDK issue 6071), so toasts never register. Both are inside the framework package the
+       Runtime component ships (the same one Dependencies\x64 carries beside the MSIX), so the unpackaged build takes those two
+       files from there. Packaged, the framework package itself provides them. -->
+  <Target Name="TunqioAddAppRuntimeResourceFiles" AfterTargets="CopyFilesToOutputDirectory" Condition="'$(WindowsAppSDKSelfContained)' == 'true' and '$(WindowsPackageType)' == 'None'">
+    <PropertyGroup>
+      <_TunqioFrameworkMsix>$(PkgMicrosoft_WindowsAppSDK_Runtime)\tools\MSIX\win10-$(Platform)\Microsoft.WindowsAppRuntime.2.msix</_TunqioFrameworkMsix>
+      <_TunqioFrameworkExtract>$(IntermediateOutputPath)winappsdk-framework\</_TunqioFrameworkExtract>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_TunqioFrameworkMsix)')" Text="The Windows App Runtime framework package is not at $(_TunqioFrameworkMsix); the unpackaged build needs its notification resource files (T-87)." />
+    <Unzip SourceFiles="$(_TunqioFrameworkMsix)" DestinationFolder="$(_TunqioFrameworkExtract)" Include="Microsoft.WindowsAppRuntime.Insights.Resource.dll;WindowsAppRuntime.png" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_TunqioFrameworkExtract)Microsoft.WindowsAppRuntime.Insights.Resource.dll;$(_TunqioFrameworkExtract)WindowsAppRuntime.png" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

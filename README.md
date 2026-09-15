@@ -82,7 +82,7 @@ The design lives in [docs/](docs/README.md); start with [decisions.md](docs/deci
 | `native/mpcore/` | C++20 core DLL: audio (BASS), analysis, rendering behind the C ABI in `include/mpcore.h` |
 | `native/mpcore.tests/` | Catch2 tests for the core (Debug, Release and ASan configurations) |
 | `native/third_party/` | Vendored pffft, nlohmann/json, Catch2 (see `THIRD-PARTY-NOTICES.md`) |
-| `src/Tunqio.Core` | Contracts, PlayQueue, PlaybackSession. Plain `net8.0`, no Windows |
+| `src/Tunqio.Core` | Contracts, PlayQueue, PlaybackSession. Plain `net10.0`, no Windows |
 | `src/Tunqio.Interop` | `LibraryImport` bindings over `mpcore.h`; the only project that names the DLL |
 | `src/Tunqio.Library` | SQLite library, scanner, tags, art cache, playlists |
 | `src/Tunqio.App` | WinUI 3 shell, MSIX manifest |
@@ -100,7 +100,7 @@ Exact versions are pinned in the repository ([docs/build-test-release.md](docs/b
 | Visual Studio 2026 (Community is enough) | 18.x, with the **Desktop development with C++**, **.NET desktop development** and **WinUI application development** workloads | |
 | MSVC toolset | v145 (installed by the C++ workload) | `TunqioPlatformToolset` |
 | Windows SDK | 10.0.26100 (select it in the C++ workload if it is not ticked) | `TunqioWindowsSdkVersion` |
-| .NET SDK | 10.0.301 or a later 10.0.3xx feature band (`rollForward: latestFeature`). The apps target `net8.0-windows`; the 10 SDK is for C# 14 | `global.json` |
+| .NET SDK | 10.0.301 or a later 10.0.3xx feature band (`rollForward: latestFeature`). The apps target `net10.0-windows` (since T-87; before it `net8.0-windows` built with the 10 SDK for C# 14) | `global.json` |
 | Git, Windows PowerShell 5.1 | any current | |
 | Internet access on the first build | un4seen.com for BASS, nuget.org for packages | |
 

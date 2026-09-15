@@ -59,7 +59,7 @@ Read in this order. The **Design** documents are current; the **Foundation** doc
 ### Development Environment
 - **Platform**: Windows 10 version 2004 (build 19041) or later; Windows 11 recommended
 - **IDE**: Visual Studio 2026 with the Desktop development with C++, .NET desktop development and WinUI application development workloads
-- **Framework**: .NET 8 LTS, Windows App SDK 1.8, WinUI 3, C# 12 for the shell and library; C++20 (MSVC v145, Windows SDK 10.0.26100) for `mpcore.dll`
+- **Framework**: .NET 10 LTS, Windows App SDK 2.4, WinUI 3, C# 14 for the shell and library; C++20 (MSVC v145, Windows SDK 10.0.26100) for `mpcore.dll`
 
 ### Dependencies
 - **Audio**: BASS 2.4 with bassmix, basswasapi and format add-ons, called from the native core (free non-commercial licence, OQ-1)

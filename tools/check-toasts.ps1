@@ -57,6 +57,9 @@ if (-not $Exe) { $Exe = Join-Path $here '..\artifacts\bin\Tunqio.App\release_win
 $resolved = Resolve-Path $Exe -ErrorAction SilentlyContinue
 if (-not $resolved) { throw "The shell is not built at $Exe." }
 $Exe = $resolved.Path
+# T-87: the SDK keys an unpackaged registration by the exe path, lowercased with every backslash turned into a dot. Only this
+# exe's key is this run's business: Phil's own Tunqio, or main's build under a worktree run, may hold its own registration.
+$script:exePathKey = $Exe.ToLowerInvariant().Replace('\', '.')
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 if ($WaitMinutes -gt 10) { $WaitMinutes = 10 }
@@ -224,7 +227,7 @@ function Get-Registration {
     $found = [ordered]@{ PathKey = $null; Aumid = $null; Clsid = $null; ClsidKey = $null; LocalServer = $null }
     foreach ($key in @(Get-ChildItem $aumidRoot -ErrorAction SilentlyContinue)) {
         $guid = $key.GetValue('NotificationGUID')
-        if ($guid -and ($key.PSChildName -match 'Tunqio\.exe')) {
+        if ($guid -and ($key.PSChildName -eq $script:exePathKey)) {
             $found.PathKey = $key.PSChildName
             $found.Aumid = "$guid"
         }

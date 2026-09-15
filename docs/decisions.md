@@ -6,7 +6,7 @@ Sign-off happened on kanban card T-1 on 2026-09-08 (questions Q-1 to Q-10). Boar
 
 | ID | Title | Status | Affects |
 |----|-------|--------|---------|
-| ADR-001 | .NET 8 + Windows App SDK / WinUI 3, Windows 10 2004+ | Accepted (Q-4: Win10 2004+) | all |
+| ADR-001 | .NET 10 + Windows App SDK 2 / WinUI 3, Windows 10 2004+ | Accepted (Q-4: Win10 2004+; Q-152: .NET 10 and App SDK 2.4) | all |
 | ADR-002 | Render into a WinUI 3 SwapChainPanel, not WPF D3DImage | Accepted | visualization-engine.md |
 | ADR-003 | BASS + bassmix + basswasapi only; no PortAudio, libsamplerate, IPP or FFTW | Accepted (Q-1: non-commercial, free BASS licence applies) | audio-engine.md, performance-optimization.md |
 | ADR-004 | Native C++ core DLL (audio, analysis, rendering) with a C ABI; C# shell and library | **Accepted, revised** (Q-2 rejected the C#-first proposal) | solution-structure.md, build-test-release.md |
@@ -23,13 +23,13 @@ Product name: **Tunqio** (Q-11 on T-1, 2026-09-08). User-facing identity carries
 
 ---
 
-## ADR-001: .NET 8 + Windows App SDK / WinUI 3
+## ADR-001: .NET 10 + Windows App SDK 2 / WinUI 3
 
 **Context.** README said ".NET 6+"; .NET 6 is out of support. The UI doc chooses WinUI 3 but the visualization doc still integrates with WPF.
 
-**Decision.** .NET 8 LTS, C# 12, Windows App SDK 1.6 or later, WinUI 3 for the shell. Minimum OS Windows 10 version 2004 (build 19041), confirmed by Q-4; it is the floor for the SMTC and composition APIs we use. Windows 11 features (Mica, snap layouts) are progressive enhancements behind runtime checks.
+**Decision.** .NET 10 LTS, C# 14, Windows App SDK 2.4 or later, WinUI 3 for the shell. (As first accepted: .NET 8 LTS, C# 12, Windows App SDK 1.6 or later; amended by Q-152 on T-87, 2026-09-15, when Windows App SDK 1.8 left servicing on 2026-09-09 and .NET 8 support ends 2026-11-10. .NET 10 is serviced to 2028-11-14.) Minimum OS Windows 10 version 2004 (build 19041), confirmed by Q-4; it is the floor for the SMTC and composition APIs we use. Windows 11 features (Mica, snap layouts) are progressive enhancements behind runtime checks.
 
-**Consequences.** One UI framework across every doc. WPF references in visualization-engine.md and windows-integration.md are superseded (ADR-002, ADR-006). Windows 10 stays in the test matrix (E8-S6). Move to .NET 10 LTS when Windows App SDK supports it; a routine upgrade card.
+**Consequences.** One UI framework across every doc. WPF references in visualization-engine.md and windows-integration.md are superseded (ADR-002, ADR-006). Windows 10 stays in the test matrix (E8-S6). Moved to .NET 10 LTS on the upgrade card T-87 (E8-S8), which also drops the Windows Desktop runtime from the self-contained package: nothing shipped needs WPF or Windows Forms once H.NotifyIcon 2.4 and System.Drawing.Common 10 are in. The App SDK 2.x meta-package would bring its Windows ML, AI, Search and Widgets components into the package; they are referenced with `ExcludeAssets="all"` and never ship.
 
 ---
 

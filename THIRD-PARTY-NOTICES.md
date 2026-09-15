@@ -1,7 +1,7 @@
 # Third-party notices
 
 Every third-party component that ships in the Tunqio MSIX, with its licence. Checked against the contents of a
-packaged Release build (`Tunqio.msix`, 404 entries) on card T-86, 2026-09-14; the check is described at the end.
+packaged Release build (`Tunqio.msix`, 349 entries since T-87 took the Windows Desktop runtime out) on card T-87, 2026-09-15; the check is described at the end.
 
 Settings > About & Diagnostics reads this file (T-198): every row of both tables of shipped components, the native
 rows (the BASS packages and the vendored sources compiled into `mpcore.dll`) and the NuGet packages and the runtime,
@@ -52,17 +52,17 @@ beside the executable; the release pipeline collects them (E8-S1). The `Files in
 
 | Component | Version | Files in the package | Licence |
 |-----------|---------|----------------------|---------------|
-| .NET runtime and Windows Desktop runtime (self-contained) | 8.0.28 | `System.dll`, `System.*.dll`, `Microsoft.CSharp.dll`, `Microsoft.Win32.*.dll`, `coreclr.dll`, `clrjit.dll`, `clrgc*.dll`, `clretwrc.dll`, `mscor*.dll`, `netstandard.dll`, `hostfxr.dll`, `hostpolicy.dll`, `createdump.exe`, `Microsoft.DiaSymReader.Native.amd64.dll`, `msquic.dll`, `Microsoft.VisualBasic*.dll`; WPF and Windows Forms assemblies (`Presentation*.dll`, `PenImc_cor3.dll`, `wpfgfx_cor3.dll`, `vcruntime140_cor3.dll`, `D3DCompiler_47_cor3.dll`, `UIAutomation*.dll`, `WindowsBase.dll`, `WindowsFormsIntegration.dll`, `ReachFramework.dll`, `DirectWriteForwarder.dll`, `Accessibility.dll`), which the self-contained Windows Desktop runtime carries whole | MIT (.NET Foundation and Microsoft) |
-| Windows App SDK and WinUI 3 | 1.8.260804001 | `Microsoft.WinUI.dll`, `Microsoft.Windows.*.Projection.dll`, `Microsoft.WindowsAppRuntime.Bootstrap*.dll`, `Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.dll`, `Microsoft.InteractiveExperiences.Projection.dll`, `Microsoft.Graphics.Imaging.Projection.dll`, `Microsoft.Security.Authentication.OAuth.Projection.dll`, `Microsoft.ML.OnnxRuntime.dll` (Windows ML projection), `resources.pri` | Microsoft Software License Terms, Microsoft Windows App SDK (and Windows Machine Learning for the ML part); redistributable |
-| Windows App Runtime 1.8 (framework package) | 1.8 | Not inside `Tunqio.msix`: a package dependency installed beside it (`Dependencies\x64\Microsoft.WindowsAppRuntime.1.8.msix`) | Microsoft Software License Terms, Microsoft Windows App SDK |
+| .NET runtime (self-contained) | 10.0.9 | `System.dll`, `System.*.dll`, `Microsoft.CSharp.dll`, `Microsoft.Win32.*.dll`, `coreclr.dll`, `clrjit.dll`, `clrgc*.dll`, `clretwrc.dll`, `mscor*.dll`, `netstandard.dll`, `hostfxr.dll`, `hostpolicy.dll`, `createdump.exe`, `Microsoft.DiaSymReader.Native.amd64.dll`, `msquic.dll`, `Microsoft.VisualBasic*.dll`, `WindowsBase.dll` (a facade the runtime pack carries). Since T-87 the package carries `Microsoft.NETCore.App` only: nothing shipped needs the Windows Desktop runtime (WPF and Windows Forms), which the .NET 8 package carried whole for H.NotifyIcon 2.3 | MIT (.NET Foundation and Microsoft) |
+| Windows App SDK and WinUI 3 | 2.4.0 (components: WinUI 2.3.6, Foundation 2.3.9, InteractiveExperiences 2.1.6, Base 2.0.4; the ML, AI, Search and Widgets components resolve but are excluded from the package) | `Microsoft.WinUI.dll`, `Microsoft.Windows.*.Projection.dll`, `Microsoft.WindowsAppRuntime.Bootstrap*.dll`, `Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.dll`, `Microsoft.InteractiveExperiences.Projection.dll`, `Microsoft.Security.Authentication.OAuth.Projection.dll`, `resources.pri`; unpackaged also `Microsoft.WindowsAppRuntime.Insights.Resource.dll` and `WindowsAppRuntime.png`, taken from the framework package (T-87) | Microsoft Software License Terms, Microsoft Windows App SDK; redistributable |
+| Windows App Runtime 2 (framework package) | 2.4 | Not inside `Tunqio.msix`: a package dependency installed beside it (`Dependencies\x64\Microsoft.WindowsAppRuntime.2.msix`) | Microsoft Software License Terms, Microsoft Windows App SDK |
 | C#/WinRT runtime and Windows SDK projection | 2.2.0 / 10.0.19041.55 | `WinRT.Runtime.dll`, `Microsoft.Windows.SDK.NET.dll` | MIT (C#/WinRT); Microsoft Windows SDK licence (projection) |
-| Microsoft Edge WebView2 SDK | 1.0.3179.45 | `Microsoft.Web.WebView2.Core*.dll`, `Microsoft.Web.WebView2.Core.winmd`, `WebView2Loader.dll` (a Windows App SDK dependency; Tunqio shows no web content) | BSD-3-Clause-style (Microsoft WebView2 SDK licence) |
+| Microsoft Edge WebView2 SDK | 1.0.3719.77 | `Microsoft.Web.WebView2.Core*.dll`, `Microsoft.Web.WebView2.Core.winmd`, `WebView2Loader.dll` (a Windows App SDK dependency; Tunqio shows no web content) | BSD-3-Clause-style (Microsoft WebView2 SDK licence) |
 | CommunityToolkit.Mvvm | 8.4.2 | `CommunityToolkit.Mvvm.dll` | MIT |
-| H.NotifyIcon.WinUI, H.NotifyIcon, H.GeneratedIcons.System.Drawing | 2.3.2 | `H.NotifyIcon.WinUI.dll`, `H.NotifyIcon.dll`, `H.GeneratedIcons.System.Drawing.dll` | MIT |
-| System.Drawing.Common, Microsoft.Win32.SystemEvents | 9.0.1 | `System.Drawing.Common.dll`, `Microsoft.Win32.SystemEvents.dll` (H.NotifyIcon dependencies) | MIT |
-| Microsoft.Extensions.Hosting and its dependencies (Configuration, DependencyInjection, Logging, Options, FileProviders, Diagnostics, Primitives) | 8.0.x | `Microsoft.Extensions.*.dll` | MIT |
-| Serilog, Serilog.Extensions.Hosting, Serilog.Extensions.Logging, Serilog.Sinks.File, Serilog.Sinks.Debug | 4.4.0, 8.0.0, 8.0.0, 7.0.0, 3.0.0 | `Serilog*.dll` | Apache-2.0 |
-| System.Reactive | 6.1.0 | `System.Reactive.dll` | MIT |
+| H.NotifyIcon.WinUI, H.NotifyIcon, H.GeneratedIcons.System.Drawing | 2.4.1 | `H.NotifyIcon.WinUI.dll`, `H.NotifyIcon.dll`, `H.GeneratedIcons.System.Drawing.dll` | MIT |
+| System.Drawing.Common, Microsoft.Win32.SystemEvents | 10.0.0 | `System.Drawing.Common.dll`, `Microsoft.Win32.SystemEvents.dll` (H.NotifyIcon dependencies) | MIT |
+| Microsoft.Extensions.Hosting and its dependencies (Configuration, DependencyInjection, Logging, Options, FileProviders, Diagnostics, Primitives) | 10.0.x | `Microsoft.Extensions.*.dll` | MIT |
+| Serilog, Serilog.Extensions.Hosting, Serilog.Extensions.Logging, Serilog.Sinks.File, Serilog.Sinks.Debug | 4.4.0, 10.0.0, 10.0.0, 7.0.0, 3.0.0 | `Serilog*.dll` | Apache-2.0 |
+| System.Reactive | 7.0.0 | `System.Reactive.dll` | MIT |
 | Microsoft.Data.Sqlite | 8.0.31 | `Microsoft.Data.Sqlite.dll` | MIT |
 | SQLitePCLRaw (core, provider, bundle) | 2.1.12 | `SQLitePCLRaw.*.dll` | Apache-2.0 |
 | SQLite (native build `e_sqlite3`) | via SQLitePCLRaw.lib.e_sqlite3 2.1.12 | `e_sqlite3.dll` | Public domain |

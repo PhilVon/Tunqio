@@ -6,11 +6,11 @@ How the code is built, what "tested" means for each layer, how performance claim
 
 | Item | Version / choice |
 |------|------------------|
-| .NET SDK | 10.0.301 (`rollForward: latestFeature`), pinned in `global.json`. C# 14 (`LangVersion` in `Directory.Build.props`), which is what `[ObservableProperty]` on partial properties needs: the toolkit generates `field`-keyword accessors for them, and .NET 8's Roslyn compiles neither. The target framework stays `net8.0-windows` |
+| .NET SDK | 10.0.301 (`rollForward: latestFeature`), pinned in `global.json`. C# 14 (`LangVersion` in `Directory.Build.props`), which is what `[ObservableProperty]` on partial properties needs: the toolkit generates `field`-keyword accessors for them, and .NET 8's Roslyn compiles neither. The target framework is `net10.0-windows` since T-87 (it was `net8.0-windows`) |
 | Analysers | `AnalysisLevel` pinned to `8.0-recommended` in `Directory.Build.props` rather than `latest-recommended`, so the rule set is a decision rather than a side effect of whichever SDK is installed. Raising it is its own change |
 | C++ | MSVC v145 (Visual Studio 2026; 14.51 at scaffold time), C++20, Windows SDK 10.0.26100. Pins: `TunqioPlatformToolset` and `TunqioWindowsSdkVersion` in `Directory.Build.props`. Workloads: "Desktop development with C++", ".NET desktop development", "WinUI application development" (the last two give MSBuild.exe its .NET SDK resolver) |
 | Build driver | `msbuild Tunqio.sln -restore -p:Configuration=Release -p:Platform=x64` (mixed `.vcxproj` + `.csproj`; what CI runs). Without the .NET workloads in Visual Studio, `tools/build.ps1` drives the C++ projects through MSBuild.exe and the C# projects through `dotnet build Tunqio.Managed.slnf` (a solution filter of the `.csproj`s). `dotnet build` never builds the C++ projects |
-| Windows App SDK | 1.8.260804001, pinned once in `Directory.Packages.props` (central package management) |
+| Windows App SDK | 2.4.0, pinned once in `Directory.Packages.props` (central package management); the ML, AI, Search and Widgets components are referenced with `ExcludeAssets="all"` so they resolve but never ship (T-87) |
 | Native deps | BASS 2.4.17+, bassmix, basswasapi, format add-ons: fetched by `tools/fetch-native.ps1` into `native/bass/` (headers, `.lib`, `.dll`), SHA-256 pinned, not committed. pffft, nlohmann/json, Catch2: **vendored** under `native/third_party/` (decided in E0-S1 over a vcpkg manifest: three small stable files, no bootstrap step; versions and hashes in `THIRD-PARTY-NOTICES.md`) |
 | Shaders | HLSL compiled at runtime with `D3DCompile`; CI also compiles every preset with `dxc` as validation |
 | Formatting | `dotnet format` and `clang-format --dry-run --Werror` enforced in CI |

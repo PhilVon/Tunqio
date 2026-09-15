@@ -25,7 +25,7 @@
 >   The latency table below predates it.
 > - **Extensibility.** Built-in and user visualization presets only (ADR-009); no DSP, codec-plugin or metadata-provider
 >   interfaces shipped. BASS add-ons are the fixed set in `tools/native-deps.json`, loaded at engine creation.
-> - **Technology stack.** .NET 8 (`net8.0-windows`, built with the .NET 10 SDK for C# 14), WinUI 3 / Windows App SDK 1.8,
+> - **Technology stack.** .NET 10 (`net10.0-windows`, C# 14; .NET 8 until T-87), WinUI 3 / Windows App SDK 2.4,
 >   BASS 2.4, D3D11, pffft; no WPF, no DirectSound fallback. The table at the end of this page is superseded.
 
 The Windows music player employs a layered architecture optimized for real-time audio-visual performance. The design centers on four core subsystems that operate concurrently while maintaining strict timing guarantees.
@@ -207,7 +207,7 @@ The architecture provides several extension mechanisms:
 
 ## Technology Stack Summary
 
-> **Superseded (ADR-001, ADR-003, ADR-004).** No WPF, DirectSound, D3D12, Intel IPP or FFTW3 ships, and the platform is .NET 8 with a native C++ core; see "What shipped" at the top of this page.
+> **Superseded (ADR-001, ADR-003, ADR-004).** No WPF, DirectSound, D3D12, Intel IPP or FFTW3 ships, and the platform is .NET 10 (ADR-001, raised from .NET 8 by T-87) with a native C++ core; see "What shipped" at the top of this page.
 
 | Layer | Primary Technology | Secondary Options |
 |-------|-------------------|-------------------|
