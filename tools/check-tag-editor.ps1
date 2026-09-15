@@ -225,6 +225,35 @@ function Wait-For([scriptblock]$condition, [int]$seconds, [string]$what) {
     throw "waited ${seconds}s and $what never happened"
 }
 
+# T-129: the same wait for use inside a Test-Case, where a throw would stop the whole run; null on timeout and the
+# case says what did not happen. This script used to sleep a fixed 2 or 3 s after every keystroke and then read
+# the dialog, which is long enough on an idle machine and not on a loaded one: one run in six failed with 'the
+# dialog is not open' while a build ran beside it. A wait on the thing itself is right on both.
+function Find-Until([scriptblock]$condition, [int]$seconds) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $value = & $condition
+        if ($value) { return $value }
+        Start-Sleep -Milliseconds 200
+    }
+    return $null
+}
+
+# True once no tag editor dialog is in the tree; false if one is still there after $seconds.
+function Wait-DialogClosed([int]$seconds = 10) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Get-Dialog)) { return $true }
+        Start-Sleep -Milliseconds 200
+    }
+    return -not (Get-Dialog)
+}
+
+# The Confirm button once the view model has seen the typed value and enabled it, or null.
+function Find-ConfirmEnabled($dialog, [int]$seconds = 5) {
+    return Find-Until { $c = Get-ElementNamed $dialog 'Confirm' 'Button'; if ($c -and $c.Current.IsEnabled) { $c } } $seconds
+}
+
 $script:failures = @()
 $script:notes = @()
 $script:detail = @()
@@ -328,7 +357,14 @@ try {
 
     $boot = Start-Process $Exe -ArgumentList @('--data-root', "`"$dataRoot`"") -PassThru
     Wait-For { Test-Path $dbPath } 60 'the app created its library database' | Out-Null
-    Start-Sleep -Seconds 6
+    # The schema is in the file once the app has logged opening it; the log is read with write sharing (T-129).
+    Wait-For {
+        if (-not (Test-Path $bootLog)) { return $null }
+        $s = New-Object System.IO.FileStream($bootLog, 'Open', 'Read', 'ReadWrite')
+        try { $s.Seek($bootLogStart, 'Begin') | Out-Null; $tail = (New-Object System.IO.StreamReader($s)).ReadToEnd() }
+        finally { $s.Dispose() }
+        if ($tail -match 'library\.db (created|opened) at schema') { $true }
+    } 60 'the boot launch logged its library database' | Out-Null
     # Fails the run on an app that does not exit, or exits with a crash code (T-188), instead of killing it silently.
     $closeProblem = Close-TunqioShell $boot $null 20
     if ($closeProblem) { $script:failures += $closeProblem }
@@ -358,16 +394,16 @@ try {
 
     $process = Start-Process $Exe -ArgumentList @('--data-root', "`"$dataRoot`"") -PassThru
     $script:processId = $process.Id
-    Start-Sleep -Seconds $Seconds
 
+    # The window, then the navigation inside it, each waited for rather than slept past; -Seconds is the least the
+    # window wait allows, not a pause (T-129).
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $byPid = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)
-    $script:window = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid)
-    if (-not $script:window) { throw 'The shell window never appeared in the automation tree.' }
+    $script:window = Wait-For { $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $byPid) } ([Math]::Max(30, $Seconds)) 'the shell window appeared in the automation tree'
 
     # ---- a Tracks list with something in it ------------------------------------------------------------------
-    (Get-ElementNamed $script:window 'Tracks' 'ListItem').GetCurrentPattern(
+    (Wait-For { Get-ElementNamed $script:window 'Tracks' 'ListItem' } 30 'the navigation offered Tracks').GetCurrentPattern(
         [System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     $table = Wait-For {
         $candidate = Get-ElementWithId $script:window 'List'
@@ -489,7 +525,7 @@ try {
 
     Test-Case 'F2 opens the tag editor over the twelve selected tracks' {
         Send-Keys '{F2}'
-        Start-Sleep -Seconds 3
+        if (-not (Find-Until { Get-Dialog } 10)) { return 'F2 did not open the tag editor within 10 s' }
         Open-AndCheck 'F2'
     }
 
@@ -728,19 +764,18 @@ try {
     # ---- AC-252, second half: the row menu ---------------------------------------------------------------------
     (Get-ElementNamed $dialog 'Cancel' 'Button').GetCurrentPattern(
         [System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    Start-Sleep -Seconds 2
+    if (-not (Wait-DialogClosed 10)) { throw 'the tag editor did not close within 10 s of Cancel' }
 
     Write-Output ''
     Test-Case 'the Edit tags row-menu item opens the same dialog over the same selection' {
         # Shift+F10 is the keyboard's context menu, and it raises the list's ContextRequested exactly as a right
         # click does - which keeps this a walk of the menu the app built rather than a click at a guessed pixel.
         Send-Keys '+{F10}'
-        Start-Sleep -Seconds 2
-        $item = Get-ElementNamed $script:window 'Edit tags' 'MenuItem'
-        if (-not $item) { return 'the row menu has no item named "Edit tags"' }
+        $item = Find-Until { Get-ElementNamed $script:window 'Edit tags' 'MenuItem' } 5
+        if (-not $item) { return 'the row menu showed no item named "Edit tags" within 5 s of Shift+F10' }
         if (-not $item.Current.IsEnabled) { return 'the "Edit tags" row-menu item is disabled' }
         $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        Start-Sleep -Seconds 3
+        if (-not (Find-Until { Get-Dialog } 10)) { return 'the Edit tags row-menu item did not open the tag editor within 10 s' }
         Open-AndCheck 'the Edit tags row-menu item'
     }
 
@@ -755,9 +790,8 @@ try {
 
     (Get-ElementNamed $dialog 'Album artist' 'Edit').GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern).SetValue($newAlbumArtist)
-    Start-Sleep -Milliseconds 800
-    $confirm = Get-ElementNamed $dialog 'Confirm' 'Button'
-    if (-not $confirm.Current.IsEnabled) { throw 'Confirm stayed disabled after Album artist was typed into' }
+    $confirm = Find-ConfirmEnabled $dialog
+    if (-not $confirm) { throw 'Confirm stayed disabled for 5 s after Album artist was typed into' }
     $confirm.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 
     # "Visibly moves" is a thing a person sees; what a machine can honestly say is that the bar's value took more
@@ -808,7 +842,7 @@ try {
         foreach ($verdict in $verdicts) { Write-Output "        $verdict" }
         (Get-ElementNamed $stillOpen 'Cancel' 'Button').GetCurrentPattern(
             [System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        Start-Sleep -Seconds 2
+        Wait-DialogClosed 10 | Out-Null
     }
     else {
         Write-Output '  ok    the twelve-track write finished without a failed file'
@@ -875,8 +909,7 @@ try {
         if ($fresh.Count -eq 0) { return 'the Tracks table is empty after the undo' }
         $fresh[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
         Send-Keys '{F2}'
-        Start-Sleep -Seconds 3
-        $single = Get-Dialog
+        $single = Find-Until { Get-Dialog } 10
         if (-not $single) { return 'F2 over one row did not open the dialog' }
         if ($single.Current.Name -like '*tracks*') { return "the single-track dialog is titled '$($single.Current.Name)'" }
         $problems = @()
@@ -933,8 +966,7 @@ try {
         if (-not $codec) { return "the fixture $title carries no embedded picture, so there is nothing to preview or remove" }
         $rows[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
         Send-Keys '{F2}'
-        Start-Sleep -Seconds 3
-        $single = Get-Dialog
+        $single = Find-Until { Get-Dialog } 10
         if (-not $single) { return 'F2 over one row did not open the dialog' }
         $problems = @()
         # By id: a Name on the TextBlock would replace its text in the tree, which is what the first live run found.
@@ -965,11 +997,10 @@ try {
         $remove = Get-ElementNamed $single 'Remove art' 'Button'
         if (-not $remove) { return 'no Remove art button' }
         $remove.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        Start-Sleep -Milliseconds 800
-        $summary = Get-ElementWithId $single 'ArtSummary'
-        if ($summary -and $summary.Current.Name -notmatch 'removed') { return "after Remove the summary says '$($summary.Current.Name)'" }
-        $confirm = Get-ElementNamed $single 'Confirm' 'Button'
-        if (-not $confirm.Current.IsEnabled) { return 'Confirm stayed disabled after Remove art' }
+        $summary = Find-Until { $s = Get-ElementWithId $single 'ArtSummary'; if ($s -and $s.Current.Name -match 'removed') { $s } } 5
+        if (-not $summary) { $now = Get-ElementWithId $single 'ArtSummary'; return "after Remove the summary says '$(if ($now) { $now.Current.Name } else { '(none)' })'" }
+        $confirm = Find-ConfirmEnabled $single
+        if (-not $confirm) { return 'Confirm stayed disabled for 5 s after Remove art' }
         $confirm.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         $deadline = (Get-Date).AddSeconds(15)
         while ((Get-Date) -lt $deadline -and (Get-Dialog)) { Start-Sleep -Milliseconds 300 }
@@ -1008,16 +1039,14 @@ try {
         try {
             $rows[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
             Send-Keys '{F2}'
-            Start-Sleep -Seconds 3
-            $failing = Get-Dialog
-            if (-not $failing) { return 'F2 did not open the dialog' }
+            $failing = Find-Until { Get-Dialog } 10
+            if (-not $failing) { return 'F2 did not open the dialog within 10 s' }
 
             $box = Get-ElementNamed $failing 'Album artist' 'Edit'
             if (-not $box) { return 'no Album artist box' }
             $box.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('Tunqio Check T137')
-            Start-Sleep -Milliseconds 400
-            $confirm = Get-ElementNamed $failing 'Confirm' 'Button'
-            if (-not $confirm.Current.IsEnabled) { return 'Confirm stayed disabled after a change' }
+            $confirm = Find-ConfirmEnabled $failing
+            if (-not $confirm) { return 'Confirm stayed disabled for 5 s after a change' }
             $confirm.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 
             $deadline = (Get-Date).AddSeconds(20)
@@ -1042,7 +1071,7 @@ try {
 
             (Get-ElementNamed (Get-Dialog) 'Cancel' 'Button').GetCurrentPattern(
                 [System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-            Start-Sleep -Seconds 2
+            if (-not (Wait-DialogClosed 10)) { return 'the dialog did not close within 10 s of Cancel' }
             return $null
         }
         finally {
@@ -1063,7 +1092,7 @@ try {
         $open = Get-Dialog
         if ($open) {
             (Get-ElementNamed $open 'Cancel' 'Button').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-            Start-Sleep -Seconds 2
+            Wait-DialogClosed 10 | Out-Null
         }
     }
 
@@ -1091,10 +1120,8 @@ public static class TunqioTagMouse {
     function Open-RowMenu($row) {
         $row.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
         try { $row.SetFocus() } catch { }
-        Start-Sleep -Milliseconds 500
         Send-Keys '+{F10}'
-        Start-Sleep -Seconds 2
-        if (Get-ElementNamed $script:window 'Show in folder' 'MenuItem') { return }
+        if (Find-Until { Get-ElementNamed $script:window 'Show in folder' 'MenuItem' } 3) { return }
         $rect = Get-UiaRect $row
         if ($rect.Offscreen) { return }
         Set-Foreground
@@ -1103,7 +1130,7 @@ public static class TunqioTagMouse {
         Start-Sleep -Milliseconds 150
         [TunqioTagMouse]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero)
         [TunqioTagMouse]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero)
-        Start-Sleep -Seconds 2
+        Find-Until { Get-ElementNamed $script:window 'Show in folder' 'MenuItem' } 3 | Out-Null
         $script:detail += 'Shift+F10 opened no menu (keyboard focus was elsewhere); the row was right-clicked instead'
     }
 
@@ -1131,9 +1158,8 @@ public static class TunqioTagMouse {
             $expand = $null
             if ($more.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expand)) { $expand.Expand() }
             else { $more.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-            Start-Sleep -Seconds 2
-            $item = Get-ElementNamed $script:window 'Edit tags' 'MenuItem'
-            if (-not $item) { Send-Keys '{ESC}'; return 'the More menu has no "Edit tags"' }
+            $item = Find-Until { Get-ElementNamed $script:window 'Edit tags' 'MenuItem' } 5
+            if (-not $item) { Send-Keys '{ESC}'; return 'the More menu showed no "Edit tags" within 5 s' }
             if (-not $item.Current.IsEnabled) { Send-Keys '{ESC}'; return 'the More menu''s "Edit tags" is disabled' }
             $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
             $dialog = Wait-For { Get-Dialog } 10 'the tag editor opened from the More menu'
