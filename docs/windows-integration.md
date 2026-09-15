@@ -199,9 +199,9 @@ public class ContextMenuIntegration
 
 The WinForms sample below is superseded by ADR-006 and kept only as the original sketch. What ships:
 
-- **Package.** H.NotifyIcon.WinUI **2.3.2** (MIT), pinned in `Directory.Packages.props`. The 2.4 line ships a net10.0 build
-  only, so 2.3.2 is the newest release a .NET 8 app can reference; it asks for Windows App SDK 1.6.250108002 or later, which
-  the 1.8 pin satisfies. It brings H.NotifyIcon, H.GeneratedIcons.System.Drawing and System.Drawing.Common.
+- **Package.** H.NotifyIcon.WinUI **2.4.1** (MIT), pinned in `Directory.Packages.props`. The 2.4 line ships a net10.0 build
+  only, which the `net10.0-windows` target takes since T-87 (2.3.2 was the last release a .NET 8 app could reference); it asks
+  for the Windows App SDK meta-package 1.6.250108002 or later, which the 2.4 pin satisfies. It brings H.NotifyIcon, H.GeneratedIcons.System.Drawing and System.Drawing.Common.
 - **The icon.** `Tray/WinUiTrayIcon.cs`: a `TaskbarIcon` built in code on the XAML thread, `ContextMenuMode.PopupMenu`
   (the library turns the `MenuFlyout`'s items into a native popup menu each time it opens, so no second XAML window exists),
   and `ForceCreate(enablesEfficiencyMode: false)`, because the library's default puts the whole process into Windows'
@@ -370,6 +370,11 @@ public class SystemTrayManager : IDisposable
   `AppNotificationManager.Default` creates the first of those, so nothing touches it while the setting is off. Packaged, `Register`
   writes nothing: `Package.appxmanifest` declares `windows.toastNotificationActivation` and a `windows.comServer` for
   `Tunqio.exe` with the same argument and CLSID `A50CBD6A-91AB-4045-8EBD-F7FE4C9BE29C`, which `tools/check-package.ps1` asserts.
+  Unpackaged `Register` also loads `Microsoft.WindowsAppRuntime.Insights.Resource.dll` beside the exe and fails with 0x8007007E
+  without it; Windows App SDK 2.x's self-contained targets do not copy it (microsoft/WindowsAppSDK issue 6071), so since T-87
+  `Tunqio.App.csproj` takes it and `WindowsAppRuntime.png` from the Runtime component's framework package at build time.
+  `tools/check-toasts.ps1` reads only the registration keyed by the exe it launches (T-87), so Phil's own Tunqio may stay
+  registered while it runs.
 - **Turning it off** removes the toast and calls `Unregister`, which only stops this process receiving presses. It does not call
   `UnregisterAll`: that deletes the notification identity Windows keeps the user's own choices for Tunqio under (Settings ›
   System › Notifications), so turning toasts back on would arrive as a new app with those choices forgotten. `Tunqio.exe
@@ -393,7 +398,7 @@ public class SystemTrayManager : IDisposable
 - **Why the spelling matters (T-192).** AppInstance scopes every key by an app id hashed from the process's exact module path
   (`ComputeAppId` over `GetModuleFileNameW`; the key's mutex is `App.<hash>_<key>_Mutex`), so a Tunqio started from a
   lowercase path looks in another app's instance list and opens a second instance on the same data root. The SDK's GitHub
-  source lowercases the path first (PR #5696), but the 1.8.260804001 runtime Tunqio ships does not: with an instance started
+  source lowercases the path first (PR #5696), but the 1.8.260804001 runtime Tunqio shipped when this was measured (T-192; 2.4 since T-87, the relaunch kept) did not: with an instance started
   from the real path, the mutex under the exact path's hash existed and none under the lowercased path's. `Program.Main`
   therefore relaunches any unpackaged launch whose path is not the file system's spelling (see solution-structure.md).
 - **Shutdown.** The toasts are the first step, before the tray icon (T-188's order): the toast is removed from the notification

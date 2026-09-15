@@ -16,7 +16,7 @@ namespace Tunqio.App.Activation;
 /// it spelled it. So <c>tunqio.exe</c> started from a lowercase path (COM's LocalServer32 for a toast press, a shortcut, a
 /// script) hashes to a different app, looks for <see cref="InstanceKey"/> in a different instance list, finds nothing, and
 /// becomes a second Tunqio on the same data root, however carefully the key itself is normalised. The SDK's GitHub source
-/// folds the path to lowercase before hashing (PR #5696), but the runtime Tunqio ships (1.8.260804001) was measured not to:
+/// folds the path to lowercase before hashing (PR #5696), but the runtime Tunqio shipped when this was measured (1.8.260804001; 2.4 since T-87, and the relaunch stays because it costs nothing) did not:
 /// see T-192 on the board.
 /// </para>
 /// <para>

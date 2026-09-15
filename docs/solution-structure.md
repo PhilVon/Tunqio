@@ -8,7 +8,7 @@ This document defines the projects, the native/managed boundary, the interfaces 
 tunqio/
   Tunqio.sln                  Mixed solution: .vcxproj + .csproj. Build with msbuild (not `dotnet build`).
   Tunqio.Managed.slnf              Solution filter of the .csproj projects, for `dotnet build/test/format` (tools/build.ps1)
-  Directory.Build.props            Version and toolchain pins; C#: TFM net8.0-windows10.0.19041.0, nullable, warnings as errors, analyzers
+  Directory.Build.props            Version and toolchain pins; C#: TFM net10.0-windows10.0.19041.0, nullable, warnings as errors, analyzers
   Directory.Build.targets          Layering guard: fails the build on a forbidden ProjectReference (InitialTargets)
   Directory.Packages.props         Central NuGet versions (Windows App SDK pinned here)
   global.json                      .NET SDK pin
@@ -146,7 +146,7 @@ App ──► Interop ──► Core
 Interop ──► mpcore.dll (native, via LibraryImport)
 ```
 
-- `Core` references nothing but the BCL, System.Reactive and Microsoft.Extensions.Logging.Abstractions, and targets plain `net8.0`.
+- `Core` references nothing but the BCL, System.Reactive and Microsoft.Extensions.Logging.Abstractions, and targets plain `net10.0`.
 - `Interop` is the only C# project with `DllImport`/`LibraryImport` of `mpcore`; nothing else names the DLL.
 - `Library` references `Core` and its own NuGet packages; it never touches the engine.
 - `App` is the only project that references WinUI, Windows App SDK and H.NotifyIcon, and the only place with `DispatcherQueue` calls. As built: CsWin32 was never adopted; the shell's few Win32 calls (user32, kernel32) are hand-written `DllImport`s in `Activation/NativeWindowing.cs` and beside the code that needs them.
@@ -309,7 +309,7 @@ setting; a user who wants to send a report keeps it and sends an Export diagnost
   logged. With the setting off nothing is registered and nothing is captured, beyond what Windows itself does.
 - **Managed crashes.** App's XAML handler (when the exception is not handled, because XAML then ends the process with a
   stowed-exception fail-fast that no filter sees) and its AppDomain handler (when terminating) call
-  `CrashReporter.CaptureUnhandled` after logging (T-188). Unobserved task exceptions are only logged: in .NET 8 they do not end
+  `CrashReporter.CaptureUnhandled` after logging (T-188). Unobserved task exceptions are only logged: since .NET 4.5, so in .NET 10 as in .NET 8 they do not end
   the process, so there is no crash to report.
 - **Native crashes.** A top-level filter (`SetUnhandledExceptionFilter`), registered when the setting is on at launch or is
   turned on later. It leaves the CLR's own code (0xE0434352) to the AppDomain handler, and always hands on to the filter

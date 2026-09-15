@@ -22,7 +22,7 @@
     <TunqioPlatformToolset>v145</TunqioPlatformToolset>
     <TunqioWindowsSdkVersion>10.0.26100.0</TunqioWindowsSdkVersion>
     <TunqioMinOsVersion>10.0.19041.0</TunqioMinOsVersion>
-    <TunqioTargetFramework>net8.0-windows10.0.19041.0</TunqioTargetFramework>
+    <TunqioTargetFramework>net10.0-windows10.0.19041.0</TunqioTargetFramework>
   </PropertyGroup>
 
   <!-- C# projects only. -->

@@ -40,12 +40,12 @@ public class ArchitectureTests
     }
 
     [Fact]
-    public void Core_targets_plain_net8()
+    public void Core_targets_plain_net10()
     {
         typeof(Identity).Assembly
             .GetCustomAttributes(typeof(System.Runtime.Versioning.TargetFrameworkAttribute), false)
             .OfType<System.Runtime.Versioning.TargetFrameworkAttribute>()
             .Single().FrameworkName
-            .Should().Be(".NETCoreApp,Version=v8.0", "Core has no Windows TFM so a Windows API cannot creep in");
+            .Should().Be(".NETCoreApp,Version=v10.0", "Core has no Windows TFM so a Windows API cannot creep in");
     }
 }

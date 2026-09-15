@@ -6,21 +6,31 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Shell -->
-    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
-    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+    <!-- Windows App SDK 2.x is a meta-package over component packages, and H.NotifyIcon.WinUI depends on the meta-package, so it
+         is what the app references. Its Windows ML, AI, Search, Widgets and DWriteCore components would also land in the
+         self-contained output (onnxruntime, DirectML and some forty projection assemblies Tunqio never calls), so the app
+         references those five with ExcludeAssets="all": they resolve, and nothing of theirs ships (T-87). -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Runtime" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.ML" Version="2.1.74" />
+    <PackageVersion Include="Microsoft.Windows.AI.MachineLearning" Version="2.1.74" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.AI" Version="2.4.4" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Search" Version="2.4.4" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Widgets" Version="2.0.5" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <!-- E7-S3 tray (ADR-006). 2.3.2 is the newest release with a net8.0-windows build: 2.4.x ships net10.0 only. It asks for
-         Windows App SDK 1.6.250108002 or later, which the 1.8 pin above satisfies. -->
-    <PackageVersion Include="H.NotifyIcon.WinUI" Version="2.3.2" />
+    <!-- E7-S3 tray (ADR-006). 2.4.x ships a net10.0 build only, which the net10.0-windows target takes (T-87; 2.3.2 was the last
+         net8.0 build). It asks for the Microsoft.WindowsAppSDK meta-package 1.6.250108002 or later, which the 2.4 pin above satisfies. -->
+    <PackageVersion Include="H.NotifyIcon.WinUI" Version="2.4.1" />
     <!-- Host, logging, settings -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Serilog" Version="4.4.0" />
-    <PackageVersion Include="Serilog.Extensions.Hosting" Version="8.0.0" />
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageVersion Include="Serilog.Sinks.Debug" Version="3.0.0" />
-    <PackageVersion Include="System.Reactive" Version="6.1.0" />
+    <PackageVersion Include="System.Reactive" Version="7.0.0" />
     <!-- Library -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="8.0.31" />
     <PackageVersion Include="TagLibSharp" Version="2.3.0" />
@@ -41,6 +51,6 @@
     <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="4.148.0" />
   </ItemGroup>
   <ItemGroup>
-    <GlobalPackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.14.15" />
+    <GlobalPackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.7.23" />
   </ItemGroup>
 </Project>
