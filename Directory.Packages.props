@@ -6,21 +6,21 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Shell -->
-    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
-    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <!-- E7-S3 tray (ADR-006). 2.3.2 is the newest release with a net8.0-windows build: 2.4.x ships net10.0 only. It asks for
          Windows App SDK 1.6.250108002 or later, which the 1.8 pin above satisfies. -->
-    <PackageVersion Include="H.NotifyIcon.WinUI" Version="2.3.2" />
+    <PackageVersion Include="H.NotifyIcon.WinUI" Version="2.4.1" />
     <!-- Host, logging, settings -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Serilog" Version="4.4.0" />
-    <PackageVersion Include="Serilog.Extensions.Hosting" Version="8.0.0" />
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageVersion Include="Serilog.Sinks.Debug" Version="3.0.0" />
-    <PackageVersion Include="System.Reactive" Version="6.1.0" />
+    <PackageVersion Include="System.Reactive" Version="7.0.0" />
     <!-- Library -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="8.0.31" />
     <PackageVersion Include="TagLibSharp" Version="2.3.0" />
@@ -41,6 +41,6 @@
     <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="4.148.0" />
   </ItemGroup>
   <ItemGroup>
-    <GlobalPackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.14.15" />
+    <GlobalPackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.7.23" />
   </ItemGroup>
 </Project>

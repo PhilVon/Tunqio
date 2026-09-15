@@ -3,7 +3,7 @@
   <!-- Tunqio.Core: PlayQueue, PlaybackSession, DTOs and the contracts every other layer implements or consumes.
        No I/O, no Windows: it targets plain net8.0 so a Windows dependency cannot creep in. -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <TargetPlatformMinVersion></TargetPlatformMinVersion>
     <SupportedOSPlatformVersion></SupportedOSPlatformVersion>
     <RootNamespace>Tunqio.Core</RootNamespace>

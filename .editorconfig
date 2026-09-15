@@ -61,3 +61,9 @@ dotnet_diagnostic.CA1848.severity = none
 dotnet_diagnostic.CA2007.severity = none
 # CA1812 "never instantiated": instantiated by DI.
 dotnet_diagnostic.CA1812.severity = none
+
+[tests/**.cs]
+# VSTHRD103 "synchronously blocks": Threading.Analyzers 18 flags every synchronous call that has an async sibling, inside any
+# async method. In a test the synchronous call is the fixture write, or the very API under test (OpenConnection, Commit),
+# and blocking the test thread is the point. Kept at its default in src/. (T-87)
+dotnet_diagnostic.VSTHRD103.severity = suggestion

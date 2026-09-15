@@ -36,10 +36,13 @@ public sealed class ArtScanTests : IDisposable
 
         report.Outcome.Should().Be(ScanOutcome.Completed);
         IReadOnlyList<AlbumDto> albums = await h.Service.Albums.ListAsync(new AlbumQuery(PageSize: 100));
+        // The expected hash is over the picture bytes committed in the fixture, not over ArtGenerator.Png run now: the
+        // generator deflates with the runtime's zlib, and .NET 10's zlib-ng packs the same pixels into different bytes
+        // than the .NET 8 zlib that made the fixtures (T-87).
         var expectedByAlbum = manifest.Files
             .Where(f => !f.CorruptTags && (f.EmbeddedArt || f.FolderArt))
             .GroupBy(f => f.AlbumTitle)
-            .ToDictionary(g => g.Key, g => ArtCache.Hash(ArtGenerator.Png(g.Key)), StringComparer.Ordinal);
+            .ToDictionary(g => g.Key, g => ArtCache.Hash(FixturePicture(h, g.First())), StringComparer.Ordinal);
         expectedByAlbum.Should().NotBeEmpty();
 
         foreach ((string title, string hash) in expectedByAlbum)
@@ -67,6 +70,19 @@ public sealed class ArtScanTests : IDisposable
         {
             album.ArtHash.Should().BeNull($"'{album.Title}' has no art");
         }
+    }
+
+    /// <summary>The fixture's own picture for <paramref name="entry"/>: its folder image, or its first embedded picture.</summary>
+    private static byte[] FixturePicture(ScanHarness h, FixtureFileEntry entry)
+    {
+        string path = h.PathOf(entry);
+        if (entry.FolderArt && !entry.EmbeddedArt)
+        {
+            return System.IO.File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(path)!, "folder.png"));
+        }
+
+        using TagLib.File file = TagLib.File.Create(path);
+        return file.Tag.Pictures[0].Data.Data;
     }
 
     [Fact]
