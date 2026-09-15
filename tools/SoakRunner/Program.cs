@@ -24,6 +24,16 @@ Console.CancelKeyPress += (_, e) =>
 SoakReport report;
 try
 {
+    // The same named mutex mpcore.tests takes around its device cases (T-173): an exclusive-mode soak that
+    // started beside the native suite took the device from under a case and turned a sweep red with four
+    // assertions that described the audio engine. Taking turns is the fix; a run that cannot get the lock says so
+    // and goes ahead, because a soak is usually the only thing on the machine.
+    using var lease = DeviceLease.Take(TimeSpan.FromMinutes(3));
+    if (!lease.Held)
+    {
+        Console.WriteLine("another process held the WASAPI output device for the whole three minutes this run waited; soaking anyway, so a device error below is contention and not a defect");
+    }
+
     await using var soak = new Soak(options, Console.Out);
     report = await soak.RunAsync(cancellation.Token).ConfigureAwait(false);
 }

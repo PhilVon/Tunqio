@@ -437,6 +437,19 @@ TEST_CASE("following the default device follows it when it moves", "[output][dev
     simulate_device_notification(k_notify_default_output, static_cast<uint32_t>(device + 7));
     const auto elapsed = std::chrono::steady_clock::now() - t0;
 
+    // T-173: a DEVICE_LOST here can only be a real WASAPI notification - the default-change branch reports its
+    // own failure as MP_EVENT_ERROR, never as a loss - and the one thing that raises it on a machine with a
+    // working device is another process taking the device exclusively (an exclusive-mode SoakRunner or
+    // LatencyRunner beside this suite, before they took the lease). That parks the engine, the simulated default
+    // change then sees nothing live, and the four checks below fail describing the engine. machine_lock.h's rule:
+    // unassertable right now is a skip that names the cause, not a failure that names the consequence.
+    if (log.count(MP_EVENT_DEVICE_LOST) > 0) {
+        SKIP("the output device was lost to another process during this case ("
+             << log.first_message(MP_EVENT_DEVICE_LOST)
+             << "): contention, not a migration defect. Run the suite without an exclusive-mode audio process beside "
+                "it.");
+    }
+
     // AC-54: within 1 s, playing, and the shell is told where the music went.
     INFO("migrated in " << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() << " ms");
     CHECK(elapsed < std::chrono::seconds(1));
