@@ -147,7 +147,9 @@ public sealed class CrashReportTests : IDisposable
         CrashReport? report = reporter.CaptureManaged("AppDomain", new InvalidOperationException("boom"));
 
         report.Should().NotBeNull();
-        report!.DumpBytes.Should().BeGreaterThan(10_000, "MiniDumpWriteDump wrote this test host's threads and modules");
+        // The problem text first, so a failed write names its Win32 error rather than only a size (T-209).
+        report!.Info!.DumpProblem.Should().BeNull("MiniDumpWriteDump of this test host should succeed, but the report says: {0}", report.Info.DumpProblem);
+        report.DumpBytes.Should().BeGreaterThan(10_000, "MiniDumpWriteDump wrote this test host's threads and modules");
         File.ReadAllBytes(report.DumpPath).Take(4).Should().Equal((byte)'M', (byte)'D', (byte)'M', (byte)'P');
         report.LogLines.Should().Contain("before the crash");
         report.Info!.Source.Should().Be("AppDomain");

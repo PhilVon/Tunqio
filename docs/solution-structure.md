@@ -319,6 +319,9 @@ setting; a user who wants to send a report keeps it and sends an Export diagnost
 - **What is written**, once per process, into `<data root>\crashes\<yyyyMMdd-HHmmss-fff>-<pid>\`: `tunqio.dmp` through
   `MiniDumpWriteDump` from inside the process (no WER LocalDumps keys, nothing in the registry), with `MiniDumpNormal |
   WithUnloadedModules | WithProcessThreadData | WithThreadInfo` and no heap, so a dump is a few megabytes; its size is logged.
+  A live process dumped from inside reads the other threads' stacks while they run, and dbghelp gives up when one moves
+  under it (`ERROR_PARTIAL_COPY`), so a failed write is tried three times in all before the report records the Win32 error
+  and its text (T-209).
   Then `log.txt`, the session's last 200 log lines from `CrashLogBuffer`, a Serilog sink beside the file sink that formats each
   event with the file's template, so the handler copies strings instead of reading the shared log back. Then `report.json`
   (source, exception type and message, stack, native code, time, session, version, dump size) last, so a folder without it is

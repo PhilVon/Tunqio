@@ -34,8 +34,16 @@ internal static class MiniDump
     }
 
     /// <summary>
+    /// A dump of a live process from inside it reads the other threads' stacks while they keep running, and dbghelp gives
+    /// up when one of them moves under it (typically <c>ERROR_PARTIAL_COPY</c>, 299). That is a moment, not a state, so a
+    /// failed write is tried again this many times in all before it is reported (T-209).
+    /// </summary>
+    public const int Attempts = 3;
+
+    /// <summary>
     /// Writes the dump to <paramref name="path"/>, with the faulting thread's exception record when
-    /// <paramref name="exceptionPointers"/> is not zero. Returns its size, or 0 with <paramref name="problem"/> saying why.
+    /// <paramref name="exceptionPointers"/> is not zero. Returns its size, or 0 with <paramref name="problem"/> saying why:
+    /// the Win32 error number and its text, and how many attempts were made.
     /// </summary>
     public static long Write(string path, nint exceptionPointers, out string? problem)
     {
@@ -43,25 +51,38 @@ internal static class MiniDump
         try
         {
             using var file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
-            bool written;
-            if (exceptionPointers == 0)
+            for (int attempt = 1; ; attempt++)
             {
-                written = MiniDumpWriteDump(GetCurrentProcess(), (uint)Environment.ProcessId, file.SafeFileHandle, DumpType, 0, 0, 0);
-            }
-            else
-            {
-                var info = new MinidumpExceptionInformation { ThreadId = GetCurrentThreadId(), ExceptionPointers = exceptionPointers, ClientPointers = 0 };
-                written = MiniDumpWriteDumpWithException(GetCurrentProcess(), (uint)Environment.ProcessId, file.SafeFileHandle, DumpType, ref info, 0, 0);
-            }
+                bool written;
+                if (exceptionPointers == 0)
+                {
+                    written = MiniDumpWriteDump(GetCurrentProcess(), (uint)Environment.ProcessId, file.SafeFileHandle, DumpType, 0, 0, 0);
+                }
+                else
+                {
+                    var info = new MinidumpExceptionInformation { ThreadId = GetCurrentThreadId(), ExceptionPointers = exceptionPointers, ClientPointers = 0 };
+                    written = MiniDumpWriteDumpWithException(GetCurrentProcess(), (uint)Environment.ProcessId, file.SafeFileHandle, DumpType, ref info, 0, 0);
+                }
 
-            if (!written)
-            {
-                problem = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"MiniDumpWriteDump failed with error {Marshal.GetLastPInvokeError()}");
-                return 0;
-            }
+                if (written)
+                {
+                    file.Flush(flushToDisk: true);
+                    return file.Length;
+                }
 
-            file.Flush(flushToDisk: true);
-            return file.Length;
+                int error = Marshal.GetLastPInvokeError();
+                if (attempt >= Attempts)
+                {
+                    problem = string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"MiniDumpWriteDump failed with error {error} ({Marshal.GetPInvokeErrorMessage(error).TrimEnd('.', ' ')}) on each of {attempt} attempts");
+                    return 0;
+                }
+
+                // dbghelp may have written part of a stream before it gave up: the next attempt starts on an empty file.
+                file.SetLength(0);
+                file.Position = 0;
+            }
         }
 #pragma warning disable CA1031 // Inside a crash: whatever went wrong is reported in the text, never thrown.
         catch (Exception e)
