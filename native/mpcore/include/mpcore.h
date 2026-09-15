@@ -134,6 +134,10 @@
  * under the SEH guard, which turns an access violation into MP_E_INTERNAL, so the crash reporter's native path could
  * not be proven against the real core without it. The shell reaches it only through a switch that needs an environment
  * variable and a scratch --data-root; no caller in the product calls it.
+ * 0.21 the active preset, asked rather than inferred (T-127): mp_renderer_get_preset fills the catalogue entry of the
+ * preset that is drawing. One appended export, no new type - it reuses mp_preset_info under the same struct_size rule
+ * - so a minor by the plainest reading of the rule at the top. Until now the managed host remembered what it had set
+ * plus the fact that the core starts on its first entry, which was true but was the host's word and not the core's.
  */
 #pragma once
 
@@ -156,7 +160,7 @@ extern "C" {
 
 /* ABI version. Interop refuses to load on a MAJOR mismatch (mpcore_abi_version() >> 16). */
 #define MP_ABI_MAJOR 0u
-#define MP_ABI_MINOR 20u
+#define MP_ABI_MINOR 21u
 
 typedef enum mp_result {
     MP_OK = 0,
@@ -636,6 +640,12 @@ MP_API mp_result MP_CALL mp_renderer_rescan_presets(mp_renderer* renderer, uint3
  * shader compiler's own diagnostic (file, line, error code, text) for the caller to show. MP_E_INVALID_ARG when
  * no preset has that id. */
 MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* renderer, const char* utf8_id);
+/* The preset that is drawing, as its catalogue entry (ABI 0.21). out->struct_size is set by the caller, as for
+ * mp_renderer_get_stats. There is always one: the built-in preset draws from mp_renderer_create until a switch
+ * succeeds, and a switch that fails leaves it, so the id here is what the picture is, not what was last asked
+ * for. A rescan that no longer lists the active preset does not change it either (see mp_renderer_rescan_presets),
+ * so the id may name a preset mp_renderer_enum_presets does not. */
+MP_API mp_result MP_CALL mp_renderer_get_preset(mp_renderer* renderer, mp_preset_info* out);
 /* Sets a parameter the active preset declares in its manifest; a value outside the declared range is clamped to
  * it. MP_E_INVALID_ARG names the parameter, and what the preset does declare, when it does not declare this one.
  * Parameters return to their defaults on a preset switch. */

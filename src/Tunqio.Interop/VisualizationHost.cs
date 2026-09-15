@@ -99,15 +99,15 @@ public sealed class VisualizationHost : IVisualizationHost
         try
         {
             IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
+            // Asked, not assumed (T-127): the core starts on its built-in preset, and it says so.
+            string active = renderer.GetActivePreset().Id;
             lock (_gate)
             {
                 previous = _renderer;
                 _renderer = renderer;
                 _presets = presets;
-                // The core starts on the first entry of its own catalogue - the built-in preset, which is the one
-                // that cannot be missing. After this, SetPresetAsync is what moves it.
-                _activePresetId = presets.Count > 0 ? presets[0].Id : null;
-                started = _activePresetId;
+                _activePresetId = active;
+                started = active;
             }
         }
         catch
@@ -150,18 +150,21 @@ public sealed class VisualizationHost : IVisualizationHost
     /// <remarks>
     /// The compile happens inside the native call, on this thread, which is what makes the failure recoverable:
     /// it either returns having swapped the preset in or throws having changed nothing. So there is nothing to
-    /// roll back here, and <see cref="ActivePresetId"/> only moves after the call has come back.
+    /// roll back here, and <see cref="ActivePresetId"/> only moves after the call has come back - and it moves to
+    /// what the core says is drawing (T-127), which after a successful switch is <paramref name="id"/>.
     /// </remarks>
     public Task SetPresetAsync(string id)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
-        Require().SetPreset(id);
+        NativeRenderer renderer = Require();
+        renderer.SetPreset(id);
+        string active = renderer.GetActivePreset().Id;
         lock (_gate)
         {
-            _activePresetId = id;
+            _activePresetId = active;
         }
 
-        PresetChanged?.Invoke(this, id);
+        PresetChanged?.Invoke(this, active);
         return Task.CompletedTask;
     }
 
@@ -179,26 +182,30 @@ public sealed class VisualizationHost : IVisualizationHost
         NativeRenderer renderer = Require();
         renderer.SetUserPresetRoot(path);
         IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
+        string active = renderer.GetActivePreset().Id;
         lock (_gate)
         {
             _presets = presets;
+            _activePresetId = active;
         }
     }
 
     /// <inheritdoc />
     /// <remarks>
-    /// <see cref="ActivePresetId"/> is deliberately left alone even when the rescan no longer lists it: the
-    /// preset is compiled and still drawing, and reporting it as gone would make the shell think it had lost a
-    /// picture it can see.
+    /// <see cref="ActivePresetId"/> is read back from the core after the rescan (T-127), and the core keeps the
+    /// preset that is drawing even when the rescan no longer lists it: it is compiled and still on screen, and
+    /// reporting it as gone would make the shell think it had lost a picture it can see.
     /// </remarks>
     public IReadOnlyList<PresetInfo> RefreshPresets()
     {
         NativeRenderer renderer = Require();
         renderer.RescanPresets();
         IReadOnlyList<PresetInfo> presets = renderer.EnumeratePresets();
+        string active = renderer.GetActivePreset().Id;
         lock (_gate)
         {
             _presets = presets;
+            _activePresetId = active;
         }
 
         return presets;

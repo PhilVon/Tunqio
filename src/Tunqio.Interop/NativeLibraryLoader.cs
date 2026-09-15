@@ -26,7 +26,7 @@ public static unsafe class NativeLibraryLoader
     /// and no Refresh button, and twelve harness cases reported missing CONTROLS. Nothing anywhere said the
     /// core was old.
     /// </remarks>
-    public const int ExpectedAbiMinor = 20;
+    public const int ExpectedAbiMinor = 21;
 
     private static readonly object Gate = new();
     private static nint _handle;

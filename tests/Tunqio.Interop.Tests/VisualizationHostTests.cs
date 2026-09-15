@@ -72,6 +72,34 @@ public class VisualizationHostTests
         FluentActions.Invoking(host.Detach).Should().NotThrow(); // idempotent
     }
 
+    /// <summary>
+    /// T-127: <see cref="VisualizationHost.ActivePresetId"/> is what the core reports through
+    /// <c>mp_renderer_get_preset</c>, not a remembered request. The renderer answers directly too.
+    /// </summary>
+    [Fact]
+    public async Task The_active_preset_is_read_back_from_the_core_after_every_move()
+    {
+        using var root = new PresetRootScope(PresetRootScope.Fixtures);
+        using var host = new VisualizationHost();
+        await host.AttachAsync(nint.Zero, nint.Zero, Headless);
+
+        NativeRenderer renderer = host.AttachedRenderer!;
+        renderer.GetActivePreset().Id.Should().Be("builtin-bars");
+        renderer.GetActivePreset().Name.Should().NotBeNullOrEmpty("the entry carries the display name as the catalogue does");
+        host.ActivePresetId.Should().Be(renderer.GetActivePreset().Id);
+
+        await host.SetPresetAsync("solid-green");
+        renderer.GetActivePreset().Id.Should().Be("solid-green");
+        host.ActivePresetId.Should().Be("solid-green");
+
+        await FluentActions.Awaiting(() => host.SetPresetAsync("broken-shader")).Should().ThrowAsync<PresetCompilationException>();
+        renderer.GetActivePreset().Id.Should().Be("solid-green", "a refused switch leaves the core where it was, and the host says what the core says");
+        host.ActivePresetId.Should().Be("solid-green");
+
+        host.RefreshPresets();
+        host.ActivePresetId.Should().Be("solid-green", "a rescan is read back too");
+    }
+
     // AC-117 at the level the preset switcher sees: the exception carries the message to show, and the host is
     // still attached, still on the preset it was on, and still rendering.
     [Fact]

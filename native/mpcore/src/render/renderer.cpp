@@ -587,6 +587,19 @@ std::string renderer::active_preset_id() const {
     return current_ ? current_->source.id : std::string{};
 }
 
+mp_result renderer::get_preset(mp_preset_info& out) const {
+    std::lock_guard lock{preset_mutex_};
+    if (!current_) {
+        mp::abi::set_last_error("mp_renderer_get_preset: no preset is active");
+        return MP_E_STATE;
+    }
+    std::memset(&out, 0, sizeof out);
+    out.struct_size = sizeof out;
+    copy_utf8(out.id, sizeof out.id, current_->source.id);
+    copy_utf8(out.name, sizeof out.name, current_->source.name);
+    return MP_OK;
+}
+
 uint32_t renderer::device_references() const noexcept {
     if (!device_) {
         return 0;

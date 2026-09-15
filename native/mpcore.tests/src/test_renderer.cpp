@@ -575,6 +575,42 @@ TEST_CASE("presets on disk are enumerated beside the built-in", "[render][preset
     }
 }
 
+// T-127 (ABI 0.21): the core says which preset is drawing, and it is the picture and not the last request.
+TEST_CASE("mp_renderer_get_preset reports the preset that is drawing", "[render][preset]") {
+    const preset_root_override root{preset_fixtures()};
+    renderer_fixture fx{true, 64, 64};
+
+    mp_preset_info info{};
+    SECTION("a fresh renderer reports the built-in preset, with its display name") {
+        info.struct_size = sizeof info;
+        REQUIRE(mp_renderer_get_preset(fx.renderer, &info) == MP_OK);
+        CHECK(std::string{info.id} == "builtin-bars");
+        CHECK(std::string{info.name}.empty() == false);
+        CHECK(info.struct_size == sizeof info);
+    }
+
+    SECTION("a switch moves it and a refused switch does not") {
+        REQUIRE(mp_renderer_set_preset(fx.renderer, "solid-green") == MP_OK);
+        info.struct_size = sizeof info;
+        REQUIRE(mp_renderer_get_preset(fx.renderer, &info) == MP_OK);
+        CHECK(std::string{info.id} == "solid-green");
+
+        CHECK(mp_renderer_set_preset(fx.renderer, "broken-shader") == MP_E_D3D);
+        CHECK(mp_renderer_set_preset(fx.renderer, "no-such-preset") == MP_E_INVALID_ARG);
+        std::memset(&info, 0xCD, sizeof info);
+        info.struct_size = sizeof info;
+        REQUIRE(mp_renderer_get_preset(fx.renderer, &info) == MP_OK);
+        CHECK(std::string{info.id} == "solid-green");
+    }
+
+    SECTION("the struct_size rule applies as it does to every out struct") {
+        CHECK(mp_renderer_get_preset(fx.renderer, nullptr) == MP_E_INVALID_ARG);
+        info.struct_size = 0;
+        CHECK(mp_renderer_get_preset(fx.renderer, &info) == MP_E_INVALID_ARG);
+        CHECK(mp_renderer_get_preset(nullptr, &info) == MP_E_INVALID_ARG);
+    }
+}
+
 // AC-117. The assertion that matters is the last one: the previous preset is still the one being drawn, checked
 // by reading the pixel back off the render target, not by trusting that nothing threw.
 TEST_CASE("a preset whose shader will not compile is refused and the previous one keeps drawing", "[render][preset]") {

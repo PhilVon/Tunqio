@@ -136,6 +136,19 @@ public sealed unsafe class NativeRenderer : IDisposable
     }
 
     /// <summary>
+    /// The preset that is drawing, as the core reports it (<c>mp_renderer_get_preset</c>, ABI 0.21, T-127): what
+    /// the picture is, not what was last asked for. A failed switch and a rescan both leave it where it was.
+    /// </summary>
+    public PresetInfo GetActivePreset()
+    {
+        nint handle = RequireHandle();
+        MpPresetInfo native = default;
+        native.StructSize = (uint)sizeof(MpPresetInfo);
+        NativeException.ThrowIfFailed(NativeMethods.RendererGetPreset(handle, &native), "mp_renderer_get_preset");
+        return new PresetInfo(Utf8(native.Id, 64), Utf8(native.Name, 128));
+    }
+
+    /// <summary>
     /// What one preset declares (<c>mp_renderer_enum_preset_params</c>, T-142). Two calls, the same protocol as
     /// <see cref="EnumeratePresets"/>, and about any preset in the catalogue rather than the active one.
     /// </summary>

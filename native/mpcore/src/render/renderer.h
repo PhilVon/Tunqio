@@ -59,6 +59,9 @@ public:
     // Compiles `id` and, only if that succeeds, hands it to the render thread. On a compile error the previous
     // preset keeps drawing and the compiler's diagnostic is the thread's last error.
     mp_result set_preset(const char* utf8_id);
+    // The active preset's catalogue entry (ABI 0.21, T-127): id and name of what is drawing, which a failed
+    // switch or a rescan never moves. MP_E_STATE only before any preset is active, which create rules out.
+    mp_result get_preset(mp_preset_info& out) const;
     // Sets a parameter the active preset declares. MP_E_INVALID_ARG names the parameter when it declares none.
     mp_result set_param(const char* utf8_name, float value);
     // The renderer-wide theme (E4-S6): four RGBA colours into b0's `theme`, surviving preset switches, so every

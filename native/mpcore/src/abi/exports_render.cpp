@@ -153,6 +153,17 @@ MP_API mp_result MP_CALL mp_renderer_set_preset(mp_renderer* r, const char* utf8
     });
 }
 
+// T-127 (ABI 0.21). Guarded like get_stats: the fill takes the preset mutex and copies two strings.
+MP_API mp_result MP_CALL mp_renderer_get_preset(mp_renderer* r, mp_preset_info* out) {
+    return mp::abi::guard([&]() -> mp_result {
+        if (r == nullptr) {
+            return invalid("mp_renderer_get_preset: NULL renderer");
+        }
+        return out_struct(out, "mp_renderer_get_preset",
+                          [&](mp_preset_info& info) { return as_renderer(r)->get_preset(info); });
+    });
+}
+
 MP_API mp_result MP_CALL mp_renderer_set_param(mp_renderer* r, const char* utf8_name, float value) {
     return mp::abi::guard([&]() -> mp_result {
         if (r == nullptr || utf8_name == nullptr) {

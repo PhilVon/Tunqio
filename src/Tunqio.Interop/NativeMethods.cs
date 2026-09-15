@@ -183,6 +183,10 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult RendererSetPreset(nint renderer, byte* utf8Id);
 
+    [LibraryImport(LibraryName, EntryPoint = "mp_renderer_get_preset")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial MpResult RendererGetPreset(nint renderer, MpPresetInfo* preset);
+
     [LibraryImport(LibraryName, EntryPoint = "mp_renderer_set_param")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial MpResult RendererSetParam(nint renderer, byte* utf8Name, float value);
