@@ -48,12 +48,26 @@ public sealed class PlaylistFilesTests : IAsyncLifetime
 
     private async Task<long[]> ItemsOfAsync(long id) => [.. (await Playlists.GetDetailAsync(id))!.Tracks.Select(t => t.Id)];
 
-    /// <summary>Waits for a file condition the auto-export's timer brings about; a real 50 ms window, so seconds is generous.</summary>
+    /// <summary>
+    /// Waits for a file condition the auto-export's timer brings about; a real 50 ms window, so seconds is generous.
+    /// A condition that reads the file can meet the exporter mid-replace (it writes a .tmp and moves it over the
+    /// path) and get a sharing violation; that is "not yet", not a failure, and CI caught it once (T-211).
+    /// </summary>
     private static async Task EventuallyAsync(Func<bool> condition, string what)
     {
         for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed < TimeSpan.FromSeconds(5); await Task.Delay(20))
         {
-            if (condition())
+            bool met;
+            try
+            {
+                met = condition();
+            }
+            catch (IOException)
+            {
+                met = false;
+            }
+
+            if (met)
             {
                 return;
             }
